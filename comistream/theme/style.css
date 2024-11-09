@@ -1,0 +1,229 @@
+/*
+  Comistream CSS
+  based on Apaxy by @adamwhitcroft
+*/
+html{
+  min-height:100%;
+  border-top:32px solid #7799dd;
+  border-bottom:20px solid #7799dd;
+  /* meta theme-color と色を合わせるためグラデーション廃止*/
+  /* border-image: linear-gradient(90deg, #7799dd, #5674b9); */
+  border-image-slice: 1;
+  color:#61666c;
+  font-size:1em;
+  font-family:'Lucida Grande',Verdana,AquaKana,ArialMT,'Hiragino Kaku Gothic ProN','ヒラギノ角ゴ ProN W3','メイリオ',Meiryo;
+  line-height:1.7em;
+}
+body{
+  padding:20px;
+  -webkit-text-size-adjust:100%;
+}
+a{
+  color:#61666c;
+  text-decoration:none;
+}
+a:hover{
+  color:#2a2a2a;
+}
+.wrapper{
+  margin:0 auto;
+}
+.footer{
+  text-align:center;
+  font-size:.75em;
+}
+
+/* menu */
+.menu{
+  position:absolute;
+  top:0px;
+  left:1%;
+  width:98%;
+  color:white;
+  font-size:0.8em;
+  vertical-align:middle;
+}
+.menu a{
+  color:white;
+  text-decoration:underline;
+}
+.guest{
+  float:left;
+  width:32px;
+  height:28px;
+  margin:2px 0px 0px 0px;
+  background:url("icons/guest.png") center/contain no-repeat;
+  cursor: pointer;
+}
+.login{
+  float:left;
+  width:32px;
+  height:28px;
+  margin:1px 0px 0px 0px;
+  background:url("icons/login.png") center/contain no-repeat;
+  cursor: pointer;
+}
+.raw{
+  float:left;
+  width:32px;
+  height:28px;
+  margin:1px 8px 0px 0px;
+  background:url("icons/rawfile.png") center/contain no-repeat;
+  cursor: pointer;
+}
+.cmp{
+  float:left;
+  width:32px;
+  height:28px;
+  margin:1px 8px 0px 0px;
+  background:url("icons/cmpfile.png") center/contain no-repeat;
+  cursor: pointer;
+}
+.viewmode{
+  float:left;
+  width:32px;
+  height:28px;
+  margin:1px 8px 0px 0px;
+  background:url("icons/coverview.png") center/contain no-repeat;
+  cursor: pointer;
+}
+.history{
+  float:right;
+  display:inline-block;
+  max-width:70%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.history_book{
+  padding-left:20px;
+  background:url("icons/open.png") 0px center no-repeat;
+}
+.history_movie{
+  padding-left:20px;
+  background:url("icons/video.png") 0px center no-repeat;
+}
+
+/* search form */
+.wrapper form{
+  float:right;
+  width:200px;
+  height:28px;
+  padding-left:10px;
+  border:solid 2px #5674b9;
+  border-radius:5px;
+}
+.wrapper input{
+  vertical-align:top;
+  height:100%;
+}
+.wrapper input[type="search"]::-webkit-search-cancel-button{   
+  height:16px;
+  width:16px;
+}
+.textbox{
+  width:180px;
+  background-color:white;
+  border:none;
+  outline:0;
+}
+.favbutton{
+  float:right;
+  width:28px;
+  height:28px;
+  background:url("icons/staroff.png") 5px center no-repeat;
+  cursor: pointer;
+}
+.breadcrumb{
+  font-size:0.9em;
+}
+
+/* table */
+table{
+  width:98%;
+  margin-top:10px;
+  border-collapse:collapse;
+  font-size:0.9em;
+  table-layout:fixed;
+}
+/* table row */
+tr{
+  border-bottom:1px solid #edf1f5;
+  transition:background 300ms ease;
+}
+tr:hover{
+  background:#edf3fe;
+}
+tr.indexhead:hover{
+  background:white;
+}
+/* table header */
+th{
+  font-size:0.8em;
+}
+th.indexcolicon{
+  width:54px;
+}
+th.indexcolname{
+  text-align:left;
+}
+th.indexcollastmod{
+  width:14em;
+}
+th.indexcolsize {
+  width:5em;
+}
+/* table column */
+td.indexcolicon {
+  padding-left:10px;
+  padding-right:10px;
+  text-align:right;
+  background:url("icons/staroff.png") -20px center no-repeat;
+  cursor: pointer;
+}
+td.indexcolicon:hover{
+  background-position-x:5px;
+}
+.indexcolname img{
+  display:none;
+}
+td.indexcollastmod{
+  text-align:right;
+}
+td.indexcolsize{
+  text-align:right;
+  padding-right:10px;
+}
+
+#modal {
+  display: none;
+  z-index: -10;
+}
+
+#modal-content {
+  display: none;
+  z-index: -20;
+}
+
+#modal-image {
+  display: none;
+  z-index: -30;
+}
+
+
+@media screen and (max-width:480px){
+  body{
+    padding:5px;
+  }
+  input{
+    font-size:16px;
+  }
+  .wrapper{
+    max-width:100%;
+  }
+  .indexcollastmod{
+    display:none;
+  }
+  .indexcolsize{
+    display:none;
+  }
+}

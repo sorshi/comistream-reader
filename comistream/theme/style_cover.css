@@ -1,0 +1,265 @@
+/*
+  Comistream CSS
+  based on Apaxy by @adamwhitcroft
+*/
+html {
+  min-height: 100%;
+  border-top: 32px solid #7799dd;
+  border-bottom: 20px solid #7799dd;
+  /* meta theme-color と色を合わせるためグラデーション廃止*/
+  /* border-image: linear-gradient(90deg, #7799dd, #5674b9); */
+  border-image-slice: 1;
+  color: #61666c;
+  font-size: 1em;
+  font-family: "Lucida Grande", Verdana, AquaKana, ArialMT,
+    "Hiragino Kaku Gothic ProN", "ヒラギノ角ゴ ProN W3", "メイリオ", Meiryo;
+  line-height: 1.7em;
+}
+body {
+  padding: 12px;
+  -webkit-text-size-adjust: 100%;
+}
+a {
+  color: #61666c;
+  text-decoration: none;
+}
+a:hover {
+  color: #2a2a2a;
+}
+.wrapper {
+  margin: 0 auto;
+}
+.footer {
+  text-align: center;
+  font-size: 0.75em;
+}
+
+/* menu */
+.menu {
+  position: absolute;
+  top: 0px;
+  left: 1%;
+  width: 98%;
+  color: white;
+  font-size: 0.8em;
+  vertical-align: middle;
+}
+.menu a {
+  color: white;
+  text-decoration: underline;
+}
+.guest {
+  float: left;
+  width: 32px;
+  height: 28px;
+  margin: 1px 0px 0px 0px;
+  background: url("icons/guest.png") center/contain no-repeat;
+  cursor: pointer;
+}
+.login {
+  float: left;
+  width: 32px;
+  height: 28px;
+  margin: 1px 0px 0px 0px;
+  background: url("icons/login.png") center/contain no-repeat;
+  cursor: pointer;
+}
+.raw {
+  float: left;
+  width: 32px;
+  height: 28px;
+  margin: 1px 8px 0px 0px;
+  background: url("icons/rawfile.png") center/contain no-repeat;
+  cursor: pointer;
+}
+.cmp {
+  float: left;
+  width: 32px;
+  height: 28px;
+  margin: 1px 8px 0px 0px;
+  background: url("icons/cmpfile.png") center/contain no-repeat;
+  cursor: pointer;
+}
+.viewmode {
+  float: left;
+  width: 32px;
+  height: 28px;
+  margin: 1px 8px 0px 0px;
+  background: url("icons/listview.png") center/contain no-repeat;
+  cursor: pointer;
+}
+.history {
+  float: right;
+  display: inline-block;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history_book {
+  padding-left: 20px;
+  background: url("icons/open.png") 0px center no-repeat;
+}
+.history_movie {
+  padding-left: 20px;
+  background: url("icons/video.png") 0px center no-repeat;
+}
+
+/* search form */
+form {
+  float: right;
+  width: 200px;
+  height: 28px;
+  padding-left: 10px;
+  border: solid 2px #5674b9;
+  border-radius: 5px;
+}
+input {
+  vertical-align: top;
+  height: 100%;
+}
+input[type="search"]::-webkit-search-cancel-button {
+  height: 16px;
+  width: 16px;
+}
+.textbox {
+  width: 180px;
+  background-color: white;
+  border: none;
+  outline: 0;
+}
+.favbutton {
+  float: right;
+  width: 28px;
+  height: 28px;
+  background: url("icons/staroff.png") 5px center no-repeat;
+  cursor: pointer;
+}
+.breadcrumb {
+  font-size: 0.9em;
+}
+
+/* table */
+table {
+  display: block;
+  text-align: center;
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  font-size: 0.9em;
+  table-layout: fixed;
+}
+/* table row */
+tr {
+  display: inline-block;
+  position: relative;
+  width: 150px;
+  margin: 3px;
+  border-bottom: 0px;
+
+  height: 310px;
+}
+tr.indexhead {
+  display: none;
+}
+/* table header */
+th {
+  display: none;
+}
+/* table column */
+td.indexcolicon {
+  display: block;
+  position: absolute;
+  width: 150px;
+  bottom: 90px;
+  box-sizing: border-box;
+  padding-left: 10px;
+  padding-right: 10px;
+  text-align: right;
+  background: url("icons/staroff.png") -20px center no-repeat;
+  z-index: 1;
+  cursor: pointer;
+}
+td.indexcolicon:hover {
+  background-position-x: 5px;
+}
+td.indexcolname {
+  display: block;
+  position: relative;
+  padding: 0px;
+  box-shadow: 0px 0px 15px -5px rgba(0, 0, 0, 0.8);
+
+  height: 226px;
+}
+.indexcolname img {
+  position: absolute;
+  left: 0px;
+  top: 0px;
+  width: 150px;
+  height: 100%;
+  object-fit: cover;
+  object-position: 25% 0%;
+  z-index: -1;
+}
+.indexcolname a {
+  display: block;
+  padding: 5px;
+  font-size: 0.9em;
+  line-height: 1.1em;
+  text-align: left;
+  color: #444;
+  position: relative;
+  height: 300px;
+  padding-top: 230px;
+  box-sizing: border-box;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.indexcolname a[href$="/"] {
+  color: #444;
+  background: url("icons/largefolder.png") center no-repeat;
+}
+td.indexcollastmod {
+  display: none;
+}
+td.indexcolsize {
+  display: none;
+}
+
+#modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+}
+
+#modal-content {
+  max-width: 100%;
+  max-height: 100%;
+  overflow: auto;
+  z-index: 20;
+  background-color: #444444;
+  padding: 12px;
+}
+
+#modal-image {
+  max-width: 100%;
+  z-index: 30;
+}
+
+@media screen and (max-width: 480px) {
+  body {
+    padding: 5px;
+  }
+  input {
+    font-size: 16px;
+  }
+  .wrapper {
+    max-width: 100%;
+  }
+}

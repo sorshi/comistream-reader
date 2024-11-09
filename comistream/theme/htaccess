@@ -1,0 +1,131 @@
+# Comistream CSS
+# based on Apaxy by @adamwhitcroft
+#
+# For a full breakdown of the mod_autoindex module:
+# http://apache.org/docs/2.2/mod/mod_autoindex.html
+
+##### 可変設定 ##################################################
+# 下記のファイルパスに登場する /nas の部分を公開ディレクトリのパスにあわせる
+# 13,31-33,39行目にもあるので注意
+##### 可変設定 ##################################################
+
+  # 表紙ファイルがない場合の代替画像
+  ErrorDocument 404 /theme/icons/now-printing.gif
+  FileETag None
+  <IfModule mod_headers.c>
+    Header always unset ETag "expr=%{REQUEST_STATUS} == 404"
+    Header always set Cache-Control "max-age=0, no-cache, no-store, must-revalidate" "expr=%{REQUEST_STATUS} == 404"
+    Header always set Pragma "no-cache" "expr=%{REQUEST_STATUS} == 404"
+    Header always set Expires "Wed, 11 Jan 1984 05:00:00 GMT" "expr=%{REQUEST_STATUS} == 404"
+  </IfModule>
+
+  # ENABLE INDEXING
+  Options +Indexes
+
+  # INDEX OPTIONS
+  IndexOptions +Charset=UTF-8 +FancyIndexing +IgnoreCase +FoldersFirst +XHTML +HTMLTable +SuppressRules +SuppressDescription +NameWidth=* +IconsAreLinks
+
+  ##### デフォルトのソート順を日付の降順にする
+  IndexOrderDefault Descending Date
+
+    # viewport＋Webアプリのホーム追加対応、カバービューのcss追加
+  IndexHeadInsert '\
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>\
+  <link rel="manifest" href="/theme/manifest.json" crossorigin="use-credentials">\
+  <meta name="apple-mobile-web-app-capable" content="yes" />\
+  <meta name="mobile-web-app-capable" content="yes">\
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">\
+  <meta name="apple-mobile-web-app-title" content="Comistream">\
+  <meta name="theme-color" content="#7799dd">\
+  <link rel="shortcut icon" href="/theme/icons/comistream.png" />\
+  <link rel="icon" type="image/png" href="/theme/icons/comistream.png" />\
+  <link rel="apple-touch-icon" href="/theme/icons/comistreamapp.png" />\
+  '
+#   Apache 2.4以降不要
+#  <script type="text/javascript">\
+#  for(var keyValues of document.cookie.split(";") ){\
+#    keyValue = keyValues.split("=");\
+#    if( keyValue[0].match(/viewmode/) ){\
+#      if( keyValue[1] == "cover" ){\
+#        document.getElementsByTagName("link")[0].href="/theme/style_cover.css";\
+#      }\
+#    }\
+#  };\
+#  </script>'
+
+  # HIDE /theme DIRECTORY
+  IndexIgnore .htaccess /theme /hls
+
+#
+# GENERAL ICONS (BLANK, DIRECTORY, PARENT DIRECTORY)
+#
+
+  AddIcon /theme/icons/blank.png ^^BLANKICON^^
+  AddIcon /theme/icons/folder.png ^^DIRECTORY^^
+  AddIcon /theme/icons/folder-home.png ..
+
+  AddIconByType (TXT,/theme/icons/text.png) text/*
+  AddIconByType (IMG,/theme/icons/image.png) image/*
+  AddIconByType (SND,/theme/icons/audio.png) audio/*
+  AddIconByType (VID,/theme/icons/video.png) video/*
+
+#
+# EXTENSION SPECIFIC ICONS
+#
+  ##### zip, cbz, rar, pdf ファイルを書籍アーカイブとみなす
+  AddIcon /theme/icons/book.png .zip .ZIP .cbz .CBZ .rar .RAR .pdf .PDF .epub .EPUB .ePub .7z .7Z .cb7 .CB7
+  #####
+
+  AddIcon /theme/icons/archive.png .7z .bz2 .cab .gz .tar
+  AddIcon /theme/icons/audio.png .aac .aif .aifc .aiff .ape .au .flac .iff .m4a .mid .mp3 .mpa .ra .wav .wma .f4a .f4b .oga .ogg .xm .it .s3m .mod
+  AddIcon /theme/icons/bin.png .bin .hex
+  AddIcon /theme/icons/bmp.png .bmp
+  AddIcon /theme/icons/c.png .c
+  AddIcon /theme/icons/calc.png .xlsx .xlsm .xltx .xltm .xlam .xlr .xls .csv
+  AddIcon /theme/icons/cd.png .iso
+  AddIcon /theme/icons/cpp.png .cpp
+  AddIcon /theme/icons/css.png .css .sass .scss
+  AddIcon /theme/icons/deb.png .deb
+  AddIcon /theme/icons/doc.png .doc .docx .docm .dot .dotx .dotm .log .msg .odt .pages .rtf .tex .wpd .wps
+  AddIcon /theme/icons/draw.png .svg .svgz
+  AddIcon /theme/icons/eps.png .ai .eps
+  AddIcon /theme/icons/exe.png .exe
+  AddIcon /theme/icons/gif.png .gif
+  AddIcon /theme/icons/h.png .h
+  AddIcon /theme/icons/html.png .html .xhtml .shtml .htm .URL .url
+  AddIcon /theme/icons/ico.png .ico
+  AddIcon /theme/icons/java.png .jar
+  AddIcon /theme/icons/jpg.png .jpg .jpeg .jpe
+  AddIcon /theme/icons/js.png .js .json
+  AddIcon /theme/icons/markdown.png .md
+  AddIcon /theme/icons/package.png .pkg .dmg
+  AddIcon /theme/icons/php.png .php .phtml
+  AddIcon /theme/icons/playlist.png .m3u .m3u8 .pls .pls8
+  AddIcon /theme/icons/png.png .png
+  AddIcon /theme/icons/ps.png .ps
+  AddIcon /theme/icons/psd.png .psd
+  AddIcon /theme/icons/py.png .py
+  AddIcon /theme/icons/rb.png .rb
+  AddIcon /theme/icons/rpm.png .rpm
+  AddIcon /theme/icons/rss.png .rss
+  AddIcon /theme/icons/script.png .bat .cmd .sh
+  AddIcon /theme/icons/sql.png .sql
+  AddIcon /theme/icons/tiff.png .tiff .tif
+  AddIcon /theme/icons/text.png .txt .nfo
+  AddIcon /theme/icons/video.png .asf .asx .avi .flv .mkv .mov .mp4 .mpg .rm .srt .swf .vob .wmv .m4v .f4v .f4p .ogv .m2t .ts .webm
+  AddIcon /theme/icons/xml.png .xml
+  DefaultIcon /theme/icons/default.png
+
+#
+# THEME FILES
+#
+  HeaderName /theme/header.html
+  ReadmeName /theme/footer.html
+  IndexStyleSheet /theme/style.css
+
+#  Apache2.4以降ifディレクティブ使用可
+  <If "%{HTTP_COOKIE} =~ /viewmode=cover/">
+    IndexStyleSheet /theme/style_cover.css
+  </If>
+
+

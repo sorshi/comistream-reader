@@ -1,0 +1,63 @@
+<div class="menu">
+  <div class="viewmode" onclick="javascript:toggleView();"></div>
+  <div id="rawMode" class="raw" onclick="javascript:toggleRaw();"></div>
+  <div id="loginIcon" class="guest" onclick="javascript:login();"></div>
+  <div class="history"><span id="history" style="white-space: nowrap;">-</span></div>
+</div>
+
+<div id="filemenu" class="filemenu" style="position:absolute; width:80%; left:10%; padding:10px; display: none; background-color:rgba(0,0,0,0.5); border-radius:5px;">
+  <form id="fileope">
+    <input id="newname" type="text" name="newname" value="" style="width:99%;">
+    <input id="orgname" type="hidden" name="orgname" value="">
+    <input id="fileLink" type="hidden" name="file" value="">
+    <input type="button" name="cancel" value="キャンセル" style="float:right;" onclick="document.getElementById('filemenu').style.display='none';">
+    <input type="submit" name="update" value="更新" style="float:right;">
+  </form>
+</div>
+
+<div id="bookdetail" class="filemenu" style="position:absolute; width:80%; left:10%; padding:10px; display: none; background-color:rgba(18, 126, 143, 0.5); border-radius:5px;">
+  <form id="openbookdetail">
+    <input id="fileA" type="text" name="fileA" value="" style="width:99%;">
+    <input id="fileB" type="hidden" name="fileB" value="">
+    <input id="detailFileLink" type="hidden" name="file" value="">
+    <input type="button" name="cancel" value="キャンセル" style="float:right;" onclick="document.getElementById('bookdetail').style.display='none';">
+    <input type="submit" name="detail" value="詳細" style="float:right;">
+  </form>
+</div>
+
+<script>
+// Cookie取得
+for(var keyValues of document.cookie.split(";") ){
+  keyValue = keyValues.split("=");
+  if( keyValue[0].match(/comistreamUser/) ){
+    // ユーザ名設定
+    document.getElementById("loginIcon").className = "login";
+    var loginuser = keyValue[1];
+  }else if( keyValue[0].match(/rawMode/) ){
+    // 圧縮有無設定
+    document.getElementById("rawMode").className = keyValue[1];
+  }
+}
+// -->
+</script>
+
+
+<div id="modal" style="display: none">
+  <div id="modal-content">
+    <img id="modal-image" src="" alt="プレビュー画像" />
+  </div>
+</div>
+
+
+<div class="wrapper">
+<!-- we open the `wrapper` element here, but close it in the `footer.html` file -->
+
+<div>
+  <span class="breadcrumb" id="breadcrumb">/</span>
+  <form name="searchform" action="javascript:search()">
+    <input class="textbox" type="search" name="textbox" results="10" placeholder="ファイル名を検索">
+  </form>
+  <div id="favbutton" class="favbutton" onclick="javascript:searchFavButton()"></div>
+</div>
+
+<br>

@@ -1,0 +1,23 @@
+{
+  "name": "Comistream",
+  "short_name": "Comistream",
+  "display": "fullscreen",
+  "scope": "/",
+  "start_url": "/",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "/theme/icons/comistream.png",
+      "sizes": "64x64",
+      "type": "image/png"
+    },
+    {
+      "src": "/theme/icons/comistreamapp.png",
+      "sizes": "256x256",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#fff",
+  "background_color": "#898989",
+  "orientation": "any"
+}

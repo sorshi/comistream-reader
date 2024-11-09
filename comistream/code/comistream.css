@@ -1,0 +1,318 @@
+/*!
+ * Comistream Reader - Main Stylesheet
+ *
+ * Comistreamのメインスタイルシート。
+ *
+ *
+ * @package    sorshi/comistream-reader
+ * @author     Comistream Project.
+ * @copyright  2024 Comistream Project.
+ * @license    GPL3.0 License
+ * @version    1.0.0
+ */
+
+html {
+  height: 100%;
+}
+
+body {
+  background-color: #606060;
+  font-family: "Lucida Grande", Verdana, AquaKana, ArialMT,
+    "Hiragino Kaku Gothic ProN", "ヒラギノ角ゴ ProN W3", "メイリオ", Meiryo,
+    sans-serif;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  height: 100%;
+  position: relative;
+}
+
+body.cursor-hide {
+  cursor: none;
+  /* background-color:red; */
+}
+
+* {
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+  -webkit-touch-callout: none;
+  -webkit-user-select: none; /* Chrome, Safari, Opera */
+  -moz-user-select: none; /* Firefox */
+  -ms-user-select: none; /* IE/Edge */
+  user-select: none; /* non-prefixed version, currently not supported by any browser */
+}
+
+table {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+td.right {
+  width: 30%;
+  cursor: var(--arrowR-url), e-resize;
+}
+td.right-under {
+  width: 10%;
+  cursor: var(--arrowR-url), e-resize;
+}
+td.left {
+  width: 30%;
+  cursor: var(--arrowL-url), w-resize;
+}
+td.left-under {
+  width: 10%;
+  cursor: var(--arrowL-url), w-resize;
+}
+td.rightIndex {
+  width: 30%;
+  cursor: var(--nextR-url), e-resize;
+}
+td.leftIndex {
+  width: 30%;
+  cursor: var(--nextL-url), w-resize;
+}
+td.center {
+  cursor: var(--setting-url), help;
+}
+
+.loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--loading-circle-url) no-repeat center center;
+}
+
+.canvas {
+  width: 100%;
+  height: 100%;
+  background: none no-repeat center center;
+  /* url() やhref="", src="" などとしてしまうと二重アクセスが発生する */
+  background-size: contain;
+  transition: background-image 60ms linear;
+}
+
+.progressbox {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.progress-left {
+  background-color: #7799dd;
+  width: 0px;
+  height: 5px;
+  margin-left: auto;
+  margin-right: 0;
+  opacity: 0.7;
+}
+
+.progress-right {
+  background-color: #7799dd;
+  width: 0px;
+  height: 5px;
+  margin-left: 0;
+  margin-right: auto;
+  opacity: 0.7;
+}
+
+.contents {
+  display: none;
+  position: absolute;
+  top: 0px;
+  min-width: 70%;
+  max-height: 80%;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 10px;
+  margin: 10px;
+  border-radius: 10px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.toclist {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+.toclink {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+.toclink:hover {
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.close {
+  width: 32px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+/* 共通のボタンスタイル */
+.button {
+  font-size: 0.8em;
+  font-weight: bold;
+  cursor: pointer;
+  vertical-align: middle;
+  float: right;
+  border: 2px solid;
+  margin: 5px;
+  padding: 6px 12px;
+  transition: all 0.3s ease;
+  position: relative;
+  top: 0;
+  border-radius: 4px;
+}
+
+/* モード変更ボタン */
+.button-mode {
+  background-color: #f0f0f0;
+  color: #333;
+  border-color: #ccc;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.button-mode:hover {
+  background-color: #e0e0e0;
+}
+
+.button-mode:active,
+.button-mode.pressed {
+  background-color: #d0d0d0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  top: 2px;
+  color: #222;
+}
+
+/* クローズボタン */
+.button-close {
+  background-color: #4a4a4a;
+  color: #f0f0f0;
+  border-color: #3a3a3a;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.button-close:hover {
+  background-color: #5a5a5a;
+}
+
+.button-close:active {
+  background-color: #3a3a3a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  top: 2px;
+  color: #e0e0e0;
+}
+
+input[type="range"] {
+  transform: var(--degree);
+  -webkit-appearance: none;
+  vertical-align: middle;
+  appearance: none;
+  background-color: #c0c0c0;
+  width: 80%;
+  height: 5px;
+  margin-top: 30px;
+  margin-bottom: 30px;
+  margin-left: 10%;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  background-color: #7799dd;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid white;
+  cursor: pointer;
+}
+input[type="range"]::-moz-range-thumb {
+  background-color: #7799dd;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid white;
+  cursor: pointer;
+}
+
+.bookName {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+.overlay {
+  display: none;
+  position: fixed;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
+  transition: opacity 0.15s;
+}
+
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 2;
+  top: 50%;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: auto;
+  transform: translateY(-50%);
+  transition: opacity 0.15s;
+}
+
+.modal-content {
+  margin: auto;
+  display: flex; /* To align the images side by side */
+  background-color: white;
+}
+
+.modal-content img {
+  width: 50%; /* Each image takes up half the width of the modal */
+}
+
+.inspector {
+  display: none;
+  position: fixed; /* 親要素に対してではなく、画面に対して固定 */
+  z-index: 10;
+  bottom: 5px; /* 画面の下部に固定 */
+  left: 5px; /* 画面の左側に固定 */
+  padding: 1em;
+  max-width: 90%; /* スマホ画面に収まるように最大幅を設定 */
+  max-height: 90%; /* スマホ画面に収まるように最大高さを設定 */
+  background-color: rgba(0, 0, 0, 0.7);
+  transition: opacity 0.15s;
+  font-size: 0.8em;
+  color: white;
+  font-family: "Source Han Mono", "Source Code Pro", "Meiryo UI", system-ui,
+    sans-serif;
+  overflow: clip;
+  border-radius: 8px;
+}
+
+.inspector ul {
+  list-style: none;
+  padding-left: 10px;
+}
+
+.inspector li {
+  margin: 0.5em 0;
+}
