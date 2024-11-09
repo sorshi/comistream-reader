@@ -790,14 +790,6 @@ function outputPage($isFileout = false)
     $crop_half_cmd_right = '';
     $output_mime = '';
     $input_format = '';
-    // ImageMagick の画像 Crop
-    if ($view === 'trimming') {
-        // サーバー側で左右余白トリミング
-        $crop_half_cmd = " | $convert " . '- -crop 99%x99%+0+0 -fuzz 20% -trim +repage - ';
-        writelog("DEBUG outputPage() trimming mode page:$page position:$position_int crop_split_view_parts:$crop_split_view_parts");
-    } else {
-        writelog("DEBUG outputPage() NOT trimming mode page:$page");
-    }
     // indexからページのファイル名を取得
     if (file_exists("$cacheDir/$file/index")) {
         $shell_cmd = "sed -n {$page}p $cacheDir/$file/index";
@@ -808,6 +800,19 @@ function outputPage($isFileout = false)
         showReloadRequiredImg();
         writelog("ERROR outputPage() no such file. $cacheDir/$file/index");
         exit(1);
+    }
+    // ImageMagick の画像 Crop
+    if ($view === 'trimming') {
+        if ((preg_match('/\.avif$/i', $pagefile)) && ($conf["isLowMemoryMode"] === 1)){
+            $crop_half_cmd = " ";
+            writelog("DEBUG outputPage() AVIF and Low memory mode detected ,NOT trimming mode page:$page");
+        }else{
+            // サーバー側で左右余白トリミング
+            $crop_half_cmd = " | $convert " . '- -crop 99%x99%+0+0 -fuzz 20% -trim +repage - ';
+            writelog("DEBUG outputPage() trimming mode page:$page position:$position_int crop_split_view_parts:$crop_split_view_parts");
+        }
+    } else {
+        writelog("DEBUG outputPage() NOT trimming mode page:$page");
     }
     // アーカイブファイルの拡張子取得
     $filePath = readlink("$cacheDir/$file/file");
@@ -3267,6 +3272,15 @@ function readConfig($dbh)
             $global_debug_flag = true;
         } else {
             $global_debug_flag = false;
+        }
+        // 低メモリモード
+        if(!(isset($conf["isLowMemoryMode"]))){
+            sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('isLowMemoryMode', 1);", "クエリに失敗しました");
+            $conf["isLowMemoryMode"] = 1;
+        }elseif ((isset($conf["isLowMemoryMode"])) && ($conf["isLowMemoryMode"] === 0)) {
+            $conf["isLowMemoryMode"] = 0;
+        } else {
+            $conf["isLowMemoryMode"] = 1;
         }
         $conf["comistream_tmp_dir_root"] = rtrim($conf["comistream_tmp_dir_root"], DIRECTORY_SEPARATOR);
         $tempDir = $conf["comistream_tmp_dir_root"] . "/reader";
