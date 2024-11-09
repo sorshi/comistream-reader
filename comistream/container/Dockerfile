@@ -26,7 +26,7 @@ COPY /comistream-tools/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.zstd /tmp/
 COPY /comistream-tools/comistream.tar.gz /tmp/comistream.tar.gz
 # システムの更新と必要なパッケージのインストール
 RUN dnf update -y &&  \
-    dnf install -y tar httpd php sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release && \
+    dnf install -y tar httpd php sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release unrar && \
     dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig && \
     dnf clean all && \
     useradd -m user && \

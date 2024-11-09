@@ -2220,7 +2220,6 @@ function system_config($dbh)
                 'pdftoppm' => 'pdftoppmコマンドのパス',
                 'pdfinfo' => 'pdfinfoコマンドのパス',
                 'unzip' => 'unzipコマンドのパス',
-                'unrar' => 'unrarコマンドのパス',
             ],
             '動作設定' => [
                 'liveStreamMode' => 'LiveStreamによるHLS再圧縮機能を利用できるユーザーを制限します。デフォルトは0で全てのユーザーが利用可能です。1:ゲストユーザーが利用できなくなります。2:管理者のみ利用できます。',
