@@ -15,7 +15,7 @@
 #
 #
 # 作成者: Comistream Project
-# バージョン: 1.0.0
+# バージョン: 1.0.1
 # ライセンス: GPL3.0
 # https://github.com/sorshi/comistream-reader
 #
@@ -54,6 +54,9 @@ function make_image() {
   set +H
   filePath="$searchPath/$1"
   imageType="$2"
+
+  # 開始時間を記録
+  start_time=$(date +%s.%N)
 
   # 60分以上前のtmpディレクトリ内項目を削除
   # 高頻度すぎたので廃止
@@ -113,7 +116,12 @@ function make_image() {
     logger -t "comistream make_image_run.sh[$$]" -p local1.NOTICE "$imageType output NG :$outputFile:$1"
     rm -f "$outputFile"
   else
-    logger -t "comistream make_image_run.sh[$$]" -p local1.INFO "$imageType output OK : $1"
+    # 終了時間を記録し、所要時間を計算
+    end_time=$(date +%s.%N)
+    duration=$(echo "$end_time - $start_time" | bc)
+    # 小数点第2位で四捨五入
+    duration=$(printf "%.1f" "$duration")
+    logger -t "comistream make_image_run.sh[$$]" -p local1.INFO "$imageType output OK : $1 (processing time: ${duration}sec)"
   fi
 
   set -H

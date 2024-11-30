@@ -22,7 +22,7 @@ ENV TZ Asia/Tokyo
 COPY /comistream-tools/7zz /usr/local/bin/
 COPY /comistream-tools/cpdf /usr/local/bin/
 COPY /comistream-tools/ffmpeg /usr/local/bin/
-COPY /comistream-tools/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.zstd /tmp/
+COPY /comistream-tools/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.xz /tmp/
 COPY /comistream-tools/comistream.tar.gz /tmp/comistream.tar.gz
 # システムの更新と必要なパッケージのインストール
 RUN dnf update -y &&  \
@@ -31,8 +31,8 @@ RUN dnf update -y &&  \
     dnf clean all && \
     useradd -m user && \
     ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime && \
-    tar xvaf /tmp/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.zstd -C /usr/local/bin && \
-    rm -rf /tmp/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.zstd && \
+    tar xvaf /tmp/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.xz -C /usr/local/bin && \
+    rm -rf /tmp/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.xz && \
     ls -lhtr /usr/local/bin/ && \
     chmod 755 /usr/local/bin/ImageMagick--clang-x86_64-7.1.1-23-patch/AppRun && \
     ln -s /usr/local/bin/ImageMagick--clang-x86_64-7.1.1-23-patch/AppRun /usr/local/bin/magick && \
