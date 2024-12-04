@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Comistream Reader Library
  *
@@ -10,7 +11,7 @@
  * @author      Comistream Project.
  * @copyright   2024 Comistream Project.
  * @license     GPL3.0 License
- * @version     1.0.0
+ * @version     1.0.1
  * @link        https://github.com/sorshi/comistream-reader
  */
 
@@ -599,7 +600,7 @@ function getBookmarkList()
                     // 既読なのにcurrent_pageが0になっているのは1ページにする
                     $currentPage = $row['current_page'] == 0 ? 1 : $row['current_page'];
                     $outputLine = "{$row['base_file']}\t$currentPage\t0{$fav}";
-                }else{
+                } else {
                     $outputLine = "{$row['base_file']}\t{$row['current_page']}\t{$row['max_page']}{$fav}";
                 }
                 echo $outputLine . "\n";
@@ -803,10 +804,10 @@ function outputPage($isFileout = false)
     }
     // ImageMagick の画像 Crop
     if ($view === 'trimming') {
-        if ((preg_match('/\.avif$/i', $pagefile)) && ($conf["isLowMemoryMode"] === 1)){
+        if ((preg_match('/\.avif$/i', $pagefile)) && ($conf["isLowMemoryMode"] === 1)) {
             $crop_half_cmd = " ";
             writelog("DEBUG outputPage() AVIF and Low memory mode detected ,NOT trimming mode page:$page");
-        }else{
+        } else {
             // サーバー側で左右余白トリミング
             $crop_half_cmd = " | $convert " . '- -crop 99%x99%+0+0 -fuzz 20% -trim +repage - ';
             writelog("DEBUG outputPage() trimming mode page:$page position:$position_int crop_split_view_parts:$crop_split_view_parts");
@@ -1933,7 +1934,7 @@ function basefilename2hash($baseFile)
     if (strlen($baseFile) === 0) {
         writelog("ERROR basefilename2hash() baseFile is empty");
         return '';
-    }else{
+    } else {
         // ファイル名のハッシュを生成
         $baseFileHash = trim(shell_exec("echo -n \"$baseFile\" | $md5cmd | cut -d ' ' -f 1"));
         writelog("DEBUG basefilename2hash() $baseFile: $baseFileHash");
@@ -2189,13 +2190,21 @@ EOF;
 function system_config($dbh)
 {
     if ($_SESSION['is_admin']) {
+        if (!empty($_SESSION['referer'])) {
+            $link_target = "<a href=\"" . $_SESSION['referer'] . "\">ログイン前のページへ戻る</a>";
+            $link_url = $_SESSION['referer'];
+            unset($_SESSION['referer']);
+        } else {
+            $link_target = "<a href=\"/\">トップへ移動</a>";
+            unset($link_url);
+        }
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($_POST as $key => $value) {
                 writelog("DEBUG system_config() UPDATE $key,$value");
                 updateSetting($dbh, $key, $value);
             }
             if (installThemeFiles($dbh)) {
-                $message = "設定が更新されました。<a href=\"/\">トップへ移動</a>";
+                $message = "設定が更新されました。" . $link_target;
             } else {
                 $message = "セットアップに失敗しました。サーバーディレクトリのパーミッションを確認してください。";
             }
@@ -2334,6 +2343,15 @@ function system_config($dbh)
                 <div class="message"><?php echo $message; ?></div>
             <?php endif; ?>
             <form method="POST" action="<?php echo $url; ?>">
+                <?php
+                if (!empty($link_url)) {
+                    echo "<button type=\"button\" onclick=\"location.href='" . $link_url . "'\">ログイン前のページへ戻る</button>";
+                    unset($_SESSION['referer']);
+                } else {
+                    echo "<button type=\"button\" onclick=\"location.href='/'\">トップページへ戻る</button>";
+                }
+                ?>
+
                 <button type="submit">設定保存</button>
 
                 <div class="section">
@@ -2842,9 +2860,12 @@ function adminLogin($dbh)
             exit;
         } else {
             // ログイン成功
+            $referer = $_SESSION['referer'] ?? '';
             session_regenerate_id(true);
             $_SESSION['name'] = $username;
             $_SESSION['is_admin'] = true;
+            $_SESSION['referer'] = $referer;
+            setcookie('comistreamUser', $username, time() + 31536000, '/');
             header('Location: comistream.php?mode=config');
             exit;
         }
@@ -2865,6 +2886,7 @@ function adminLogin($dbh)
 function logout()
 {
     global $conf;
+    writelog("DEBUG logout()");
     // 移動先
     $publicDir = $conf['publicDir'] . '/';
     // セッションクリア
@@ -3172,18 +3194,18 @@ function installThemeFiles($dbh)
     $command = "sed -i 's|\"name\":.*|  \"name\": \"$siteName\",|' $manifestPath";
     exec($command, $output, $return_var);
     if ($return_var !== 0) {
-        writelog("ERROR installThemeFiles() failed to update footer.html: " . implode("\n", $output));
+        writelog("ERROR installThemeFiles() failed to update manifest.json: " . implode("\n", $output));
         return false;
     } else {
-        writelog("INFO installThemeFiles() footer.html updated successfully");
+        writelog("INFO installThemeFiles() manifest.json updated successfully");
     }
     $command = "sed -i 's|\"short_name\":.*|  \"short_name\": \"$siteName\",|' $manifestPath";
     exec($command, $output, $return_var);
     if ($return_var !== 0) {
-        writelog("ERROR installThemeFiles() failed to update footer.html: " . implode("\n", $output));
+        writelog("ERROR installThemeFiles() failed to update manifest.json: " . implode("\n", $output));
         return false;
     } else {
-        writelog("INFO installThemeFiles() footer.html updated successfully");
+        writelog("INFO installThemeFiles() manifest.json updated successfully");
     }
     writelog("INFO installThemeFiles() theme dir setup completed!");
 
@@ -3194,7 +3216,7 @@ function installThemeFiles($dbh)
         // return false;
     }
     if (!chgrp($themeDir, 'apache')) {
-        writelog("ERROR installThemeFiles() failed to chgrp theme dir to apache"); 
+        writelog("ERROR installThemeFiles() failed to chgrp theme dir to apache");
         // return false;
     }
     // サブディレクトリも再帰的に変更
@@ -3277,10 +3299,10 @@ function readConfig($dbh)
             $global_debug_flag = false;
         }
         // 低メモリモード
-        if(!(isset($conf["isLowMemoryMode"]))){
+        if (!(isset($conf["isLowMemoryMode"]))) {
             sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('isLowMemoryMode', 1);", "クエリに失敗しました");
             $conf["isLowMemoryMode"] = 1;
-        }elseif ((isset($conf["isLowMemoryMode"])) && ($conf["isLowMemoryMode"] === 0)) {
+        } elseif ((isset($conf["isLowMemoryMode"])) && ($conf["isLowMemoryMode"] === 0)) {
             $conf["isLowMemoryMode"] = 0;
         } else {
             $conf["isLowMemoryMode"] = 1;

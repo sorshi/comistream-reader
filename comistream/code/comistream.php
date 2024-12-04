@@ -10,7 +10,7 @@
  * @author      Comistream Project.
  * @copyright   2024 Comistream Project.
  * @license     GPL3.0 License
- * @version     1.0.0
+ * @version     1.0.1
  * @link        https://github.com/sorshi/comistream-reader
  *
  */
@@ -177,7 +177,13 @@ if ($mode === 'delete' && !empty($orgname)) {
     // 未実装
     // fileRename();
 } elseif ($mode === 'login') {
-
+    // ログイン時にいたページに戻れるようにリファラをセッションに追加
+    if (empty($_SESSION['referer'])) {
+        $_SESSION['referer'] = $_SERVER['HTTP_REFERER'];
+        writelog("DEBUG login set referer:" . $_SERVER['HTTP_REFERER']);
+    } else {
+        writelog("DEBUG login referer exist:" . $_SESSION['referer']);
+    }
     // 管理者ログイン
     adminLogin($dbh);
 } elseif ($mode === 'logout') {
