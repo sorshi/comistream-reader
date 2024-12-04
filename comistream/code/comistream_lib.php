@@ -1467,11 +1467,15 @@ function openPage()
     writelog("DEBUG openPage() \$file:" . $file);
 
     // ページNO初期化
-    $page = 1;
-    if ($user !== "guest") {
-        makeBookmark();
+    if ($page > 1 && $page <= $maxPage) {
+        writelog("DEBUG openPage() $page overwrite from argument.");
     } else {
-        $baseFile = basename($openFile);
+        $page = 1;
+        if ($user !== "guest") {
+            makeBookmark();
+        } else {
+            $baseFile = basename($openFile);
+        }
     }
     // 表紙画像とプレビュー画像作成
     // メインに移動
