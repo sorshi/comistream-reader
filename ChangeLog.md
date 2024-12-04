@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - open時にpage=で指定したページから開ける機能追加
 - 管理者用コンフィグ画面に設定を変更しないリンクボタン新設
 - 左上ヘッダ三連アイコンのログインボタンでユーザー名を空文字でログアウトできる機能追加
+- open時にfileにpath hashを指定しても開ける機能追加
 
 ### 変更
 - unrar path設定項目を削除

@@ -520,9 +520,9 @@ function makeBookmark()
     if ($global_use_db_flag == 1) {
         // DBのページ位置更新
         $base_file_utf = $baseFile;
-        writelog("DEBUG makeBookmark() $base_file_utf with DB");
+        writelog("DEBUG makeBookmark() base_file_utf:$base_file_utf with DB");
         $base_file_hash = basefilename2hash($base_file_utf);
-        writelog("DEBUG makeBookmark() $base_file_hash with DB");
+        writelog("DEBUG makeBookmark() base_file_hash:$base_file_hash with DB");
 
         $request_uri = $_SERVER['REQUEST_URI'];
         // .phpで終わるリクエストURIの場合は、$request_uriに相当する文字列作成
@@ -1353,6 +1353,24 @@ function urlEncodeFilePath($filePath)
     return implode('/', $encodedParts);
 } //end function urlEncodeFilePath
 
+##### パスハッシュからファイル名を取得 ###################################################################
+function searchBookByHash($dbh, $file)
+{
+    $sql = "SELECT count(*) FROM book_history WHERE path_hash = ? ORDER BY updated_at DESC LIMIT 1";
+    $stmt = $dbh->prepare($sql);
+    $stmt->execute([$file]);
+    $count = (int)$stmt->fetchColumn();
+    if ($count > 0) {
+        writelog("DEBUG searchBookByHash() found: " . $file);
+        $sql = "SELECT relative_path, base_file FROM book_history WHERE path_hash = ? ORDER BY updated_at DESC LIMIT 1";
+        $stmt = $dbh->prepare($sql);
+        $stmt->execute([$file]);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }else{
+        writelog("DEBUG searchBookByHash() NOT found: " . $file);
+        return false;
+    }
+} //end function searchBookByHash
 
 ##### 書籍ファイルオープン ###################################################################
 function openPage()
@@ -1385,16 +1403,50 @@ function openPage()
 
     // ファイル存在チェック
     if (!file_exists($openFile)) {
-        writelog("ERROR openPage() file not found " . $openFile);
-        $baseFile = basename($openFile);
-        $book_title = "";
-        $pageTitle = "";
-
-        writelog("DEBUG openPage() file not found, attempting to create a search link.");
-        list($book_title, $pageTitle) = get_book_title($baseFile);
-        print_book_notfound_error($book_title);
-        clean_shm_dir();
-        exit(1);
+        writelog("DEBUG openPage() file not found " . $openFile);
+        // ファイルハッシュならDB検索
+        // $fileが16進数文字のみで構成されているか検証
+        if (preg_match('/^[0-9a-fA-F]+$/', $file)) {
+            // DB検索
+            $path_hash = $file;
+            $result = searchBookByHash($dbh, $file);
+            if ($result) {
+                $baseFile = $result['base_file'];
+                $file = $result['relative_path'].'/'.$result['base_file'];
+                // 先頭の/を取り除く
+                $file = ltrim($file, '/');
+                $escapedFile = urlEncodeFilePath($file);
+                $file = str_replace('+', '%2B', $file);
+                $file = urldecode($file);
+                writelog("DEBUG openPage() file:" . $file);
+                $openFile = "$sharePath/$file";
+                if (!file_exists($openFile)){
+                    // ファイルが存在しない場合はエラー
+                    writelog("DEBUG openPage() file not found from path hash:" . $openFile.':'.$path_hash);
+                    list($book_title, $pageTitle) = get_book_title($baseFile);
+                    print_book_notfound_error($book_title);
+                    clean_shm_dir();
+                    exit(1);
+                }
+            }else{
+                // DBにハッシュがない
+                writelog("DEBUG openPage() file not found from path hash on DB:" . $path_hash);
+                print_book_notfound_error("");
+                clean_shm_dir();
+                exit(1);
+            }
+        }else{
+            // ファイルが存在しない
+            writelog("ERROR openPage() file not found " . $openFile);
+            $baseFile = basename($openFile);
+            $book_title = "";
+            $pageTitle = "";
+            writelog("DEBUG openPage() file not found, attempting to create a search link.");
+            list($book_title, $pageTitle) = get_book_title($baseFile);
+            print_book_notfound_error($book_title);
+            clean_shm_dir();
+            exit(1);
+        }
     }
 
     // リード可能パーミッションかテストする
