@@ -527,7 +527,7 @@ function makeBookmark()
         $request_uri = $_SERVER['REQUEST_URI'];
         // .phpで終わるリクエストURIの場合は、$request_uriに相当する文字列作成
         if (preg_match('/\.php$/', $request_uri)) {
-            $request_uri .= "?&file=" . $escapedFile . "&mode=open&size=FULL";
+            $request_uri .= "?&file=" . $escapedFile . "&mode=open";
             writelog("DEBUG makeBookmark() request_uri is replaces:$request_uri");
         }
         // $dirname = trim(shell_exec('dirname "' . $bookmarkPath . '/bookmark"'));

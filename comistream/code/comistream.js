@@ -903,19 +903,20 @@ function toggleRaw(){
   data.append('file', escapedFile);
   data.append('page', page);
   navigator.sendBeacon("comistream.php", data );
+  let reload_url = location.href;
   if( document.getElementById("rawMode").classList.contains('raw') ){
     document.getElementById("rawMode").className = "button cmp";
     document.getElementById("rawMode").textContent = "圧縮";
     document.cookie = "rawMode=cmp; path=/; max-age=31536000";
     // console.log("size toggle cmp");
-    let reload_url = location.href.replace("&size=FULL", "");
+    // let reload_url = location.href.replace("&size=FULL", "");
     location.replace(reload_url);
   }else{
     document.getElementById("rawMode").className = "button raw";
     document.getElementById("rawMode").textContent = "フル";
     document.cookie = "rawMode=raw; path=/; max-age=31536000";
     // console.log("size toggle raw");
-    let reload_url = location.href + "&size=FULL";
+    // let reload_url = location.href + "&size=FULL";
     location.replace(reload_url);
   }
 }
@@ -993,9 +994,9 @@ function addnextbooklist(nexttitle,nextlocation) {
   let sizeOption = "";
   // let nowlocation = location.href;
   if( document.getElementById("rawMode").classList.contains('raw') ){
-    sizeOption = "&size=FULL";
+    // sizeOption = "&size=FULL";
   }else{
-    sizeOption = "";
+    // sizeOption = "";
   }
   const encodeOpenFilePath = encodeURIComponent(nextlocation.substring(shareroot.length + 1));
   debugLog("addnextbooklist(); encodeOpenFilePath:" + encodeOpenFilePath);

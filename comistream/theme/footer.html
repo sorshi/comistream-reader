@@ -104,7 +104,7 @@ function linkhook(e) {
     var openHref = cgiPath + "?file=" + fileLink + "&mode=open";
     if( document.getElementById("rawMode").classList.contains('raw') ){
       // 圧縮モードrawの場合
-      openHref = openHref + "&size=FULL";
+      // openHref = openHref + "&size=FULL";
     }
     document.getElementById("history").innerHTML = "<a class=\"history_book\" href="+location.origin+openHref+">"+e.target.innerText+"</a>"
     location.href = openHref;

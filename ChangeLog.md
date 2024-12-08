@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 変更
 - unrar path設定項目を削除
+- comistream.phpの引数にsize=FULLを付ける運用を終了して、sessionやcookieから自動判定されるように変更
 
 ### 修正
 - Dockerfileにunrar追加

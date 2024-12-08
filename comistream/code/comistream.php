@@ -160,10 +160,32 @@ if (array_key_exists("view", $param)) {
 
 // Cookieからユーザ名取得
 $COOKIE = getCookie();
-if (!empty($COOKIE['comistreamUser'])) {
-    $user = $COOKIE['comistreamUser'];
-} else {
-    $user = 'guest';
+$user = !empty($COOKIE['comistreamUser']) ? $COOKIE['comistreamUser'] : 'guest';
+
+// サイズ設定の取得
+if ($size !== 'FULL' && $size !== 'comp') {
+    // sizeパラメータが未設定の場合はcookieを確認
+    if (!empty($COOKIE['rawMode'])) {
+        if ($COOKIE['rawMode'] === 'raw') {
+            $size = 'FULL';
+            $_SESSION['packetSave'] = false;
+        } elseif ($COOKIE['rawMode'] === 'cmp') {
+            $size = 'comp';
+            $_SESSION['packetSave'] = true;
+        }else{
+            $COOKIE['rawMode'] = 'cmp';
+            $size = 'comp';
+            $_SESSION['packetSave'] = true;
+        }
+        writelog("DEBUG size setting by cookie:" . $size);
+    }
+    // cookieも未設定の場合はデフォルト値を設定
+    if (empty($size)) {
+        $size = 'comp';
+        $COOKIE['rawMode'] = 'cmp';
+        $_SESSION['packetSave'] = true;
+        writelog("DEBUG size setting by default:" . $size);
+    }
 }
 
 if ($mode === 'delete' && !empty($orgname)) {
