@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Comistream Reader Library
  *
@@ -10,7 +11,7 @@
  * @author      Comistream Project.
  * @copyright   2024 Comistream Project.
  * @license     GPL3.0 License
- * @version     1.0.0
+ * @version     1.0.1
  * @link        https://github.com/sorshi/comistream-reader
  */
 
@@ -519,14 +520,14 @@ function makeBookmark()
     if ($global_use_db_flag == 1) {
         // DBのページ位置更新
         $base_file_utf = $baseFile;
-        writelog("DEBUG makeBookmark() $base_file_utf with DB");
+        writelog("DEBUG makeBookmark() base_file_utf:$base_file_utf with DB");
         $base_file_hash = basefilename2hash($base_file_utf);
-        writelog("DEBUG makeBookmark() $base_file_hash with DB");
+        writelog("DEBUG makeBookmark() base_file_hash:$base_file_hash with DB");
 
         $request_uri = $_SERVER['REQUEST_URI'];
         // .phpで終わるリクエストURIの場合は、$request_uriに相当する文字列作成
         if (preg_match('/\.php$/', $request_uri)) {
-            $request_uri .= "?&file=" . $escapedFile . "&mode=open&size=FULL";
+            $request_uri .= "?&file=" . $escapedFile . "&mode=open";
             writelog("DEBUG makeBookmark() request_uri is replaces:$request_uri");
         }
         // $dirname = trim(shell_exec('dirname "' . $bookmarkPath . '/bookmark"'));
@@ -599,7 +600,7 @@ function getBookmarkList()
                     // 既読なのにcurrent_pageが0になっているのは1ページにする
                     $currentPage = $row['current_page'] == 0 ? 1 : $row['current_page'];
                     $outputLine = "{$row['base_file']}\t$currentPage\t0{$fav}";
-                }else{
+                } else {
                     $outputLine = "{$row['base_file']}\t{$row['current_page']}\t{$row['max_page']}{$fav}";
                 }
                 echo $outputLine . "\n";
@@ -790,14 +791,6 @@ function outputPage($isFileout = false)
     $crop_half_cmd_right = '';
     $output_mime = '';
     $input_format = '';
-    // ImageMagick の画像 Crop
-    if ($view === 'trimming') {
-        // サーバー側で左右余白トリミング
-        $crop_half_cmd = " | $convert " . '- -crop 99%x99%+0+0 -fuzz 20% -trim +repage - ';
-        writelog("DEBUG outputPage() trimming mode page:$page position:$position_int crop_split_view_parts:$crop_split_view_parts");
-    } else {
-        writelog("DEBUG outputPage() NOT trimming mode page:$page");
-    }
     // indexからページのファイル名を取得
     if (file_exists("$cacheDir/$file/index")) {
         $shell_cmd = "sed -n {$page}p $cacheDir/$file/index";
@@ -808,6 +801,19 @@ function outputPage($isFileout = false)
         showReloadRequiredImg();
         writelog("ERROR outputPage() no such file. $cacheDir/$file/index");
         exit(1);
+    }
+    // ImageMagick の画像 Crop
+    if ($view === 'trimming') {
+        if ((preg_match('/\.avif$/i', $pagefile)) && ($conf["isLowMemoryMode"] === 1)) {
+            $crop_half_cmd = " ";
+            writelog("DEBUG outputPage() AVIF and Low memory mode detected ,NOT trimming mode page:$page");
+        } else {
+            // サーバー側で左右余白トリミング
+            $crop_half_cmd = " | $convert " . '- -crop 99%x99%+0+0 -fuzz 20% -trim +repage - ';
+            writelog("DEBUG outputPage() trimming mode page:$page position:$position_int crop_split_view_parts:$crop_split_view_parts");
+        }
+    } else {
+        writelog("DEBUG outputPage() NOT trimming mode page:$page");
     }
     // アーカイブファイルの拡張子取得
     $filePath = readlink("$cacheDir/$file/file");
@@ -1347,6 +1353,24 @@ function urlEncodeFilePath($filePath)
     return implode('/', $encodedParts);
 } //end function urlEncodeFilePath
 
+##### パスハッシュからファイル名を取得 ###################################################################
+function searchBookByHash($dbh, $file)
+{
+    $sql = "SELECT count(*) FROM book_history WHERE path_hash = ? ORDER BY updated_at DESC LIMIT 1";
+    $stmt = $dbh->prepare($sql);
+    $stmt->execute([$file]);
+    $count = (int)$stmt->fetchColumn();
+    if ($count > 0) {
+        writelog("DEBUG searchBookByHash() found: " . $file);
+        $sql = "SELECT relative_path, base_file FROM book_history WHERE path_hash = ? ORDER BY updated_at DESC LIMIT 1";
+        $stmt = $dbh->prepare($sql);
+        $stmt->execute([$file]);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }else{
+        writelog("DEBUG searchBookByHash() NOT found: " . $file);
+        return false;
+    }
+} //end function searchBookByHash
 
 ##### 書籍ファイルオープン ###################################################################
 function openPage()
@@ -1379,16 +1403,50 @@ function openPage()
 
     // ファイル存在チェック
     if (!file_exists($openFile)) {
-        writelog("ERROR openPage() file not found " . $openFile);
-        $baseFile = basename($openFile);
-        $book_title = "";
-        $pageTitle = "";
-
-        writelog("DEBUG openPage() file not found, attempting to create a search link.");
-        list($book_title, $pageTitle) = get_book_title($baseFile);
-        print_book_notfound_error($book_title);
-        clean_shm_dir();
-        exit(1);
+        writelog("DEBUG openPage() file not found " . $openFile);
+        // ファイルハッシュならDB検索
+        // $fileが16進数文字のみで構成されているか検証
+        if (preg_match('/^[0-9a-fA-F]+$/', $file)) {
+            // DB検索
+            $path_hash = $file;
+            $result = searchBookByHash($dbh, $file);
+            if ($result) {
+                $baseFile = $result['base_file'];
+                $file = $result['relative_path'].'/'.$result['base_file'];
+                // 先頭の/を取り除く
+                $file = ltrim($file, '/');
+                $escapedFile = urlEncodeFilePath($file);
+                $file = str_replace('+', '%2B', $file);
+                $file = urldecode($file);
+                writelog("DEBUG openPage() file:" . $file);
+                $openFile = "$sharePath/$file";
+                if (!file_exists($openFile)){
+                    // ファイルが存在しない場合はエラー
+                    writelog("DEBUG openPage() file not found from path hash:" . $openFile.':'.$path_hash);
+                    list($book_title, $pageTitle) = get_book_title($baseFile);
+                    print_book_notfound_error($book_title);
+                    clean_shm_dir();
+                    exit(1);
+                }
+            }else{
+                // DBにハッシュがない
+                writelog("DEBUG openPage() file not found from path hash on DB:" . $path_hash);
+                print_book_notfound_error("");
+                clean_shm_dir();
+                exit(1);
+            }
+        }else{
+            // ファイルが存在しない
+            writelog("ERROR openPage() file not found " . $openFile);
+            $baseFile = basename($openFile);
+            $book_title = "";
+            $pageTitle = "";
+            writelog("DEBUG openPage() file not found, attempting to create a search link.");
+            list($book_title, $pageTitle) = get_book_title($baseFile);
+            print_book_notfound_error($book_title);
+            clean_shm_dir();
+            exit(1);
+        }
     }
 
     // リード可能パーミッションかテストする
@@ -1462,11 +1520,15 @@ function openPage()
     writelog("DEBUG openPage() \$file:" . $file);
 
     // ページNO初期化
-    $page = 1;
-    if ($user !== "guest") {
-        makeBookmark();
+    if ($page > 1 && $page <= $maxPage) {
+        writelog("DEBUG openPage() $page overwrite from argument.");
     } else {
-        $baseFile = basename($openFile);
+        $page = 1;
+        if ($user !== "guest") {
+            makeBookmark();
+        } else {
+            $baseFile = basename($openFile);
+        }
     }
     // 表紙画像とプレビュー画像作成
     // メインに移動
@@ -1924,7 +1986,7 @@ function basefilename2hash($baseFile)
     if (strlen($baseFile) === 0) {
         writelog("ERROR basefilename2hash() baseFile is empty");
         return '';
-    }else{
+    } else {
         // ファイル名のハッシュを生成
         $baseFileHash = trim(shell_exec("echo -n \"$baseFile\" | $md5cmd | cut -d ' ' -f 1"));
         writelog("DEBUG basefilename2hash() $baseFile: $baseFileHash");
@@ -2180,13 +2242,21 @@ EOF;
 function system_config($dbh)
 {
     if ($_SESSION['is_admin']) {
+        if (!empty($_SESSION['referer'])) {
+            $link_target = "<a href=\"" . $_SESSION['referer'] . "\">ログイン前のページへ戻る</a>";
+            $link_url = $_SESSION['referer'];
+            unset($_SESSION['referer']);
+        } else {
+            $link_target = "<a href=\"/\">トップへ移動</a>";
+            unset($link_url);
+        }
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($_POST as $key => $value) {
                 writelog("DEBUG system_config() UPDATE $key,$value");
                 updateSetting($dbh, $key, $value);
             }
             if (installThemeFiles($dbh)) {
-                $message = "設定が更新されました。<a href=\"/\">トップへ移動</a>";
+                $message = "設定が更新されました。" . $link_target;
             } else {
                 $message = "セットアップに失敗しました。サーバーディレクトリのパーミッションを確認してください。";
             }
@@ -2215,7 +2285,6 @@ function system_config($dbh)
                 'pdftoppm' => 'pdftoppmコマンドのパス',
                 'pdfinfo' => 'pdfinfoコマンドのパス',
                 'unzip' => 'unzipコマンドのパス',
-                'unrar' => 'unrarコマンドのパス',
             ],
             '動作設定' => [
                 'liveStreamMode' => 'LiveStreamによるHLS再圧縮機能を利用できるユーザーを制限します。デフォルトは0で全てのユーザーが利用可能です。1:ゲストユーザーが利用できなくなります。2:管理者のみ利用できます。',
@@ -2326,6 +2395,15 @@ function system_config($dbh)
                 <div class="message"><?php echo $message; ?></div>
             <?php endif; ?>
             <form method="POST" action="<?php echo $url; ?>">
+                <?php
+                if (!empty($link_url)) {
+                    echo "<button type=\"button\" onclick=\"location.href='" . $link_url . "'\">ログイン前のページへ戻る</button>";
+                    unset($_SESSION['referer']);
+                } else {
+                    echo "<button type=\"button\" onclick=\"location.href='/'\">トップページへ戻る</button>";
+                }
+                ?>
+
                 <button type="submit">設定保存</button>
 
                 <div class="section">
@@ -2834,9 +2912,12 @@ function adminLogin($dbh)
             exit;
         } else {
             // ログイン成功
+            $referer = $_SESSION['referer'] ?? '';
             session_regenerate_id(true);
             $_SESSION['name'] = $username;
             $_SESSION['is_admin'] = true;
+            $_SESSION['referer'] = $referer;
+            setcookie('comistreamUser', $username, time() + 31536000, '/');
             header('Location: comistream.php?mode=config');
             exit;
         }
@@ -2857,6 +2938,7 @@ function adminLogin($dbh)
 function logout()
 {
     global $conf;
+    writelog("DEBUG logout()");
     // 移動先
     $publicDir = $conf['publicDir'] . '/';
     // セッションクリア
@@ -3164,18 +3246,18 @@ function installThemeFiles($dbh)
     $command = "sed -i 's|\"name\":.*|  \"name\": \"$siteName\",|' $manifestPath";
     exec($command, $output, $return_var);
     if ($return_var !== 0) {
-        writelog("ERROR installThemeFiles() failed to update footer.html: " . implode("\n", $output));
+        writelog("ERROR installThemeFiles() failed to update manifest.json: " . implode("\n", $output));
         return false;
     } else {
-        writelog("INFO installThemeFiles() footer.html updated successfully");
+        writelog("INFO installThemeFiles() manifest.json updated successfully");
     }
     $command = "sed -i 's|\"short_name\":.*|  \"short_name\": \"$siteName\",|' $manifestPath";
     exec($command, $output, $return_var);
     if ($return_var !== 0) {
-        writelog("ERROR installThemeFiles() failed to update footer.html: " . implode("\n", $output));
+        writelog("ERROR installThemeFiles() failed to update manifest.json: " . implode("\n", $output));
         return false;
     } else {
-        writelog("INFO installThemeFiles() footer.html updated successfully");
+        writelog("INFO installThemeFiles() manifest.json updated successfully");
     }
     writelog("INFO installThemeFiles() theme dir setup completed!");
 
@@ -3186,7 +3268,7 @@ function installThemeFiles($dbh)
         // return false;
     }
     if (!chgrp($themeDir, 'apache')) {
-        writelog("ERROR installThemeFiles() failed to chgrp theme dir to apache"); 
+        writelog("ERROR installThemeFiles() failed to chgrp theme dir to apache");
         // return false;
     }
     // サブディレクトリも再帰的に変更
@@ -3267,6 +3349,15 @@ function readConfig($dbh)
             $global_debug_flag = true;
         } else {
             $global_debug_flag = false;
+        }
+        // 低メモリモード
+        if (!(isset($conf["isLowMemoryMode"]))) {
+            sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('isLowMemoryMode', 1);", "クエリに失敗しました");
+            $conf["isLowMemoryMode"] = 1;
+        } elseif ((isset($conf["isLowMemoryMode"])) && ($conf["isLowMemoryMode"] === 0)) {
+            $conf["isLowMemoryMode"] = 0;
+        } else {
+            $conf["isLowMemoryMode"] = 1;
         }
         $conf["comistream_tmp_dir_root"] = rtrim($conf["comistream_tmp_dir_root"], DIRECTORY_SEPARATOR);
         $tempDir = $conf["comistream_tmp_dir_root"] . "/reader";

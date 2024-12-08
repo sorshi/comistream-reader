@@ -104,7 +104,7 @@ function linkhook(e) {
     var openHref = cgiPath + "?file=" + fileLink + "&mode=open";
     if( document.getElementById("rawMode").classList.contains('raw') ){
       // 圧縮モードrawの場合
-      openHref = openHref + "&size=FULL";
+      // openHref = openHref + "&size=FULL";
     }
     document.getElementById("history").innerHTML = "<a class=\"history_book\" href="+location.origin+openHref+">"+e.target.innerText+"</a>"
     location.href = openHref;
@@ -256,8 +256,16 @@ function search(){
 
 function login(){
   var user = window.prompt("ユーザー名を入力してください", loginuser);
-  if (user == "" || user == null) {
-    // 空白、キャンセルの場合は何もしない
+  if (user == null) {
+    // キャンセルの場合は何もしない
+  }else if( user == "" || user == "guest" ){
+    // 空白、guestはログアウト
+    document.cookie = "comistreamUser=; path=/; max-age=0;";
+    // ログアウト処理のAjax呼び出し
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET", cgiPath + "?mode=logout", true);
+    xhr.send();
+    location.reload();
   } else if (user.match(/[^A-Za-z0-9]+/) || user.length > 16) {
     // 半角英数字以外の文字が存在する場合
     alert("16文字までの半角英数字を入力してください");

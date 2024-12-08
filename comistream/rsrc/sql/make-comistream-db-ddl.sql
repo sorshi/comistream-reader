@@ -116,7 +116,7 @@ INSERT OR REPLACE INTO system_config (key, value) VALUES('siteName', 'comistream
 INSERT OR REPLACE INTO system_config (key, value) VALUES('mainThemeColor', '#7799dd');
 
 INSERT OR REPLACE INTO system_config (key, value) VALUES('isDebugMode', 0);
-
+INSERT OR REPLACE INTO system_config (key, value) VALUES('isLowMemoryMode', 1);
 
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT, -- ユーザーID：一意の識別子
