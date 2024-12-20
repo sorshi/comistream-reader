@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.1] - 2024-11-
+## [1.0.1] - 2024-12-XX
 
 ### 追加
 - 低メモリモード追加。デフォルトは有効。有効時にはAVIFソースのトリミングを無効にする。
@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 修正
 - Dockerfileにunrar追加
+- ファイルが見つからなかったときに出す再検索ページで書籍名がおかしかったのを修正
 
 ### 削除
 - なし

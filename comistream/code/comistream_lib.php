@@ -1423,8 +1423,8 @@ function openPage()
                 if (!file_exists($openFile)){
                     // ファイルが存在しない場合はエラー
                     writelog("DEBUG openPage() file not found from path hash:" . $openFile.':'.$path_hash);
-                    list($book_title, $pageTitle) = get_book_title($baseFile);
-                    print_book_notfound_error($book_title);
+                    list($book_title, $pageTitle, $onlyBookName) = get_book_title($baseFile);
+                    print_book_notfound_error($onlyBookName);
                     clean_shm_dir();
                     exit(1);
                 }
@@ -1442,8 +1442,8 @@ function openPage()
             $book_title = "";
             $pageTitle = "";
             writelog("DEBUG openPage() file not found, attempting to create a search link.");
-            list($book_title, $pageTitle) = get_book_title($baseFile);
-            print_book_notfound_error($book_title);
+            list($book_title, $pageTitle, $onlyBookName) = get_book_title($baseFile);
+            print_book_notfound_error($onlyBookName);
             clean_shm_dir();
             exit(1);
         }
