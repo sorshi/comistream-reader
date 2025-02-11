@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.1] - 2024-12-XX
+## [1.0.1] - 2025-02-XX
 
 ### 追加
 - 低メモリモード追加。デフォルトは有効。有効時にはAVIFソースのトリミングを無効にする。
@@ -16,14 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 管理者用コンフィグ画面に設定を変更しないリンクボタン新設
 - 左上ヘッダ三連アイコンのログインボタンでユーザー名を空文字でログアウトできる機能追加
 - open時にfileにpath hashを指定しても開ける機能追加
+- ディレクトリリスティングしてる状態からログインしても元のページに戻ってくるように機能追加
 
 ### 変更
 - unrar path設定項目を削除
 - comistream.phpの引数にsize=FULLを付ける運用を終了して、sessionやcookieから自動判定されるように変更
+- セッションの有効期限を31日に設定
 
 ### 修正
 - Dockerfileにunrar追加
 - ファイルが見つからなかったときに出す再検索ページで書籍名がおかしかったのを修正
+- ログアウト時にcookieを削除してなかったバグを修正
+- bibiを配置してepubを参照する際に404エラーになるバグ修正 #2
 
 ### 削除
 - なし

@@ -18,11 +18,13 @@
 //  DBを使うかどうか 0:つかわない/1:つかう
 $global_use_db_flag = 1;
 
-// セッションの有効期限を1週間に設定
-ini_set('session.gc_probability', 1);
-ini_set('session.gc_divisor', 1000);
-ini_set('session.gc_maxlifetime', 604800);
-session_set_cookie_params(86400 * 7);
+// デフォルト値のままなので明示的定義コメントアウト
+// ini_set('session.gc_probability', 1);
+// ini_set('session.gc_divisor', 1000);
+// セッションの有効期限を31日に設定
+ini_set('session.gc_maxlifetime', 2678400);
+// セッションクッキーの有効期限を31日に設定
+session_set_cookie_params(86400 * 31);
 
 ##### ヘッダデバッグ表示 ######################################################################
 function debugRequestParams()
@@ -2912,6 +2914,12 @@ function adminLogin($dbh)
             exit;
         } else {
             // ログイン成功
+            if (empty($_SESSION['referer'])) {
+                // ディレクトリリスティングから来た場合はsessionに入ってないからこっち
+                if (isset($_SERVER['HTTP_REFERER']) && !empty($_SERVER['HTTP_REFERER'])) {
+                    $_SESSION['referer'] = $_SERVER['HTTP_REFERER'];
+                }
+            }
             $referer = $_SESSION['referer'] ?? '';
             session_regenerate_id(true);
             $_SESSION['name'] = $username;
@@ -2944,6 +2952,7 @@ function logout()
     // セッションクリア
     $_SESSION = array();
     session_destroy();
+    setcookie('comistreamUser', '', time() - 3600, '/');
 
     header("Location: $publicDir");
     exit;
