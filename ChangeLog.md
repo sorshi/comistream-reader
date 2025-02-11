@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfileにunrar追加
 - ファイルが見つからなかったときに出す再検索ページで書籍名がおかしかったのを修正
 - ログアウト時にcookieを削除してなかったバグを修正
+- bibiを配置してepubを参照する際に404エラーになるバグ修正 #2
 
 ### 削除
 - なし
