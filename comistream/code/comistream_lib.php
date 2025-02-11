@@ -2912,6 +2912,12 @@ function adminLogin($dbh)
             exit;
         } else {
             // ログイン成功
+            if (empty($_SESSION['referer'])) {
+                // ディレクトリリスティングから来た場合はsessionに入ってないからこっち
+                if (isset($_SERVER['HTTP_REFERER']) && !empty($_SERVER['HTTP_REFERER'])) {
+                    $_SESSION['referer'] = $_SERVER['HTTP_REFERER'];
+                }
+            }
             $referer = $_SESSION['referer'] ?? '';
             session_regenerate_id(true);
             $_SESSION['name'] = $username;
@@ -2944,6 +2950,7 @@ function logout()
     // セッションクリア
     $_SESSION = array();
     session_destroy();
+    setcookie('comistreamUser', '', time() - 3600, '/');
 
     header("Location: $publicDir");
     exit;
