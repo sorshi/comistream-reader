@@ -1279,6 +1279,8 @@ $contents_css
 
 <body onload="restorePage()" data-long-press-delay="500">
 
+<div id="clock" class="clock-container clock-hidden">00:00</div>
+
 <div id="loading" class="loading"></div>
 
 <div class="canvas" id="image"></div>
@@ -1310,6 +1312,7 @@ $contents_css
         <span class="button button-mode" id="direction" onclick="toggleDirection()">綴方向</span>
         <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()">全画面</span>
         <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()">$split_button_text</span>
+        <span class="button button-mode" id="clockToggleButton" onclick="toggleClock()">時計</span>
     </div>
     <div style="clear:both;">
         <div class="bookName">$bookName</div>

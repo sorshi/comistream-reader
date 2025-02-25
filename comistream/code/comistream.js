@@ -1310,3 +1310,51 @@ function getFullImageUrl(page) {
   return url.href;
 }
 
+// 時計の表示/非表示を切り替える関数
+function toggleClock() {
+  const clock = document.getElementById('clock');
+  const clockButton = document.getElementById('clockToggleButton');
+
+  if (clock.classList.contains('clock-hidden')) {
+    // 時計を表示
+    clock.classList.remove('clock-hidden');
+    clockButton.classList.add('pressed');
+    // ローカルストレージに設定を保存
+    localStorage.setItem('clockDisplay', 'show');
+    // 時計の更新を開始
+    updateClock();
+    // 1秒ごとに時計を更新
+    clockTimer = setInterval(updateClock, 1000);
+  } else {
+    // 時計を非表示
+    clock.classList.add('clock-hidden');
+    clockButton.classList.remove('pressed');
+    // ローカルストレージに設定を保存
+    localStorage.setItem('clockDisplay', 'hide');
+    // 時計の更新を停止
+    clearInterval(clockTimer);
+  }
+}
+
+// 時計の表示を更新する関数
+function updateClock() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  document.getElementById('clock').textContent = `${hours}:${minutes}`;
+}
+
+// ページ読み込み時に時計の設定を復元する
+window.addEventListener('load', function() {
+  const clockDisplay = localStorage.getItem('clockDisplay');
+  if (clockDisplay === 'show') {
+    // 少し遅延させてから実行（ページロード完了後）
+    setTimeout(function() {
+      toggleClock();
+    }, 500);
+  }
+});
+
+// グローバル変数の宣言
+let clockTimer;
+
