@@ -1225,12 +1225,14 @@ function showInspector() {
       }
     }, 150); // 0.15秒後に実行
   } else {
+    // page / maxPageスタイルで表示
+    // page / maxPageスタイルで表示
+    let pages = page + " / " + maxPage;
     // 新しい<ul>要素を作成します
     let list = document.createElement("ul");
 
     // 項目を作成し、リストに追加します
     const listItemArray = [
-      "page",
       "imagex",
       "imagey",
       "req",
@@ -1254,6 +1256,10 @@ function showInspector() {
       list.appendChild(listItem);
     }
     // 関数スコープの変数追加
+    listItem = document.createElement("li");
+    listItem.textContent = "ページ:" + pages;
+    list.prepend(listItem);
+
     listItem = document.createElement("li");
     listItem.textContent = "アスペクト比:" + aspect;
     list.appendChild(listItem);
