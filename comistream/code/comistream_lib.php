@@ -58,8 +58,6 @@ function debugRequestParams()
 ##### Cookie取得 ######################################################################
 function getCookie()
 {
-    // global $conf;
-
     $cookies = [];
     if (isset($_SERVER['HTTP_COOKIE'])) {
         $cookie_parts = explode(';', $_SERVER['HTTP_COOKIE']);
@@ -76,12 +74,11 @@ function getCookie()
 ##### syslogにログ出力 ######################################################################
 function writelog($messages, $processname = 'Comistream')
 {
-    global $writelog_process_name;
+    global $writelog_process_name, $global_debug_flag;
     if (!empty($writelog_process_name)) {
         $processname = $writelog_process_name;
     }
-    // global $conf;
-    global $global_debug_flag;
+
     $messages = mb_convert_encoding($messages, 'UTF-8', 'auto');
     $messages = str_replace(array("\r\n", "\r", "\n"), ' ', $messages);
     openlog($processname, LOG_NDELAY, LOG_USER);
@@ -116,8 +113,6 @@ function writelog($messages, $processname = 'Comistream')
 ##### 任意のエラー画面を表示してスクリプトを終了する  ############################################################
 function errorExit($title, $message, $isError = true)
 {
-    // global $conf;
-    // global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
 
     // エラー出力して終了
     if ($isError) {
@@ -154,8 +149,7 @@ EOF;
 ##### ファイル削除 ######################################################################
 function fileDelete()
 {
-    global $conf;
-
+    // 未使用関数
 
     # 未使用
     # $orgname =~ s/\.\.\///g;
@@ -175,7 +169,7 @@ function fileDelete()
 ##### ファイルリネーム ###################################################################
 function fileRename()
 {
-    global $conf;
+    // 未使用関数
     # 未使用
 } //end function fileRename
 
@@ -184,7 +178,7 @@ function fileRename()
 function coverUpdate()
 {
     global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
+    global $publicDir, $user, $file, $coverFile, $previewFile;
 
     if (($user !== "guest") && !empty($user) && (strlen($user) > 0) && !empty($file)) {
         // writelog("DEBUG coverUpdate() file:".$file);
@@ -224,13 +218,8 @@ function coverUpdate()
 ##### 書籍詳細表示へリダイレクト ###################################################################
 function openBookDetail()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    // global $newname, $orgname, $file;
+    global $file;
 
-    // writelog("INFO :$newname :$orgname :$file"); // ログ出力（必要に応じてコメント解除）
-
-    // TODO: ハードコーディングをどうにかする
     // リダイレクト先のURLを指定
     $file = preg_replace('/\.\.\//', '', $file);
     $file = str_replace('+', '%2B', $file);
@@ -249,8 +238,7 @@ function openBookDetail()
 ##### お気に入り設定 ####################################################################
 function setFavorite()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
+    global $user, $base_file_hash, $file, $bookmarkDir, $global_use_db_flag, $dbh, $mode;
 
     if ($user !== "guest") {
         $use_base_file_hash = 0;
@@ -329,9 +317,7 @@ function setFavorite()
 ##### 既読したか設定 ####################################################################
 function setHasRead()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    // global $user, $base_file_hash, $file, $global_use_db_flag, $dbh, $mode;
+    global $user, $base_file_hash, $file, $global_use_db_flag, $dbh, $mode, $bookmarkDir;
 
     if ($user !== "guest") {
         $use_base_file_hash = 0;
@@ -380,9 +366,7 @@ function setHasRead()
 ##### 読書履歴からファイル削除 ####################################################################
 function delHistory()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    // global $user, $global_use_db_flag, $dbh, $file;
+    global $user, $global_use_db_flag, $dbh, $file;
 
     if ($user !== "guest") {
         writelog("DEBUG delHistory() file:" . $file);
@@ -394,7 +378,7 @@ function delHistory()
 
         if ($global_use_db_flag == 1) {
             $baseFileUtf = $baseFile;
-            $baseFileHash = basefilename2hash($baseFileUtf);
+            // $baseFileHash = basefilename2hash($baseFileUtf);
             $query = "DELETE FROM book_history WHERE user = ? AND base_file = ?";
             $stmt = $dbh->prepare($query);
             $stmt->execute([$user, $baseFileUtf]);
@@ -415,11 +399,9 @@ function delHistory()
 ##### 単独での現在のページ位置取得 ############################################################
 function getCurrentPage()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
+    global $user, $file, $page, $sharePath;
     global $escapedFile;
     global $openFile;
-    // global $user, $file, $page, $maxPage, $dbh, $sharePath;
 
     // デコード前ファイルパスを保存
     $escapedFile = preg_replace('/\.\.\//', '', $file);
@@ -449,9 +431,7 @@ function getCurrentPage()
 ##### bookmarkファイルから現在のページ位置を取得 #########################################
 function getCurrentPageNumberFromBookmarkfile()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    global $openFile;
+    global $sharePath, $global_use_db_flag,  $dbh, $page,  $user,  $bookmarkPath, $baseFile, $favorite, $openFile;
 
     // ブックマーク領域作成
     // DB未使用時のコードはコメントアウト
@@ -512,10 +492,8 @@ function getCurrentPageNumberFromBookmarkfile()
 ##### ブックマークファイル更新 ##################################################################
 function makeBookmark()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg, $dirname;
-    global $escapedFile;
-    // global $global_use_db_flag, $baseFile, $bookmarkPath, $bookmarkDir, $user, $page, $maxPage, $file, $lineNo, $favorite;
+    global $global_use_db_flag, $baseFile, $bookmarkPath, $bookmarkDir, $user, $page, $maxPage,
+        $file, $lineNo, $favorite, $dbh, $escapedFile, $base_file_utf, $base_file_hash, $dirname;
 
     getCurrentPageNumberFromBookmarkfile();
 
@@ -575,8 +553,7 @@ function makeBookmark()
 ##### ブックマークファイル取得 ############################################################
 function getBookmarkList()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
+    global $user, $file, $global_use_db_flag, $bookmarkDir, $dbh;
 
     if ($user !== "guest") {
         $file = preg_replace('/\.\.\//', '', $file);
@@ -606,7 +583,7 @@ function getBookmarkList()
                     $outputLine = "{$row['base_file']}\t{$row['current_page']}\t{$row['max_page']}{$fav}";
                 }
                 echo $outputLine . "\n";
-                writelog("DEBUG getBookmarkList() $outputLine with DB");
+                writelog("DEBUG getBookmarkList() " . str_replace("\t", ",", $outputLine) . " with DB");
             }
         } else {
             echo file_get_contents("$bookmarkDir/$user/$file/bookmark");
@@ -619,8 +596,7 @@ function getBookmarkList()
 ##### 最近開いたファイル取得 ##############################################################
 function getHistory()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
+    global $user, $global_use_db_flag, $bookmarkDir, $dbh;
 
     if ($user !== "guest") {
         if ($global_use_db_flag == 1) {
@@ -648,8 +624,7 @@ function getHistory()
 ##### 閲覧履歴取得 JSONで返す ##############################################################
 function getRecentBooks()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
+    global $bookmarkDir, $user, $global_use_db_flag, $dbh;
 
     header("Content-type: application/json");
     if ($user !== "guest") {
@@ -704,9 +679,7 @@ function getRecentBooks()
 ##### ファイルクローズ時にページ位置を保存 ##################################################
 function saveBookmark()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    // global $user, $file, $page, $maxPage, $dbh, $global_use_db_flag, $bookmarkDir;
+    global $bookmarkDir, $user, $global_use_db_flag, $dbh, $file, $page, $maxPage;
 
     if ($user !== "guest") {
         $file = preg_replace('/\.\.\//', '', $file);
@@ -785,7 +758,8 @@ function saveBookmark()
 ##### 指定されたページをjpg/webpストリームとして出力する #########################################
 function outputPage($isFileout = false)
 {
-    global $view, $convert, $cacheDir, $file, $page, $size, $quality, $width, $als, $tempDir, $cpdf, $unzip, $p7zip, $unrar, $fullsize_png_compress, $isPageSave, $position_int, $crop_split_view_parts;
+    global $view, $convert, $cacheDir, $file, $page, $size, $quality, $width, $als, $tempDir,
+        $cpdf, $unzip, $p7zip, $unrar, $fullsize_png_compress, $isPageSave, $position_int, $crop_split_view_parts, $conf;
     global $conf;
 
     $crop_half_cmd = '';
@@ -1031,8 +1005,7 @@ function outputPage($isFileout = false)
 ##### ファイル不整合時にキャッシュを消してユーザーにリロードを促す ############################################
 function deleteCacheDirAndReload()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
+    global $cacheDir, $file;
 
     // 画像開けないのでキャッシュ消してリロードが必要
     if (is_dir("$cacheDir/$file")) {
@@ -1095,7 +1068,6 @@ function deleteDirectory($dir)
 function showReloadRequiredImg()
 {
     global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
 
     // キャッシュファイルが存在しない場合はリロードを促す画像を返す
     header("Content-type: image/png");
@@ -1138,9 +1110,15 @@ function compressResponse($content)
     // 圧縮の実行
     switch ($encoding) {
         case 'zstd':
-            writelog("DEBUG compressResponse() USING zstd encode");
-            header('Content-Encoding: zstd');
-            return zstd_compress($content);
+            if (function_exists('zstd_compress')) {
+                writelog("DEBUG compressResponse() USING zstd encode");
+                header('Content-Encoding: zstd');
+                return zstd_compress($content);
+            } else {
+                // ここに来ることはないはずだけど念のため
+                writelog("INFO compressResponse() zstd fallback");
+                return $content;
+            }
         case 'gzip':
             writelog("DEBUG compressResponse() USING gzip encode");
             header('Content-Encoding: gzip');
@@ -1154,14 +1132,10 @@ function compressResponse($content)
 ##### ベースhtml出力 #####################################################################
 function printHTML()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    global $degree;
-    global $indexArray;
-    global $escapedFile;
-    global $pageTitle;
-    global $bookName;
-    global $contents;
+    global $conf, $size, $global_preload_pages, $global_debug_flag, $page, $maxPage, $degree,
+        $indexArray, $position, $direction, $autosplit, $fileSize, $averagePageBytes, $baseFile,
+        $escapedFile, $file, $size, $view_query, $global_preload_delay_ms, $publicDir, $pageTitle,
+        $bookName, $contents, $split_button_class, $split_button_text;
 
     // CSSファイルの読み込み
     if (file_exists($conf["comistream_tool_dir"] . '/code/comistream.css')) {
@@ -1279,6 +1253,8 @@ $contents_css
 
 <body onload="restorePage()" data-long-press-delay="500">
 
+<div id="clock" class="clock-container clock-hidden">00:00</div>
+
 <div id="loading" class="loading"></div>
 
 <div class="canvas" id="image"></div>
@@ -1310,6 +1286,7 @@ $contents_css
         <span class="button button-mode" id="direction" onclick="toggleDirection()">綴方向</span>
         <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()">全画面</span>
         <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()">$split_button_text</span>
+        <span class="button button-mode" id="clockToggleButton" onclick="toggleClock()">時計</span>
     </div>
     <div style="clear:both;">
         <div class="bookName">$bookName</div>
@@ -1368,7 +1345,7 @@ function searchBookByHash($dbh, $file)
         $stmt = $dbh->prepare($sql);
         $stmt->execute([$file]);
         return $stmt->fetch(PDO::FETCH_ASSOC);
-    }else{
+    } else {
         writelog("DEBUG searchBookByHash() NOT found: " . $file);
         return false;
     }
@@ -1378,13 +1355,9 @@ function searchBookByHash($dbh, $file)
 function openPage()
 {
     global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    global $openFile;
-    global $escapedFile;
-    global $pageTitle;
-    global $bookName;
-    global $existDir;
-    global $degree;
+    global $tempDir, $cacheDir, $cacheSize, $sharePath, $publicDir, $md5cmd, $dbh,
+        $page, $file, $baseFile, $maxPage, $user, $openFile, $escapedFile, $coverFile,
+        $previewFile, $existDir, $direction, $position, $degree, $fileSize, $averagePageBytes;
 
     // テンポラリ領域がなければ作成
     writelog("DEBUG openPage() tempDir:" . $tempDir);
@@ -1414,7 +1387,7 @@ function openPage()
             $result = searchBookByHash($dbh, $file);
             if ($result) {
                 $baseFile = $result['base_file'];
-                $file = $result['relative_path'].'/'.$result['base_file'];
+                $file = $result['relative_path'] . '/' . $result['base_file'];
                 // 先頭の/を取り除く
                 $file = ltrim($file, '/');
                 $escapedFile = urlEncodeFilePath($file);
@@ -1422,22 +1395,22 @@ function openPage()
                 $file = urldecode($file);
                 writelog("DEBUG openPage() file:" . $file);
                 $openFile = "$sharePath/$file";
-                if (!file_exists($openFile)){
+                if (!file_exists($openFile)) {
                     // ファイルが存在しない場合はエラー
-                    writelog("DEBUG openPage() file not found from path hash:" . $openFile.':'.$path_hash);
+                    writelog("DEBUG openPage() file not found from path hash:" . $openFile . ':' . $path_hash);
                     list($book_title, $pageTitle, $onlyBookName) = get_book_title($baseFile);
                     print_book_notfound_error($onlyBookName);
                     clean_shm_dir();
                     exit(1);
                 }
-            }else{
+            } else {
                 // DBにハッシュがない
                 writelog("DEBUG openPage() file not found from path hash on DB:" . $path_hash);
                 print_book_notfound_error("");
                 clean_shm_dir();
                 exit(1);
             }
-        }else{
+        } else {
             // ファイルが存在しない
             writelog("ERROR openPage() file not found " . $openFile);
             $baseFile = basename($openFile);
@@ -1651,12 +1624,8 @@ function makeIndex($maxPage)
 ##### zip/rarアーカイブのオープン ############################################################
 function openZipRar()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    global $openFile;
-    global $indexArray;
-    global $contents;
-    global $existDir;
+    global $conf, $cacheDir, $cacheSize, $sharePath, $publicDir, $p7zip, $unzip, $isPreCache,
+        $existDir, $openFile, $file, $coverFile, $view, $maxPage, $indexArray, $contents, $async;
 
     writelog("DEBUG openZipRar() cacheDir:$cacheDir file:$file");
     $shell_cmd = "LANG=ja_JP.UTF8 $p7zip l -slt \"$cacheDir/$file/file\" | tee $cacheDir/$file/rawindex | grep -Pi \"\\.(jpg|jpeg|png|webp|avif|bmp|gif)\" | grep -v \"^\\._\" | grep -v \"/\\._\" | sed \"s/Path = //\" | sort -V | head -n 1";
@@ -1805,12 +1774,7 @@ function openZipRar()
 ##### PDFのオープン ############################################################
 function openPdf()
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    global $indexArray;
-    global $contents;
-    global $existDir;
-    // global $isPreCache, $cacheDir, $file, $cpdf, $tempDir, $maxPage;
+    global $conf, $cacheDir, $file, $cpdf, $traceFile, $async, $isPreCache, $existDir, $maxPage, $indexArray, $contents;
 
     if ($isPreCache && !$existDir) {
         // キャッシュファイル保存領域にpdfファイル解凍
@@ -1940,8 +1904,7 @@ function checkContentsIndexArray($indexArray)
 ##### 別プロセスを起動して表紙画像とプレビュー画像を作成する  ###########################
 function makeCover($coverProcessFile, $coverFile, $previewFile)
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
+    global $conf, $make_coverpage_path, $coverFile, $previewFile;
 
     $previewProcessFile = $coverProcessFile;
     $make_coverpage_path = $conf["comistream_tool_dir"] . "/code";
@@ -1982,7 +1945,6 @@ function makeCover($coverProcessFile, $coverFile, $previewFile)
 ##### 文字列を引数に取りハッシュを返す ############################################################
 function basefilename2hash($baseFile)
 {
-    global $conf;
     global $md5cmd;
 
     if (strlen($baseFile) === 0) {
@@ -2027,9 +1989,7 @@ function get_book_author_keyword($baseFile)
 ##### ファイル名から書籍名を返す ############################################################
 function get_book_title($bookName)
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    global $pageTitle;
+    global $conf, $pageTitle;
 
     $onlyBookName = '';
     $bookName = trim($bookName);
@@ -2055,9 +2015,8 @@ function get_book_title($bookName)
 ##### オープンしようとしたファイルが存在しなかったときにエラー画面表示 ###############################################
 function print_book_notfound_error($bookName)
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    // global $book_search_url, $baseFile;
+    global $conf, $book_search_url, $baseFile;
+
     if (strlen($book_search_url) > 1) {
         $bookName = "<a href=\"$book_search_url$bookName\">$bookName</a>";
     } else {
@@ -2161,7 +2120,7 @@ function print_book_notfound_error($bookName)
             border-bottom-color: #777;
         }
         a:visited {
-          color: #000;
+            color: #000;
         }
     </style>
 </head>
@@ -2521,14 +2480,7 @@ function updateSetting($db, $key, $value)
 ##### NestedArchive展開など処理が重いときにLoading画面表示 #######################################
 function printLoading($fileSizeMB = 0)
 {
-    global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $gostream, $ffmpeg, $make_coverpage_path, $book_search_url, $cacheDir, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $tempDir, $traceFile, $bookmarkDir, $global_use_db_flag, $global_debug_flag, $js_console_log, $global_resize, $usm, $global_preload_pages, $global_preload_delay_ms, $dbh, $buffer, $page, $file, $base_file_hash, $mode, $size, $newname, $orgname, $autosplit, $als, $view, $view_query, $split_button_class, $split_button_text, $user, $coverFile, $previewFile, $favorite_flag, $base_file_utf, $maxPage, $has_read, $pagefile, $ext, $pageInput, $result, $lineNo, $bookmarkPath, $baseFile, $favorite, $json, $position, $direction, $fileSize, $averagePageBytes, $unixtime, $timeout, $crop_half_cmd, $crop_half_cmd_left, $crop_half_cmd_right, $output_mime, $pageImg;
-    global $degree;
-    global $indexArray;
-    global $escapedFile;
-    global $pageTitle;
-    global $bookName;
-    global $contents;
+    global $conf, $file;
 
     $htmlContent =  <<<EOF
 <!DOCTYPE html>
@@ -2672,7 +2624,6 @@ function printLoading($fileSizeMB = 0)
     </footer>
   </body>
 </html>
-
 
 EOF;
 
@@ -3127,7 +3078,8 @@ function handleInitialSetup($postData)
 function installThemeFiles($dbh)
 {
     global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $ffmpeg, $book_search_url, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $global_debug_flag;
+    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip,
+        $ffmpeg, $book_search_url, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $global_debug_flag;
 
     // themeは公開直下 /public_html/theme/ に固定配置
     // /public_html/theme/cover , /public_html/theme/preview/ は/comistream/data/theme/coverのシンボリックリンク （書込ファイルは/dataに集めるため）
@@ -3305,7 +3257,9 @@ function installThemeFiles($dbh)
 function readConfig($dbh)
 {
     global $conf;
-    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip, $ffmpeg, $book_search_url, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality, $fullsize_png_compress, $global_debug_flag, $global_resize, $usm, $tempDir, $cacheDir;
+    global $sharePath, $publicDir, $md5cmd, $convert, $montage, $unzip, $unrar, $cpdf, $p7zip,
+        $ffmpeg, $book_search_url, $cacheSize, $isPageSave, $isPreCache, $async, $width, $quality,
+        $fullsize_png_compress, $global_debug_flag, $global_resize, $usm, $tempDir, $cacheDir;
     // 参考定義情報
     // Web公開ディレクトリのサーバ内フルパス
     // ＄conf["webRoot"] = "/home/user/public_html";
