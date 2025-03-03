@@ -1357,7 +1357,7 @@ function openPage()
     global $conf;
     global $tempDir, $cacheDir, $cacheSize, $sharePath, $publicDir, $md5cmd, $dbh,
         $page, $file, $baseFile, $maxPage, $user, $openFile, $escapedFile, $coverFile,
-        $previewFile, $existDir, $direction, $position, $degree, $fileSize, $averagePageBytes;
+        $previewFile, $existDir, $direction, $position, $degree, $fileSize, $averagePageBytes, $bookName ;
 
     // テンポラリ領域がなければ作成
     writelog("DEBUG openPage() tempDir:" . $tempDir);
