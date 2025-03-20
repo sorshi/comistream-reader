@@ -1607,23 +1607,23 @@ function showInspector() {
     }
     // 関数スコープの変数追加
     listItem = document.createElement("li");
-    listItem.textContent = "ページ:" + pages;
+    listItem.textContent = "Page:" + pages;
     list.prepend(listItem);
 
     listItem = document.createElement("li");
-    listItem.textContent = "アスペクト比:" + aspect;
+    listItem.textContent = "Aspect:" + aspect;
     list.appendChild(listItem);
 
     listItem = document.createElement("li");
-    listItem.textContent = "先読みページ数:" + preLoadCacheSize;
+    listItem.textContent = "Preload pages:" + preLoadCacheSize;
     list.appendChild(listItem);
 
     listItem = document.createElement("li");
-    listItem.textContent = "ファイルサイズ:" + archiveFileMBytes + "MB";
+    listItem.textContent = "File size:" + archiveFileMBytes + "MB";
     list.appendChild(listItem);
 
     listItem = document.createElement("li");
-    listItem.textContent = "平均ページサイズ:" + averagePageKBytes + "KB";
+    listItem.textContent = "Average page size:" + averagePageKBytes + "KB";
     list.appendChild(listItem);
 
     listItem = document.createElement("li");
