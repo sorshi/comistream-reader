@@ -26,6 +26,14 @@ a {
 a:hover {
   color: #2a2a2a;
 }
+
+/* タッチデバイス向けのhover効果無効化 */
+@media (hover: none) {
+  a:hover {
+    color: #61666c;
+  }
+}
+
 .wrapper {
   margin: 0 auto;
 }
@@ -182,6 +190,14 @@ td.indexcolicon {
 td.indexcolicon:hover {
   background-position-x: 5px;
 }
+
+/* タッチデバイス向けのhover効果無効化 */
+@media (hover: none) {
+  td.indexcolicon:hover {
+    background-position-x: -20px;
+  }
+}
+
 td.indexcolname {
   display: block;
   position: relative;

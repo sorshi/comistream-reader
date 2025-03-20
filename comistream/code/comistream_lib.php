@@ -26,6 +26,9 @@ ini_set('session.gc_maxlifetime', 2678400);
 // セッションクッキーの有効期限を31日に設定
 session_set_cookie_params(86400 * 31);
 
+// 多言語化対応のためのファイルを読み込み
+require_once(__DIR__ . '/i18n.php');
+
 ##### ヘッダデバッグ表示 ######################################################################
 function debugRequestParams()
 {
@@ -113,6 +116,8 @@ function writelog($messages, $processname = 'Comistream')
 ##### 任意のエラー画面を表示してスクリプトを終了する  ############################################################
 function errorExit($title, $message, $isError = true)
 {
+    // I18nインスタンスを取得
+    $i18n = I18n::getInstance();
 
     // エラー出力して終了
     if ($isError) {
@@ -123,7 +128,7 @@ function errorExit($title, $message, $isError = true)
     }
     echo <<<EOF
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="{$i18n->getCurrentLang()}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1137,13 +1142,16 @@ function printHTML()
         $escapedFile, $file, $size, $view_query, $global_preload_delay_ms, $publicDir, $pageTitle,
         $bookName, $contents, $split_button_class, $split_button_text;
 
+    // I18nインスタンスを取得
+    $i18n = I18n::getInstance();
+
     // CSSファイルの読み込み
     if (file_exists($conf["comistream_tool_dir"] . '/code/comistream.css')) {
         $contents_css = file_get_contents($conf["comistream_tool_dir"] . '/code/comistream.css');
         writelog("DEBUG CSS file exist.");
     } else {
         writelog("ERROR CSS not found:" . __DIR__);
-        errorExit("config not found", "comistream.cssファイルがみつかりません。");
+        errorExit($i18n->get('config_not_found'), $i18n->get('config_not_found') . ": comistream.css");
     }
 
     // JavaScriptファイルの読み込み
@@ -1152,17 +1160,17 @@ function printHTML()
         writelog("DEBUG JS file exist.");
     } else {
         writelog("ERROR JS not found:" . __DIR__);
-        errorExit("config not found", "comistream.jsファイルがみつかりません。");
+        errorExit($i18n->get('config_not_found'), $i18n->get('config_not_found') . ": comistream.js");
     }
 
     // 動作モード設定
     if ($size === 'FULL') {
-        $size_button_flag = '圧縮'; // 切り換え先を表示
+        $size_button_flag = $i18n->get('compressed'); // 切り換え先を表示
         $size_button_class = 'button raw';
         // FULLサイズはモバイルネットワークではないと想定してプリロードページ数を倍に
         $global_preload_pages *= 2;
     } else {
-        $size_button_flag = 'フル';
+        $size_button_flag = $i18n->get('full_size');
         $size_button_class = 'button cmp';
     }
     // デバッグフラグをJSONに変換(JS埋め込み用)
@@ -1178,9 +1186,14 @@ function printHTML()
     // themeもpath
     $themeDir = ''; // themeは常にwebroot直下
 
+    // 言語選択用のHTMLを生成
+    $langSelectorHtml = $i18n->getLangSelectorHtml();
+    // 言語切り替え用のJavaScript
+    $langSwitcherJs = $i18n->getLangSwitcherJs();
+
     $htmlContent =  <<<EOF
 <!DOCTYPE html>
-<html lang="ja" data-long-press-delay="500">
+<html lang="{$i18n->getCurrentLang()}" data-long-press-delay="500">
 <head>
     <meta http-equiv="Content-Type" CONTENT="text/html; charset=UTF-8">
     <meta name="viewport" content="width=device-width, viewport-fit=cover" />
@@ -1215,6 +1228,15 @@ $contents_css
     // PHPの設定に基づいてJavaScriptのデバッグフラグを設定
     window.DEBUG_ENABLED = $debug_flag;
 
+    // 多言語対応用のメッセージを設定
+    window.i18n = {
+        fullscreen_not_supported: "{$i18n->get('fullscreen_not_supported')}",
+        author_link_not_found: "{$i18n->get('author_link_not_found')}",
+        title_link_not_found: "{$i18n->get('title_link_not_found')}",
+        input_alphanumeric: "{$i18n->get('input_alphanumeric')}",
+        connection_error: "{$i18n->get('connection_error')}"
+    };
+
     (function() {
         // 即時関数の定義と実行
         window.debugLog = function(message) {
@@ -1245,6 +1267,8 @@ $contents_css
 
     $contents_js
 
+    // 言語切り替え用JavaScript
+    $langSwitcherJs
 //-->
 </script>
 
@@ -1278,15 +1302,15 @@ $contents_css
 <div class="contents" id="contents">
     <div>
         <img src="$themeDir/theme/icons/close.png" alt="Close button" class="close" onclick="document.getElementById('contents').style.display='none'">
-        <span class="button button-close" onclick="backListPage();">戻る</span>
+        <span class="button button-close" onclick="backListPage();">{$i18n->get('back')}</span>
         <span id="rawMode" class="$size_button_class button-mode" onclick="toggleRaw();">$size_button_flag</span>
-        <span id="single" class="button button-mode" onclick="single()">単頁</span>
-        <span id="spread" class="button button-mode" onclick="spread()">見開</span>
-        <span class="button button-mode" onclick="fixSpreadPage()">見開補正</span>
-        <span class="button button-mode" id="direction" onclick="toggleDirection()">綴方向</span>
-        <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()">全画面</span>
-        <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()">$split_button_text</span>
-        <span class="button button-mode" id="clockToggleButton" onclick="toggleClock()">時計</span>
+        <span id="single" class="button button-mode" onclick="single()">{$i18n->get('single_page')}</span>
+        <span id="spread" class="button button-mode" onclick="spread()">{$i18n->get('spread_page')}</span>
+        <span class="button button-mode" onclick="fixSpreadPage()">{$i18n->get('spread_fix')}</span>
+        <span class="button button-mode" id="direction" onclick="toggleDirection()">{$i18n->get('direction')}</span>
+        <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()">{$i18n->get('fullscreen')}</span>
+        <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()">{$i18n->get('trimmingmode')}</span>
+        $langSelectorHtml<span class="button button-mode" id="clockToggleButton" onclick="toggleClock()">{$i18n->get('clock')}</span>
     </div>
     <div style="clear:both;">
         <div class="bookName">$bookName</div>
@@ -1298,7 +1322,7 @@ $contents_css
 
 <div id="suggest" hidden >
     <input type="hidden" autofocus="autofocus" />
-        <span class="button" onclick="backListPage();">戻る</span>
+        <span class="button" onclick="backListPage();">{$i18n->get('back')}</span>
 </div>
 
 <div id="overlay" class="overlay"></div>
@@ -1357,7 +1381,7 @@ function openPage()
     global $conf;
     global $tempDir, $cacheDir, $cacheSize, $sharePath, $publicDir, $md5cmd, $dbh,
         $page, $file, $baseFile, $maxPage, $user, $openFile, $escapedFile, $coverFile,
-        $previewFile, $existDir, $direction, $position, $degree, $fileSize, $averagePageBytes, $bookName ;
+        $previewFile, $existDir, $direction, $position, $degree, $fileSize, $averagePageBytes, $bookName;
 
     // テンポラリ領域がなければ作成
     writelog("DEBUG openPage() tempDir:" . $tempDir);
@@ -1563,6 +1587,9 @@ function makeIndex($maxPage)
 {
     global $cacheDir, $file;
 
+    // I18nインスタンスを取得
+    $i18n = I18n::getInstance();
+
     $indexArray = '';
     $contents = '';
     // ページ数が多い本は章のジャンプページ数をだいたい20章を目安に増やす
@@ -1597,18 +1624,18 @@ function makeIndex($maxPage)
     if ($maxPage > 10) {
         $indexArray .= $indexArray ? ",1" : "1";
         $i = 10;
-        $contents .= "<div class=\"toclink\" onclick=\"page=1; loadPage(1);\">表紙</div>\n";
+        $contents .= "<div class=\"toclink\" onclick=\"page=1; loadPage(1);\">" . $i18n->get('toc_cover') . "</div>\n";
         while ($i < $maxPage) {
             $indexArray .= ",$i";
-            $contents .= "<div class=\"toclink\" onclick=\"page=$i; loadPage(1);\">$i ページ</div>\n";
+            $contents .= "<div class=\"toclink\" onclick=\"page=$i; loadPage(1);\">$i " . $i18n->get('page_unit') . "</div>\n";
             $i += $section_unit_pages;
         }
         $indexArray .= ",$maxPage";
-        $contents .= "<div class=\"toclink\" onclick=\"page=$maxPage; loadPage(1);\">最終ページ</div>\n";
+        $contents .= "<div class=\"toclink\" onclick=\"page=$maxPage; loadPage(1);\">" . $i18n->get('last_page') . "</div>\n";
     } else {
         $indexArray .= $indexArray ? ",1,$maxPage" : "1,$maxPage";
-        $contents .= "<div class=\"toclink\" onclick=\"page=1; loadPage(1);\">表紙</div>\n";
-        $contents .= "<div class=\"toclink\" onclick=\"page=$maxPage; loadPage(1);\">最終ページ</div>\n";
+        $contents .= "<div class=\"toclink\" onclick=\"page=1; loadPage(1);\">" . $i18n->get('toc_cover') . "</div>\n";
+        $contents .= "<div class=\"toclink\" onclick=\"page=$maxPage; loadPage(1);\">" . $i18n->get('last_page') . "</div>\n";
     }
 
     // 重複を削除し、ソートする
@@ -2017,6 +2044,9 @@ function print_book_notfound_error($bookName)
 {
     global $conf, $book_search_url, $baseFile;
 
+    // I18nインスタンスを取得
+    $i18n = I18n::getInstance();
+
     if (strlen($book_search_url) > 1) {
         $bookName = "<a href=\"$book_search_url$bookName\">$bookName</a>";
     } else {
@@ -2027,7 +2057,7 @@ function print_book_notfound_error($bookName)
 
     echo <<<EOF
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="{$i18n->getCurrentLang()}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2265,7 +2295,7 @@ function system_config($dbh)
         $url = $_SERVER['REQUEST_URI'];
 ?>
         <!DOCTYPE html>
-        <html lang="ja">
+        <html lang="{$i18n->getCurrentLang()}">
 
         <head>
             <meta charset="UTF-8">
@@ -2442,7 +2472,7 @@ function system_config($dbh)
     } else {
         $html = <<<HTML
     <!DOCTYPE html>
-    <html lang="ja">
+    <html lang="{$i18n->getCurrentLang()}">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2482,13 +2512,16 @@ function printLoading($fileSizeMB = 0)
 {
     global $conf, $file;
 
+    // I18nインスタンスを取得
+    $i18n = I18n::getInstance();
+
     $htmlContent =  <<<EOF
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="{$i18n->getCurrentLang()}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Comistream:Now Loading...</title>
+    <title>Comistream:{$i18n->get('loading')}</title>
 
     <style>
       /* @import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap'); */
@@ -2599,7 +2632,7 @@ function printLoading($fileSizeMB = 0)
           })
           .catch(error => {
             console.error("Fetch error:", error);
-            window.alert("接続エラーが発生しました");
+            window.alert("{$i18n->get('connection_error')}");
             window.history.back();
           });
       }
@@ -2620,7 +2653,7 @@ function printLoading($fileSizeMB = 0)
       </div>
     </main>
     <footer>
-      <p>Comistream: Now Extracting... {$fileSizeMB}MB of files</p>
+      <p>Comistream: {$i18n->get('loading')}... {$fileSizeMB}MB of files</p>
     </footer>
   </body>
 </html>
@@ -2724,6 +2757,9 @@ function displayInitialSetupScreen()
 ##### 初期管理者パスワード設定画面/ログイン画面HTMLを出力 #######################################################
 function printLoginHtml($mode, $title, $errorMessage, $buttonText, $messagecss)
 {
+    // I18nインスタンスを取得
+    $i18n = I18n::getInstance();
+
     // CSRFトークンを生成
     $csrf = bin2hex(random_bytes(50));
     $_SESSION['csrf'] = $csrf;
@@ -2739,7 +2775,7 @@ function printLoginHtml($mode, $title, $errorMessage, $buttonText, $messagecss)
 
     $html = <<<HTML
     <!DOCTYPE html>
-    <html lang="ja">
+    <html lang="{$i18n->getCurrentLang()}">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2817,11 +2853,11 @@ function printLoginHtml($mode, $title, $errorMessage, $buttonText, $messagecss)
             </div>
             <form id="setup-form" method="POST" $action>
                 <div class="input-group">
-                    <label for="username">管理者ユーザー名</label>
+                    <label for="username">{$i18n->get('admin_username')}</label>
                     <input type="text" id="username" name="username" minlength="3" maxlength="100" value="$formUser" required>
                 </div>
                 <div class="input-group">
-                    <label for="password">管理者パスワード</label>
+                    <label for="password">{$i18n->get('admin_password')}</label>
                     <input type="password" id="password" name="password" minlength="8" maxlength="4000" required>
                 </div>
                 <input type="hidden" name="csrf" value="$csrf">
@@ -3612,7 +3648,5 @@ class PDFAnalyzer
         return $output;
     }
 } //end class PDFAnalyzer
-
-
 
 ?>
