@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - open時にfileにpath hashを指定しても開ける機能追加
 - ディレクトリリスティングしてる状態からログインしても元のページに戻ってくるように機能追加
 - 時計の表示/非表示を切り替えるボタンを追加
+- 国際化対応。現在は英語と日本語に対応
 
 ### 変更
 - unrar path設定項目を削除
@@ -32,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - bibiを配置してepubを参照する際に404エラーになるバグ修正 [#2](https://github.com/sorshi/comistream-reader/issues/2)
 - 未使用global変数宣言を多少整理
 - iOS/Androidデバイスで長押しでクイック見開き表示にしたとき、解除してもすぐに戻らない不具合修正
+- タッチパネルデバイスではhoverに反応しないように抑制
 
 ### 削除
 - なし
