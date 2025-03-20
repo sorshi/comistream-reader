@@ -255,7 +255,7 @@ function search(){
 }
 
 function login(){
-  var user = window.prompt("ユーザー名を入力してください", loginuser);
+  var user = window.prompt(translations['login'] || "ユーザー名を入力してください", loginuser);
   if (user == null) {
     // キャンセルの場合は何もしない
   }else if( user == "" || user == "guest" ){
@@ -268,7 +268,7 @@ function login(){
     location.reload();
   } else if (user.match(/[^A-Za-z0-9]+/) || user.length > 16) {
     // 半角英数字以外の文字が存在する場合
-    alert("16文字までの半角英数字を入力してください");
+    alert(translations['input_alphanumeric'] || "16文字までの半角英数字を入力してください");
   } else {
     // サーバーサイドでユーザー名の検証とセッションの確認を行う
     var xhr = new XMLHttpRequest();

@@ -16,11 +16,11 @@
 class I18n
 {
     private static $instance = null;
-    private $lang = 'ja_JP'; // デフォルト言語
+    private $lang = 'ja'; // デフォルト言語
     private $translations = [];
     private $availableLangs = [
-        'ja_JP' => '日本語',
-        'en_US' => 'English'
+        'ja' => '日本語',
+        'en' => 'English'
     ];
 
     /**
@@ -49,27 +49,42 @@ class I18n
      */
     private function detectLanguage()
     {
+        error_log("detectLanguage - 言語検出開始");
         // 1. Cookieから言語設定を取得
-        if (isset($_COOKIE['lang']) && array_key_exists($_COOKIE['lang'], $this->availableLangs)) {
-            $this->lang = $_COOKIE['lang'];
-            return;
+        if (isset($_COOKIE['lang'])) {
+            error_log("Cookie lang値: " . $_COOKIE['lang']);
+            if (array_key_exists($_COOKIE['lang'], $this->availableLangs)) {
+                $this->lang = $_COOKIE['lang'];
+                error_log("Cookie から言語設定: " . $this->lang);
+                return;
+            } else {
+                error_log("Cookie に言語設定はありますが、対応していない言語です: " . $_COOKIE['lang']);
+            }
+        } else {
+            error_log("Cookie に言語設定はありません");
         }
 
         // 2. Accept-Languageヘッダから言語設定を取得
         if (isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])) {
             $browserLangs = explode(',', $_SERVER['HTTP_ACCEPT_LANGUAGE']);
+            error_log("ブラウザ言語: " . $_SERVER['HTTP_ACCEPT_LANGUAGE']);
             foreach ($browserLangs as $browserLang) {
                 $langCode = substr($browserLang, 0, 2);
                 if ($langCode === 'ja') {
-                    // $this->lang = 'ja_JP';
                     $this->lang = 'ja';
+                    error_log("ブラウザ言語から言語設定: " . $this->lang);
                     return;
                 } elseif ($langCode === 'en') {
-                    $this->lang = 'en_US';
+                    $this->lang = 'en';
+                    error_log("ブラウザ言語から言語設定: " . $this->lang);
                     return;
                 }
             }
+        } else {
+            error_log("ブラウザ言語設定はありません");
         }
+        
+        error_log("デフォルト言語を使用: " . $this->lang);
     }
 
     /**
@@ -78,11 +93,23 @@ class I18n
     private function loadTranslations()
     {
         $langFile = __DIR__ . '/../lang/' . $this->lang . '.php';
+        // 短縮形から詳細形へのマッピング
+        $langMap = [
+            'ja' => 'ja_JP',
+            'en' => 'en_US'
+        ];
+        
+        $mappedLang = isset($langMap[$this->lang]) ? $langMap[$this->lang] : $this->lang;
+        $langFile = __DIR__ . '/../lang/' . $mappedLang . '.php';
+        
+        error_log("言語ファイル読み込み: " . $langFile);
         if (file_exists($langFile)) {
             $this->translations = require($langFile);
+            error_log("言語ファイル読み込み成功");
         } else {
             // デフォルト言語のファイルが見つからない場合は空の配列を設定
             $this->translations = [];
+            error_log("言語ファイルが見つかりません: " . $langFile);
         }
     }
 
@@ -139,7 +166,7 @@ class I18n
         $html .= '<div class="lang-current">';
 
         // 現在選択中の言語を表示
-        $html .= '<a href="#" class="lang-selected">' . $this->availableLangs[$this->lang] . ' ▼</a>';
+        $html .= '<a href="#" class="lang-selected">▼</a>';
         $html .= '<div class="lang-dropdown">';
 
         // 全言語のリストをドロップダウンに表示
