@@ -1234,7 +1234,12 @@ $contents_css
         author_link_not_found: "{$i18n->get('author_link_not_found')}",
         title_link_not_found: "{$i18n->get('title_link_not_found')}",
         input_alphanumeric: "{$i18n->get('input_alphanumeric')}",
-        connection_error: "{$i18n->get('connection_error')}"
+        connection_error: "{$i18n->get('connection_error')}",
+        toc_button_full: "{$i18n->get('full_size')}",
+        toc_button_compress: "{$i18n->get('compressed')}",
+        toc_button_fullsize: "{$i18n->get('full_size')}",
+        toc_button_trimming: "{$i18n->get('trimmingmode_trimming')}",
+        toc_button_normal: "{$i18n->get('trimmingmode_normal')}"
     };
 
     (function() {
@@ -1265,10 +1270,12 @@ $contents_css
     const themeDir = "$themeDir";
     let global_preload_pages = $global_preload_pages;
 
+    // comistream.js
     $contents_js
 
     // 言語切り替え用JavaScript
     $langSwitcherJs
+
 //-->
 </script>
 
@@ -1309,7 +1316,7 @@ $contents_css
         <span class="button button-mode" onclick="fixSpreadPage()">{$i18n->get('spread_fix')}</span>
         <span class="button button-mode" id="direction" onclick="toggleDirection()">{$i18n->get('direction')}</span>
         <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()">{$i18n->get('fullscreen')}</span>
-        <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()">{$i18n->get('trimmingmode')}</span>
+        <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()">$split_button_text</span>
         $langSelectorHtml<span class="button button-mode" id="clockToggleButton" onclick="toggleClock()">{$i18n->get('clock')}</span>
     </div>
     <div style="clear:both;">

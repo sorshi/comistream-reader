@@ -22,7 +22,8 @@ return [
     'spread_fix' => '見開補正',
     'direction' => '綴方向',
     'fullscreen' => '全画面',
-    'trimmingmode' => 'トリミング',
+    'trimmingmode_trimming' => '余白除',
+    'trimmingmode_normal' => '全体',
     'clock' => '時計',
 
     // エラーメッセージ

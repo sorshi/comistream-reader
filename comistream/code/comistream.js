@@ -1158,14 +1158,14 @@ function toggleRaw() {
   let reload_url = location.href;
   if (document.getElementById("rawMode").classList.contains("raw")) {
     document.getElementById("rawMode").className = "button cmp";
-    document.getElementById("rawMode").textContent = "圧縮";
+    document.getElementById("rawMode").textContent = window.i18n.toc_button_compress;
     document.cookie = "rawMode=cmp; path=/; max-age=31536000";
     // console.log("size toggle cmp");
     // let reload_url = location.href.replace("&size=FULL", "");
     location.replace(reload_url);
   } else {
     document.getElementById("rawMode").className = "button raw";
-    document.getElementById("rawMode").textContent = "フル";
+    document.getElementById("rawMode").textContent = window.i18n.toc_button_fullsize;
     document.cookie = "rawMode=raw; path=/; max-age=31536000";
     // console.log("size toggle raw");
     // let reload_url = location.href + "&size=FULL";
@@ -1184,7 +1184,7 @@ function toggleTrimmingFile() {
     // page = page*2;
     navigator.sendBeacon("comistream.php", data);
     document.getElementById("splitFile").className = "button trimming";
-    document.getElementById("splitFile").textContent = "全体";
+    document.getElementById("splitFile").textContent = window.i18n.toc_button_normal; // 変更先を表示
     // console.log("toggleTrimmingFile() normal to split");
     let reload_url = location.href + "&view=trimming";
     // (reload_url);
@@ -1194,7 +1194,7 @@ function toggleTrimmingFile() {
     // page = Math.floor((page+1)/2);
     navigator.sendBeacon("comistream.php", data);
     document.getElementById("splitFile").className = "button normal";
-    document.getElementById("splitFile").textContent = "余白";
+    document.getElementById("splitFile").textContent = window.i18n.toc_button_trimming;
     // console.log("toggleTrimmingFile() split to normal");
     let reload_url = location.href.replace("&view=trimming", "");
     // console.log(reload_url);
