@@ -146,16 +146,20 @@ if (array_key_exists("update", $param)) $mode = "update";
 if (array_key_exists("delete", $param)) $mode = "delete";
 
 $autosplit = array_key_exists("autosplit", $param) ? $param["autosplit"] : "on";
+
+// I18nインスタンスを取得
+$i18n = I18n::getInstance();
+
 if (array_key_exists("view", $param)) {
     $view = $param["view"];
     $view_query = '&view=trimming';
     $split_button_class = 'button trimming';
-    $split_button_text = '通常';
+    $split_button_text = $i18n->get('trimmingmode_normal'); // 変更先を表示
     writelog("DEBUG Query string : view split:$view");
 } else {
     $view_query = '';
     $split_button_class = 'button normal';
-    $split_button_text = '余白';
+    $split_button_text = $i18n->get('trimmingmode_trimming');
 }
 
 // Cookieからユーザ名取得

@@ -22,7 +22,8 @@ return [
     'spread_fix' => 'Fix Spread',
     'direction' => 'Direction',
     'fullscreen' => 'Fullscreen',
-    'trimmingmode' => 'Trimming',
+    'trimmingmode_trimming' => 'Trimming',
+    'trimmingmode_normal' => 'NoTrim',
     'clock' => 'Clock',
 
     // Error Messages

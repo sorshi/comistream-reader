@@ -50,10 +50,7 @@ function getCurrentLang() {
       // console.log("有効な言語設定を localStorage から取得し、Cookie にも設定: " +localLang);
       return localLang;
     } else if (localLang) {
-      console.log(
-        "localStorage に言語設定はありますが、対応していない言語です: " +
-          localLang
-      );
+      // console.log("localStorage に言語設定はありますが、対応していない言語です: " +localLang);
     }
   } catch (e) {
     // localStorageにアクセスできなかった場合（プライベートモードなど）
