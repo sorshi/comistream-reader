@@ -9,7 +9,7 @@
  * @author      Comistream Project.
  * @copyright   2024 Comistream Project.
  * @license     GPL3.0 License
- * @version     1.0.0
+ * @version     1.1.0
  *
  * 主な機能:
  * - ページめくり制御
@@ -211,13 +211,15 @@ class PreCache {
         this.networkSpeedKBps
     );
     // 平均ページサイズが大きい場合は先読み数を増やすルン！
-    if (typeof averagePageKBytes !== 'undefined' && averagePageKBytes >= 1000) {
+    if (typeof averagePageKBytes !== "undefined" && averagePageKBytes >= 1000) {
       // 1000KB（約1MB）以上の大きなページサイズの場合は1.5倍にするルン
       this.size = Math.floor(this.size * 1.5);
-      debugLog("Large page size detected! Increasing preload pages to " + this.size + " pages");
+      debugLog(
+        "Large page size detected! Increasing preload pages to " +
+          this.size +
+          " pages"
+      );
     }
-
-
   }
 }
 
@@ -943,6 +945,9 @@ function restorePage() {
 
   // 最終ページでの次の巻情報取得
   sugguestbook();
+
+  // 大きなページサイズの通知をチェック
+  checkAndShowLargePageNotification();
 }
 
 function index() {
@@ -1180,14 +1185,16 @@ function toggleRaw() {
   let reload_url = location.href;
   if (document.getElementById("rawMode").classList.contains("raw")) {
     document.getElementById("rawMode").className = "button cmp";
-    document.getElementById("rawMode").textContent = window.i18n.toc_button_compress;
+    document.getElementById("rawMode").textContent =
+      window.i18n.toc_button_compress;
     document.cookie = "rawMode=cmp; path=/; max-age=31536000";
     // console.log("size toggle cmp");
     // let reload_url = location.href.replace("&size=FULL", "");
     location.replace(reload_url);
   } else {
     document.getElementById("rawMode").className = "button raw";
-    document.getElementById("rawMode").textContent = window.i18n.toc_button_fullsize;
+    document.getElementById("rawMode").textContent =
+      window.i18n.toc_button_fullsize;
     document.cookie = "rawMode=raw; path=/; max-age=31536000";
     // console.log("size toggle raw");
     // let reload_url = location.href + "&size=FULL";
@@ -1206,7 +1213,8 @@ function toggleTrimmingFile() {
     // page = page*2;
     navigator.sendBeacon("comistream.php", data);
     document.getElementById("splitFile").className = "button trimming";
-    document.getElementById("splitFile").textContent = window.i18n.toc_button_normal; // 変更先を表示
+    document.getElementById("splitFile").textContent =
+      window.i18n.toc_button_normal; // 変更先を表示
     // console.log("toggleTrimmingFile() normal to split");
     let reload_url = location.href + "&view=trimming";
     // (reload_url);
@@ -1216,7 +1224,8 @@ function toggleTrimmingFile() {
     // page = Math.floor((page+1)/2);
     navigator.sendBeacon("comistream.php", data);
     document.getElementById("splitFile").className = "button normal";
-    document.getElementById("splitFile").textContent = window.i18n.toc_button_trimming;
+    document.getElementById("splitFile").textContent =
+      window.i18n.toc_button_trimming;
     // console.log("toggleTrimmingFile() split to normal");
     let reload_url = location.href.replace("&view=trimming", "");
     // console.log(reload_url);
@@ -1270,7 +1279,6 @@ async function sugguestbook() {
     Object.keys(data.author).forEach(function (key) {
       addnextbooklist(key, data.author[key]);
     });
-
   } catch (error) {
     debugLog("Fetch errored: " + error);
     const errorHtml = `<p><img src="${themeDir}/theme/icons/book.png" /><b>${baseFile}</b><span style="color:red">　no suggest</span></p>`;
@@ -1353,7 +1361,7 @@ function addnextbooklist(nexttitle, nextlocation) {
     encodeOpenFilePath +
     "&mode=open" +
     sizeOption +
-    "\')\">" +
+    "')\">" +
     nexttitle +
     "</a></p>";
   debugLog("addnextbooklist(); nexttag:" + nexttag);
@@ -1796,3 +1804,58 @@ window.addEventListener("load", function () {
 
 // グローバル変数の宣言
 let clockTimer;
+
+// 大きなページサイズの通知機能
+function showLargePageNotification() {
+  // 既存の通知があれば削除
+  const existingNotification = document.querySelector(
+    ".large-page-notification"
+  );
+  if (existingNotification) {
+    existingNotification.remove();
+  }
+
+  // 通知要素を作成
+  const notification = document.createElement("div");
+  notification.className = "large-page-notification";
+  notification.textContent =
+    window.i18n.large_page_notification ||
+    "ページサイズが大きいため表示が重たい可能性があります。端末にダウンロードすると高速に表示されます。";
+
+  // クリックで非表示にする
+  notification.addEventListener("click", function () {
+    hideLargePageNotification(notification);
+  });
+
+  // ページに追加
+  document.body.appendChild(notification);
+
+  // 5秒後に自動で非表示
+  setTimeout(function () {
+    hideLargePageNotification(notification);
+  }, 5000);
+}
+
+function hideLargePageNotification(notification) {
+  if (notification && notification.parentNode) {
+    notification.classList.add("fade-out");
+    setTimeout(function () {
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
+      }
+    }, 500);
+  }
+}
+
+// ページサイズをチェックして通知を表示する関数
+function checkAndShowLargePageNotification() {
+  // averagePageKBytesが2000を超えていて、かつsizeが'FULL'（rawモード）の場合
+  if (averagePageKBytes > 2000 && size === "FULL") {
+    debugLog(
+      "Large page size detected: " +
+        averagePageKBytes +
+        "KB, showing notification"
+    );
+    showLargePageNotification();
+  }
+}

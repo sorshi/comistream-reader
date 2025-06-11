@@ -66,4 +66,12 @@ return [
     'author_link_not_found' => '找不到作者連結。',
     'title_link_not_found' => '找不到標題連結。',
     'input_alphanumeric' => '請輸入16字以內的半形英數字',
+
+    // Large page size notification
+    'large_page_notification' => '頁面大小較大，可能導致顯示緩慢。切換至壓縮模式或下載到您的裝置可能會改善效能。',
+
+    // Alt text for accessibility
+    'alt_close_button' => '關閉按鈕',
+    'alt_quick_spread_left' => '快速雙頁模式左頁',
+    'alt_quick_spread_right' => '快速雙頁模式右頁',
 ]; 

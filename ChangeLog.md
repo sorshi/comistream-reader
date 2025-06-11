@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.1] - 2025-XX-YY
-
 ### 追加
 - 低メモリモード追加。デフォルトは有効。有効時にはAVIFソースのトリミングを無効にする。
 - ログ表示で表紙画像とプレビュー画像の作成に要した時間を記録する機能追加
@@ -20,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 時計の表示/非表示を切り替える時計アイコンをTOCメニューに追加
 - 国際化対応。現在は日本語、英語、台湾、香港に対応。ディレクトリリスティングヘッダとリーダーに切替眼入装備
 - カスタムディレクトリアイコン表示機能搭載。まだ自動作成処理は動作有効にしてない。（BETA）
+- ページサイズが大きい際にはリーダーオープン時に通知を表示
 
 ### 変更
 - unrar path設定項目を削除

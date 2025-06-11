@@ -66,4 +66,12 @@ return [
     'author_link_not_found' => 'Author link not found.',
     'title_link_not_found' => 'Title link not found.',
     'input_alphanumeric' => 'Please enter up to 16 alphanumeric characters',
+
+    // Large page size notification
+    'large_page_notification' => 'Large page size may cause slow display. Switching to compressed mode or downloading to your device may improve performance.',
+
+    // Alt text for accessibility
+    'alt_close_button' => 'Close button',
+    'alt_quick_spread_left' => 'Quick spread mode left page',
+    'alt_quick_spread_right' => 'Quick spread mode right page',
 ];

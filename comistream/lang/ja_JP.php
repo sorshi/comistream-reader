@@ -66,4 +66,12 @@ return [
     'author_link_not_found' => '作者名のリンクが見つかりません。',
     'title_link_not_found' => '書名のリンクが見つかりません。',
     'input_alphanumeric' => '16文字までの半角英数字を入力してください',
+
+    // Large page size notification
+    'large_page_notification' => 'ページサイズが大きいため表示が重たい可能性があります。圧縮モードに切り換えるか、端末にダウンロードするとより快適になるかもしれません。',
+
+    // Alt text for accessibility
+    'alt_close_button' => '閉じるボタン',
+    'alt_quick_spread_left' => 'クイック見開きモード左ページ',
+    'alt_quick_spread_right' => 'クイック見開きモード右ページ',
 ];

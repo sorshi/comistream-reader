@@ -11,7 +11,7 @@
  * @author      Comistream Project.
  * @copyright   2024 Comistream Project.
  * @license     GPL3.0 License
- * @version     1.0.1
+ * @version     1.1.0
  * @link        https://github.com/sorshi/comistream-reader
  */
 
@@ -1240,7 +1240,8 @@ $contents_css
         toc_button_compress: "{$i18n->get('compressed')}",
         toc_button_fullsize: "{$i18n->get('full_size')}",
         toc_button_trimming: "{$i18n->get('trimmingmode_trimming')}",
-        toc_button_normal: "{$i18n->get('trimmingmode_normal')}"
+        toc_button_normal: "{$i18n->get('trimmingmode_normal')}",
+        large_page_notification: "{$i18n->get('large_page_notification')}"
     };
 
     (function() {
@@ -1280,6 +1281,8 @@ $contents_css
     // DOMが読み込まれた後にfeather.replace()を呼び出す
     document.addEventListener('DOMContentLoaded', function() {
         feather.replace();
+        // 大きなページサイズの通知をチェック
+        checkAndShowLargePageNotification();
     });
 //-->
 </script>
@@ -1313,7 +1316,7 @@ $contents_css
 
 <div class="contents" id="contents">
     <div>
-        <img src="$themeDir/theme/icons/close.png" alt="Close button" class="close" onclick="document.getElementById('contents').style.display='none'">
+        <img src="$themeDir/theme/icons/close.png" alt="{$i18n->get('alt_close_button')}" class="close" onclick="document.getElementById('contents').style.display='none'">
         <span class="button button-close" onclick="backListPage();">{$i18n->get('back')}</span>
         <span id="rawMode" class="$size_button_class button-mode" onclick="toggleRaw();">$size_button_flag</span>
         <span id="single" class="button button-mode" onclick="single()">{$i18n->get('single_page')}</span>
@@ -1341,8 +1344,8 @@ $contents_css
 <div id="overlay" class="overlay"></div>
 <div id="modal" class="modal">
     <div class="modal-content">
-        <img id="image1" alt="クイック見開きモード左ページ">
-        <img id="image2" alt="クイック見開きモード右ページ">
+        <img id="image1" alt="{$i18n->get('alt_quick_spread_left')}">
+        <img id="image2" alt="{$i18n->get('alt_quick_spread_right')}">
     </div>
 </div>
 
@@ -3588,7 +3591,7 @@ class PDFAnalyzer
             $textContent = $this->extractText($pdfPath);
             $textLength = mb_strlen($textContent);
             $hasTextContent = $textLength > $this->minTextChars;
-            writelog("DEBUG analyze textLength:".$textLength." hasTextContent:".($hasTextContent ? 'true' : 'false'));
+            writelog("DEBUG analyze textLength:" . $textLength . " hasTextContent:" . ($hasTextContent ? 'true' : 'false'));
 
             // 画像情報の取得
             // JPEG2000のPDFとかでやるとめちゃくちゃ時間かかるので廃止
@@ -3643,7 +3646,7 @@ class PDFAnalyzer
         $command = sprintf(
             ' pdftotext -f %d -l %d %s -',
             $page,
-            $page+3,
+            $page + 3,
             escapeshellarg($pdfPath)
         );
 

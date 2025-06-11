@@ -483,3 +483,61 @@ input[type="range"]::-moz-range-thumb {
     color: #a9d1ff; /* ホバー色を通常色と同じにする */
   }
 }
+
+/* 大きなページサイズ通知用のスタイル */
+.large-page-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.95), rgba(255, 152, 0, 0.95));
+  color: #333;
+  padding: 12px 16px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(10px);
+  font-size: 13px;
+  font-weight: 500;
+  max-width: 280px;
+  line-height: 1.4;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  animation: slideInFromRight 0.5s ease-out;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: "Lucida Grande", Verdana, AquaKana, ArialMT,
+    "Hiragino Kaku Gothic ProN", "ヒラギノ角ゴ ProN W3", "メイリオ", Meiryo,"Source Han Sans", "Meiryo UI", Arial, sans-serif;
+}
+
+.large-page-notification:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.2);
+}
+
+.large-page-notification.fade-out {
+  opacity: 0;
+  transform: translateX(100%);
+  transition: all 0.5s ease-in;
+}
+
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* モバイル向けの調整 */
+@media (max-width: 768px) {
+  .large-page-notification {
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    max-width: none;
+    font-size: 12px;
+    padding: 10px 14px;
+  }
+}
