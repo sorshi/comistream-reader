@@ -774,7 +774,7 @@ function outputPage($isFileout = false)
     $crop_half_cmd_left = '';
     $crop_half_cmd_right = '';
     $output_mime = '';
-    $input_format = '';
+    $input_format = ' - ';
     // indexからページのファイル名を取得
     if (file_exists("$cacheDir/$file/index")) {
         $shell_cmd = "sed -n {$page}p $cacheDir/$file/index";
@@ -831,6 +831,7 @@ function outputPage($isFileout = false)
             // $pageInput = "LANG=ja_JP.UTF8 $unrar p -inul $cacheDir/$file/file \"{$pagefile}\"";
         } elseif (preg_match('/\.pdf$/i', $ext)) {
             // PDFから画像を抽出
+            // TODO 全PDFをmutoolで処理するように
             $cpdfTempDir = $tempDir . '/' . getmypid();
             // IS_IMAGE_PDFファイルの存在確認
             if (file_exists("$cacheDir/$file/IS_IMAGE_PDF")) {
@@ -848,19 +849,34 @@ function outputPage($isFileout = false)
                 shell_exec("cd $cpdfTempDir; $cpdf -extract-images -i $cacheDir/$file/file $page -o $file-$page");
                 if (preg_match('/\.jpg$/i', shell_exec("ls $cpdfTempDir/*$file-$page* | head -n 1"))) {
                     $pageInput = "cat $cpdfTempDir/*{$file}-{$page}* ";
+                    $input_format = "jpg:-";
                     writelog("DEBUG outputPage() PDF Extract jpg");
                 } else {
                     // png,gif,tiff,jpg2000が規格上あり得る
-                    $pageInput = "cat $cpdfTempDir/*{$file}-{$page}* | $convert - jpeg:- ";
+                    $pageInput = "cat $cpdfTempDir/*{$file}-{$page}* | $convert jpeg:- ";
                     writelog("DEBUG outputPage() PDF convert jpg");
                 }
             } else {
-                // テキストを含むPDFはpdftoppmでレンダリング
+                // テキストを含むPDFは mutool > pdftoppm の優先順位でレンダリング
                 // フラグファイル:$cacheDir/$file/TEXT_PDF
-                $pdftoppm = $conf["pdftoppm"];
-                $pageInput = "$pdftoppm -f $page -l $page -scale-to-x -1 -scale-to-y -1 -singlefile $cacheDir/$file/file ";
-                $pagefile = "$page.ppm";
-                $input_format = ""; // ppm:-のはずだが指定するとエラーになる
+                $mutool = $conf["mutool"] ?? '';
+                writelog("DEBUG outputPage() mutool:".$mutool);
+
+                if (!empty($mutool) && is_executable($mutool)) {
+                    // mutoolが最速なので優先して使用
+                    $pageInput = "$mutool draw -r 220 -h 1920 -F png -o - \"$cacheDir/$file/file\" $page";
+                    $pagefile = "$page.png";
+                    $input_format = "png:-"; // 入力はPNG
+                    writelog("DEBUG outputPage() Using mutool for PDF rendering.");
+
+                } else {
+                    // 上記が使えない場合はpdftoppmにフォールバック
+                    $pdftoppm = $conf["pdftoppm"];
+                    $pageInput = "$pdftoppm -f $page -l $page -scale-to-x -1 -scale-to-y -1 -singlefile \"$cacheDir/$file/file\" ";
+                    $pagefile = "$page.ppm";
+                    $input_format = "ppm:-";
+                    writelog("DEBUG outputPage() Using pdftoppm for PDF rendering, mutool not found or not executable.");
+                }
             }
         }
         // $isPageSave有効時は一度表示したページをキャッシュする
@@ -912,11 +928,11 @@ function outputPage($isFileout = false)
                 // PDFから取り出されたPPMはWebPにして送る
                 if (strpos($_SERVER['HTTP_ACCEPT'], 'webp') !== false) {
                     $output_mime = "Content-type: image/webp";
-                    $crop_half_cmd .= " | $convert - $input_format -quality $quality webp:- ";
+                    $crop_half_cmd .= " | $convert $input_format -quality $quality webp:- ";
                     writelog("DEBUG outputPage() WebP Convert from ppm");
                 } else {
                     $output_mime = "Content-type: image/jpeg";
-                    $crop_half_cmd .= " | $convert - $input_format -quality $quality jpeg:- ";
+                    $crop_half_cmd .= " | $convert $input_format -quality $quality jpeg:- ";
                     writelog("DEBUG outputPage() JPG Convert from ppm");
                 }
             } elseif (preg_match('/\.png$/i', $pagefile)) {
@@ -974,7 +990,7 @@ function outputPage($isFileout = false)
         if (strpos($_SERVER['HTTP_ACCEPT'], 'webp') !== false) {
             // WebP使えればファイルをWebPで出力
             // cwebpはAVIFに対応していないのでImageMagick convertで変換
-            $cmd = "$pageInput $crop_half_cmd | $convert - $input_format -define webp:emulate-jpeg-size=true -define webp:thread-level=1 -resize {$width}x -quality $quality webp:- ";
+            $cmd = "$pageInput $crop_half_cmd | $convert $input_format -define webp:emulate-jpeg-size=true -define webp:thread-level=1 -resize {$width}x -quality $quality webp:- ";
             writelog("DEBUG outputPage() webp cmd:" . $cmd);
             $pageImg = shell_exec($cmd);
 
@@ -990,7 +1006,7 @@ function outputPage($isFileout = false)
             }
         } else {
             // ファイルをJPGで出力
-            $pageImg = shell_exec("$pageInput $crop_half_cmd | $convert - $input_format -format jpeg -resize {$width}x -quality $quality jpeg:-");
+            $pageImg = shell_exec("$pageInput $crop_half_cmd | $convert $input_format -format jpeg -resize {$width}x -quality $quality jpeg:-");
             if (strlen($pageImg) == 0) {
                 header("Cache-Control: no-store");
                 writelog("ERROR Archive image cannot extract image. Delete cache and reload.$file");
@@ -2366,6 +2382,7 @@ function system_config($dbh)
                 'montage' => 'ImageMagick montageコマンドのパス',
                 'md5cmd' => 'ハッシュ計算コマンドのパス。b3sumコマンドがおすすめです。なければmd5sumを指定してます。',
                 'pdftoppm' => 'pdftoppmコマンドのパス',
+                'mutool' => 'mutoolコマンドのパス。pdftocairoよりも高速なPDFレンダリングツールです。最優先で利用されます。',
                 'pdfinfo' => 'pdfinfoコマンドのパス',
                 'unzip' => 'unzipコマンドのパス',
             ],
@@ -2597,6 +2614,7 @@ function updateSetting($db, $key, $value)
 {
     $stmt = $db->prepare("UPDATE system_config SET value = :value WHERE key = :key");
     $stmt->execute(['value' => $value, 'key' => $key]);
+    writelog("DEBUG updateSetting() $key:$value");
 }
 
 
@@ -3079,6 +3097,12 @@ function handleInitialSetup($postData)
     writelog("DEBUG handleInitialSetup() unzip:$unzip");
     $unrar = exec('which unrar');
     writelog("DEBUG handleInitialSetup() unrar:$unrar");
+    $pdftoppm = exec('which pdftoppm');
+    writelog("DEBUG handleInitialSetup() pdftoppm:$pdftoppm");
+    $mutool = exec('which mutool');
+    writelog("DEBUG handleInitialSetup() mutool:$mutool");
+    $pdfinfo = exec('which pdfinfo');
+    writelog("DEBUG handleInitialSetup() pdfinfo:$pdfinfo");
     $md5cmd = exec('which b3sum');
     writelog("DEBUG handleInitialSetup() md5cmd:$md5cmd");
     if (empty($md5cmd)) {
@@ -3140,7 +3164,7 @@ function handleInitialSetup($postData)
         $stmt->execute();
 
         // システム設定を作成
-        $variablesToUpdate = ['p7zip', 'cpdf', 'ffmpeg', 'convert', 'montage', 'unzip', 'unrar', 'md5cmd', 'sharePath', 'comistream_tool_dir', 'webRoot'];
+        $variablesToUpdate = ['p7zip', 'cpdf', 'ffmpeg', 'convert', 'montage', 'unzip', 'unrar', 'md5cmd', 'sharePath', 'comistream_tool_dir', 'webRoot', 'pdftoppm', 'pdfinfo', 'mutool'];
         $stmt = $db->prepare('INSERT OR REPLACE INTO system_config (key, value) VALUES (:key, :value)');
         foreach ($variablesToUpdate as $variable) {
             if (isset($$variable)) {
@@ -3450,6 +3474,12 @@ function readConfig($dbh)
             $conf["isLowMemoryMode"] = 0;
         } else {
             $conf["isLowMemoryMode"] = 1;
+        }
+        // mutoolのパスを確認
+        if (!(isset($conf["mutool"]))) {
+            $mutool = exec('which mutool') ?? '';
+            sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('mutool', ?);", "クエリに失敗しました",array($mutool));
+            $conf["mutool"] = $mutool;
         }
         $conf["comistream_tmp_dir_root"] = rtrim($conf["comistream_tmp_dir_root"], DIRECTORY_SEPARATOR);
         $tempDir = $conf["comistream_tmp_dir_root"] . "/reader";
