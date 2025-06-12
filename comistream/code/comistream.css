@@ -505,7 +505,7 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
   transition: all 0.3s ease;
   font-family: "Lucida Grande", Verdana, AquaKana, ArialMT,
-    "Hiragino Kaku Gothic ProN", "ヒラギノ角ゴ ProN W3", "メイリオ", Meiryo,"Source Han Sans", "Meiryo UI", Arial, sans-serif;
+    "Hiragino Kaku Gothic ProN", "ヒラギノ角ゴ ProN W3", "メイリオ", Meiryo, "Source Han Sans", "Meiryo UI", Arial, sans-serif;
 }
 
 .large-page-notification:hover {

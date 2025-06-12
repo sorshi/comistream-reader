@@ -1817,68 +1817,129 @@ function openZipRar()
 ##### PDFのオープン ############################################################
 function openPdf()
 {
-    global $conf, $cacheDir, $file, $cpdf, $traceFile, $async, $isPreCache, $existDir, $maxPage, $indexArray, $contents;
+    global $conf, $cacheDir, $file, $cpdf, $traceFile, $async, $isPreCache, $existDir, $openFile;
 
     if ($isPreCache && !$existDir) {
         // キャッシュファイル保存領域にpdfファイル解凍
         shell_exec("cd $cacheDir/$file; $cpdf -extract-images -i \"$cacheDir/$file/file\" &>>$traceFile $async");
     }
 
-    // 画像PDFかテキストPDFかの判定フラグ書込
-    $analyzer = new PDFAnalyzer();
-    $result = $analyzer->analyze("$cacheDir/$file/file");
-    if ($result['success']) {
-        $data = $result['data'];
-        // 結果の処理
-        if ($data['is_image_only']) {
-            touch("$cacheDir/$file/IS_IMAGE_PDF");
-            writelog("INFO openPdf() PDF detect:This is an image-only PDF");
-        } else {
-            touch("$cacheDir/$file/TEXT_PDF");
-            writelog("INFO openPdf() PDF detect:This is an text PDF");
-        }
+    // 既にPDFタイプが判定済みかチェック
+    if ((file_exists("$cacheDir/$file/IS_IMAGE_PDF") || file_exists("$cacheDir/$file/TEXT_PDF"))
+    && file_exists("$cacheDir/$file/DONE")) {
+        writelog("DEBUG openPdf() PDF type already determined, skipping analysis");
+        _preparePdfCache();
+        return;
     } else {
-        writelog("ERROR openPdf() PDF detect failed.:" . $result['error']);
-    }
+        // 初回オープン時の画像PDFかテキストPDFかの判定フラグ書込
+        writelog("DEBUG openPdf() Start PDF analysis.");
+        $analyzer = new PDFAnalyzer();
+        $result = $analyzer->analyze("$cacheDir/$file/file");
+        if ($result['success']) {
+            $data = $result['data'];
+            // 結果の処理
+            if ($data['is_image_only']) {
+                touch("$cacheDir/$file/IS_IMAGE_PDF");
+                writelog("INFO openPdf() PDF detect:This is an image-only PDF");
+                _preparePdfCache();
+            } else {
+                touch("$cacheDir/$file/TEXT_PDF");
+                writelog("INFO openPdf() PDF detect:This is a text PDF");
 
-    // ページ数取得/ページリスト作成
-    writelog("DEBUG openPdf() START pdfinfo ");
-    $pdfinfo = $conf["pdfinfo"];
-    if (empty($pdfinfo) || !is_executable($pdfinfo)) {
-        writelog("DEBUG openPdf() pdfinfo is not available;retry with cpdf");
-        $maxPage = shell_exec("$cpdf -pages -i \"$cacheDir/$file/file\"");
-        $maxPage = trim($maxPage);
-        writelog("DEBUG openPdf() COMPLETE $cpdf -pages -i \"$cacheDir/$file/file\" maxPage:" . $maxPage);
-    } else {
-        writelog("DEBUG openPdf() file path of pdfinfo:" . $pdfinfo);
-        $maxPage = shell_exec("$pdfinfo \"$cacheDir/$file/file\" | grep Pages | awk '{print $2}'");
-        $maxPage = trim($maxPage);
-        writelog("DEBUG openPdf() $pdfinfo \"$cacheDir/$file/file\":" . $maxPage);
-        if ((is_numeric($maxPage)) && ($maxPage >= 1)) {
-            writelog("DEBUG openPdf() maxPage:" . $maxPage);
-        } else {
-            writelog("DEBUG openPdf() pdfinfo failed;retry with cpdf");
-            $maxPage = shell_exec("$cpdf -pages -i \"$cacheDir/$file/file\"");
-            $maxPage = trim($maxPage);
-            writelog("DEBUG openPdf() COMPLETE $cpdf -pages -i \"$cacheDir/$file/file\" maxPage:" . $maxPage);
-        }
-    }
-    shell_exec("seq -f \"p%g_.jpg\" $maxPage > \"$cacheDir/$file/index\"");
+                if (!file_exists("$cacheDir/$file/DONE")) {
+                    // テキストPDFでキャッシュがない場合、ローディング画面を表示してバックグラウンド処理
+                    writelog("INFO openPdf() Text PDF cache not ready. Starting background preparation for $file.");
+                    $fileSizeBytes = filesize($openFile);
+                    $fileSizeMB = round($fileSizeBytes / (1000 * 1000));
+                    printLoading($fileSizeMB);
 
-    // 目次を作成
-    // TODO pdftocgenで書き換えられないか検討
-    $cmd = "$cpdf -utf8 -list-bookmarks -i \"$cacheDir/$file/file\"";
-    writelog("DEBUG openPdf() executing command: $cmd");
-    $raw_contents = shell_exec($cmd . " 2>&1");
-    if (strlen($raw_contents) > 1) {
-        // 目次情報を整形
-        list($indexArray, $contents) = formatPdfContents($raw_contents);
-    } else {
-        // 目次がなかったら作成
-        writelog("DEBUG openPdf() Make static TOC.");
-        list($indexArray, $contents) = makeIndex($maxPage);
+                    // バックグラウンドでPDFの準備
+                    _preparePdfCache();
+
+                    // 完了フラグを作成
+                    touch("$cacheDir/$file/DONE");
+                    writelog("INFO openPdf() Background PDF preparation finished for $file.");
+                    exit(0);
+                } else {
+                    // キャッシュがあるので通常の処理
+                    writelog("INFO openPdf() Text PDF cache is ready. Loading from cache for $file.");
+                    _preparePdfCache();
+                }
+            }
+        } else {
+            writelog("ERROR openPdf() PDF detect failed.:" . $result['error']);
+            // 解析失敗時もとりあえず通常の準備処理を試みる
+            _preparePdfCache();
+        }
     }
 } //end function openPdf
+
+function _preparePdfCache()
+{
+    global $conf, $cacheDir, $file, $cpdf, $maxPage, $indexArray, $contents;
+
+    $indexFilePath = "$cacheDir/$file/index";
+    $tocFilePath = "$cacheDir/$file/toc.json";
+
+    // Get maxPage
+    if (file_exists($indexFilePath)) {
+        $maxPage = trim(shell_exec("wc -l < " . escapeshellarg($indexFilePath)));
+        writelog("DEBUG _preparePdfCache() maxPage from cache: $maxPage");
+    } else {
+        writelog("DEBUG _preparePdfCache() START pdfinfo ");
+        $pdfinfo = $conf["pdfinfo"];
+        if (empty($pdfinfo) || !is_executable($pdfinfo)) {
+            writelog("DEBUG _preparePdfCache() pdfinfo is not available;retry with cpdf");
+            $maxPage = shell_exec("$cpdf -pages -i \"$cacheDir/$file/file\"");
+            $maxPage = trim($maxPage);
+            writelog("DEBUG _preparePdfCache() COMPLETE $cpdf -pages -i \"$cacheDir/$file/file\" maxPage:" . $maxPage);
+        } else {
+            writelog("DEBUG _preparePdfCache() file path of pdfinfo:" . $pdfinfo);
+            $maxPage = shell_exec("$pdfinfo \"$cacheDir/$file/file\" | grep Pages | awk '{print $2}'");
+            $maxPage = trim($maxPage);
+            writelog("DEBUG _preparePdfCache() $pdfinfo \"$cacheDir/$file/file\":" . $maxPage);
+            if ((is_numeric($maxPage)) && ($maxPage >= 1)) {
+                writelog("DEBUG _preparePdfCache() maxPage:" . $maxPage);
+            } else {
+                writelog("DEBUG _preparePdfCache() pdfinfo failed;retry with cpdf");
+                $maxPage = shell_exec("$cpdf -pages -i \"$cacheDir/$file/file\"");
+                $maxPage = trim($maxPage);
+                writelog("DEBUG _preparePdfCache() COMPLETE $cpdf -pages -i \"$cacheDir/$file/file\" maxPage:" . $maxPage);
+            }
+        }
+
+        // Validate page count
+        if (!is_numeric($maxPage) || $maxPage < 1) {
+            writelog("ERROR _preparePdfCache() Failed to get valid page count for PDF");
+            throw new Exception("Unable to determine PDF page count");
+        }
+        shell_exec("seq -f \"p%g_.jpg\" $maxPage > " . escapeshellarg($indexFilePath));
+    }
+
+    // Get TOC
+    if (file_exists($tocFilePath)) {
+        $tocData = json_decode(file_get_contents($tocFilePath), true);
+        $indexArray = $tocData['indexArray'];
+        $contents = $tocData['contents'];
+        writelog("DEBUG _preparePdfCache() TOC from cache.");
+    } else {
+        // 目次を作成
+        // TODO pdftocgenで書き換えられないか検討
+        $cmd = "$cpdf -utf8 -list-bookmarks -i \"$cacheDir/$file/file\"";
+        writelog("DEBUG _preparePdfCache() executing command: $cmd");
+        $raw_contents = shell_exec($cmd . " 2>&1");
+        if (strlen($raw_contents) > 1) {
+            // 目次情報を整形
+            list($indexArray, $contents) = formatPdfContents($raw_contents);
+        } else {
+            // 目次がなかったら作成
+            writelog("DEBUG _preparePdfCache() Make static TOC.");
+            list($indexArray, $contents) = makeIndex($maxPage);
+        }
+        file_put_contents($tocFilePath, json_encode(['indexArray' => $indexArray, 'contents' => $contents]));
+        writelog("DEBUG _preparePdfCache() TOC generated and cached.");
+    }
+} //end function _preparePdfCache
 
 ##### PDFから目次情報取得 ############################################################
 function formatPdfContents($raw_contents)
@@ -2501,6 +2562,7 @@ function system_config($dbh)
         </html>
 <?php
     } else {
+        $i18n = I18n::getInstance();
         $html = <<<HTML
     <!DOCTYPE html>
     <html lang="{$i18n->getCurrentLang()}">
