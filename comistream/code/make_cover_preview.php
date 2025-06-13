@@ -413,7 +413,7 @@ if (strcasecmp($ext, 'epub') == 0) {
             exit(1);
         } else {
             // 表紙ファイルのサイズを確認
-            if (filesize($coverFile) === 0) {
+            if (!file_exists($coverFile) || filesize($coverFile) === 0) {
                 writelog('WARNING Cover file is empty, deleting: ' . $coverFile, $writelog_process_name);
                 unlink($coverFile);
             } else {
