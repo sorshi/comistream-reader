@@ -793,7 +793,7 @@ function outputPage($isFileout = false)
             writelog("DEBUG outputPage() AVIF and Low memory mode detected ,NOT trimming mode page:$page");
         } else {
             // サーバー側で左右余白トリミング
-            $crop_half_cmd = " | $convert " . '- -crop 99%x99%+0+0 -fuzz 20% -trim +repage - ';
+            $crop_half_cmd = " | $convert " . '- -strip -crop 99%x99%+0+0 -fuzz 20% -trim +repage - ';
             writelog("DEBUG outputPage() trimming mode page:$page position:$position_int crop_split_view_parts:$crop_split_view_parts");
         }
     } else {
@@ -2829,10 +2829,79 @@ function get_image_aspect_ratio($file_with_path)
     $height = 0;
     writelog("DEBUG get_image_aspect_ratio() ImageMagick $magic");
     if (file_exists($file_with_path)) {
-        $return_value = shell_exec("$magic -format \"%w,%h\" $file_with_path");
+        // ファイルサイズをチェック
+        $file_size = filesize($file_with_path);
+        writelog("DEBUG get_image_aspect_ratio() file exists:" . $file_with_path . " size:" . $file_size . " bytes");
+
+        // ファイルが極端に小さい場合は破損している可能性がある
+        if ($file_size < 100) {
+            writelog("WARNING get_image_aspect_ratio() file too small, possibly corrupted: " . $file_with_path);
+            return 0;
+        }
+
+        // shell_execの代わりにproc_openを使って詳細な情報を取得
+        $command = "$magic -format \"%w,%h\" " . escapeshellarg($file_with_path);
+        $descriptorspec = [
+            0 => ["pipe", "r"],  // stdin
+            1 => ["pipe", "w"],  // stdout
+            2 => ["pipe", "w"]   // stderr
+        ];
+
+        $process = proc_open($command, $descriptorspec, $pipes);
+        if (is_resource($process)) {
+            fclose($pipes[0]); // stdin不要なので閉じる
+
+            $stdout = stream_get_contents($pipes[1]);
+            $stderr = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+
+            $exit_code = proc_close($process);
+
+            writelog("DEBUG get_image_aspect_ratio() command:$command exit_code:$exit_code stdout:" . trim($stdout));
+
+            if (!empty($stderr)) {
+                writelog("ERROR get_image_aspect_ratio() stderr:" . trim($stderr));
+            }
+
+            // ImageMagickが失敗した場合の処理
+            if ($exit_code !== 0 || empty(trim($stdout))) {
+                writelog("ERROR get_image_aspect_ratio() ImageMagick failed, exit_code:$exit_code");
+
+                // 破損ファイルの可能性がある場合は削除を検討
+                if (!empty($stderr) && (
+                    strpos($stderr, 'CRC error') !== false ||
+                    strpos($stderr, 'Read Exception') !== false ||
+                    strpos($stderr, 'Expected') !== false && strpos($stderr, 'bytes; found') !== false
+                )) {
+                    writelog("WARNING get_image_aspect_ratio() corrupted file detected, consider removing:" . $file_with_path);
+                    // 自動削除はせず、ログに警告を出すだけに留める
+                }
+
+                return 0;
+            }
+
+            $return_value = $stdout;
+        } else {
+            writelog("ERROR get_image_aspect_ratio() failed to create process");
+            return 0;
+        }
+
+        writelog("DEBUG get_image_aspect_ratio() ImageMagick format return_value:" . $return_value);
         $return_value = explode(',', $return_value);
+        if (count($return_value) < 2) {
+            writelog("ERROR get_image_aspect_ratio() invalid format return_value, expected 'width,height'");
+            return 0;
+        }
+
         $width = intval($return_value[0]);
         $height = intval($return_value[1]);
+
+        if ($width <= 0 || $height <= 0) {
+            writelog("ERROR get_image_aspect_ratio() invalid dimensions width:$width height:$height");
+            return 0;
+        }
+
         $ratio = ($width / $height);
         writelog("DEBUG get_image_aspect_ratio() ratio $ratio width $width height $height");
         return $ratio;

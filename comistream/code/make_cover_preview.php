@@ -1,4 +1,5 @@
 <?php
+
 /**
  * comistream/code/make_cover_preview.php
  *
@@ -96,7 +97,7 @@ pcntl_signal(SIGTERM, function ($sig) {
     exit;
 });
 
-register_shutdown_function(function() {
+register_shutdown_function(function () {
     global $conf, $writelog_process_name, $file;
     clean_shm_dir();
     $nestedExtractDir = $conf["cacheDir"] . '/make_picture/' . $file;
@@ -160,8 +161,8 @@ if (strcasecmp($ext, 'epub') == 0) {
     $epubTempDir = $cacheDir . '/make_picture_epub_extract_tmp_' . getmypid();
     if (!chkAndMakeDir($epubTempDir)) {
         exit(1);
-    }else{
-        register_shutdown_function(function() {
+    } else {
+        register_shutdown_function(function () {
             global $conf, $cacheDir;
             $epubTempDir = $cacheDir . '/make_picture_epub_extract_tmp_' . getmypid();
             deleteDirectory($epubTempDir);
@@ -331,65 +332,65 @@ if (strcasecmp($ext, 'epub') == 0) {
         deleteDirectory($epubTempDir);
     }
     exit(0);
-// } elseif (strcasecmp($ext, 'pdf--------------') == 0) {
-//     // 以前はPDF専用処理があったけどzip/rarと統合して廃止 =======================================================================================
-//     writelog("DEBUG pdf detected.", $writelog_process_name);
-//     if ($type == 'covers') {
-//         create_cover_dir($coverFile);
-//         // 表紙はそのままImageMagickで
-//         $cmd = "$convert \"$fullpathFile\"[0] $usm -density 150 -quality ".$conf["quality"] ." -resize $resize -background white -flatten -format jpeg \"$coverFile\"";
-//         exec($cmd, $output, $return_var);
-//         if ($return_var !== 0) {
-//             writelog("ERROR: Failed to convert cover image: $cmd", $writelog_process_name);
-//             clean_shm_dir();
-//             exit(1);
-//         }
-//     } elseif ($type == 'preview') {
-//         create_preview_dir($previewFile);
-//         $page = 0;
-//         $count = 0;
-//         $shmDir = create_shm_dir();
-//         while ($count <= 12 - 1) {
-//             //     # ページの静止画作成 / 12ページ
-//             $outputFileBasename = sprintf("%03d", $count);
-//             $cmd = "$convert \"$fullpathFile\"[$count] $usm -density 150 -quality ".$conf["quality"] ." -resize $resize -background white -flatten -format png $shmDir/" . $outputFileBasename . ".png";
-//             exec($cmd, $output, $return_var);
-//             if ($return_var !== 0) {
-//                 writelog('ERROR exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
-//                 // exit(1);
-//             } else {
-//                 writelog('DEBUG exec succeeded. Command: ' . $cmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
-//             }
-//             if ($page > 1) {
-//                 // # 2p目以降は帯とかロゴとかそーゆーので横長になってたらそのページ飛ばす
-//                 $image_aspect_retio = get_image_aspect_ratio("$shmDir/" . $outputFileBasename . ".png");
-//                 if ($image_aspect_retio > 2) {
-//                     // 横長比率が2倍超えてたらトリミングしない
-//                     writelog("DEBUG  re generate file.", $writelog_process_name);
-//                     if (file_exists("$shmDir/" . $outputFileBasename . ".png")) {
-//                         unlink("$shmDir/" . $outputFileBasename . ".png");
-//                         $count--;
-//                     }
-//                 }
-//             }
-//             $page++;
-//             $count++;
-//             // 通常はpageとcountを++
-//             // 帯とかでページをスキップした場合はpageだけ++
-//         }
-//         $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 - | $convert - -quality $quality -define webp:lossless=false \"$previewFile\"";
-//         writelog("DEBUG concatCmd:$concatCmd", $writelog_process_name);
-//         exec($concatCmd, $output, $return_var);
-//         if ($return_var !== 0) {
-//             writelog('ERROR exec failed. Command: ' . $concatCmd . ' Return code: ' . $return_var, $writelog_process_name);
-//             clean_shm_dir();
-//             exit(1);
-//         } else {
-//             writelog('DEBUG exec succeeded. Command: ' . $concatCmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
-//         }
-//     }
-//     clean_shm_dir();
-//     exit(0);
+    // } elseif (strcasecmp($ext, 'pdf--------------') == 0) {
+    //     // 以前はPDF専用処理があったけどzip/rarと統合して廃止 =======================================================================================
+    //     writelog("DEBUG pdf detected.", $writelog_process_name);
+    //     if ($type == 'covers') {
+    //         create_cover_dir($coverFile);
+    //         // 表紙はそのままImageMagickで
+    //         $cmd = "$convert \"$fullpathFile\"[0] $usm -density 150 -quality ".$conf["quality"] ." -resize $resize -background white -flatten -format jpeg \"$coverFile\"";
+    //         exec($cmd, $output, $return_var);
+    //         if ($return_var !== 0) {
+    //             writelog("ERROR: Failed to convert cover image: $cmd", $writelog_process_name);
+    //             clean_shm_dir();
+    //             exit(1);
+    //         }
+    //     } elseif ($type == 'preview') {
+    //         create_preview_dir($previewFile);
+    //         $page = 0;
+    //         $count = 0;
+    //         $shmDir = create_shm_dir();
+    //         while ($count <= 12 - 1) {
+    //             //     # ページの静止画作成 / 12ページ
+    //             $outputFileBasename = sprintf("%03d", $count);
+    //             $cmd = "$convert \"$fullpathFile\"[$count] $usm -density 150 -quality ".$conf["quality"] ." -resize $resize -background white -flatten -format png $shmDir/" . $outputFileBasename . ".png";
+    //             exec($cmd, $output, $return_var);
+    //             if ($return_var !== 0) {
+    //                 writelog('ERROR exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
+    //                 // exit(1);
+    //             } else {
+    //                 writelog('DEBUG exec succeeded. Command: ' . $cmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
+    //             }
+    //             if ($page > 1) {
+    //                 // # 2p目以降は帯とかロゴとかそーゆーので横長になってたらそのページ飛ばす
+    //                 $image_aspect_retio = get_image_aspect_ratio("$shmDir/" . $outputFileBasename . ".png");
+    //                 if ($image_aspect_retio > 2) {
+    //                     // 横長比率が2倍超えてたらトリミングしない
+    //                     writelog("DEBUG  re generate file.", $writelog_process_name);
+    //                     if (file_exists("$shmDir/" . $outputFileBasename . ".png")) {
+    //                         unlink("$shmDir/" . $outputFileBasename . ".png");
+    //                         $count--;
+    //                     }
+    //                 }
+    //             }
+    //             $page++;
+    //             $count++;
+    //             // 通常はpageとcountを++
+    //             // 帯とかでページをスキップした場合はpageだけ++
+    //         }
+    //         $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 - | $convert - -quality $quality -define webp:lossless=false \"$previewFile\"";
+    //         writelog("DEBUG concatCmd:$concatCmd", $writelog_process_name);
+    //         exec($concatCmd, $output, $return_var);
+    //         if ($return_var !== 0) {
+    //             writelog('ERROR exec failed. Command: ' . $concatCmd . ' Return code: ' . $return_var, $writelog_process_name);
+    //             clean_shm_dir();
+    //             exit(1);
+    //         } else {
+    //             writelog('DEBUG exec succeeded. Command: ' . $concatCmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
+    //         }
+    //     }
+    //     clean_shm_dir();
+    //     exit(0);
 } elseif (in_array(strtolower($ext), ['zip', 'cbz', 'rar', 'cbr', '7z', 'cb7', 'pdf'])) {
     // zip/rarの場合 =======================================================================================
     // nested archiveの場合は/dev/shm/ではなく$cacheDirに展開する
@@ -405,7 +406,7 @@ if (strcasecmp($ext, 'epub') == 0) {
         $page = 1;
         $pageOutCmd = outputPage(true);
         writelog('DEBUG outputPage() returned:' . $pageOutCmd);
-        $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality ".$conf["quality"] ." -format jpeg jpeg:- > \"$coverFile\"";
+        $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > \"$coverFile\"";
         exec($cmd, $output, $return_var);
         if ($return_var !== 0) {
             writelog('ERROR exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
@@ -415,7 +416,7 @@ if (strcasecmp($ext, 'epub') == 0) {
             if (filesize($coverFile) === 0) {
                 writelog('WARNING Cover file is empty, deleting: ' . $coverFile, $writelog_process_name);
                 unlink($coverFile);
-            }else{
+            } else {
                 writelog('DEBUG exec succeeded. Command: ' . $cmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
             }
         }
@@ -432,23 +433,34 @@ if (strcasecmp($ext, 'epub') == 0) {
             $outputFileBasename = sprintf("%03d", $count);
             $pageOutCmd = outputPage(true);
             writelog("DEBUG outputPage() $type page:$page count:$count returned:" . $pageOutCmd, $writelog_process_name);
-            $cmd = $pageOutCmd . " | nice $convert - -fuzz 10% -trim +repage -format png -resize $global_resize -quality $quality $shmDir/" . $outputFileBasename . ".png";
+            $cmd = $pageOutCmd . " | $convert - -fuzz 10% -trim +repage -format png -resize $global_resize -quality $quality $shmDir/" . $outputFileBasename . ".png";
 
             exec($cmd, $output, $return_var);
             if ($return_var !== 0) {
                 writelog('WARNING exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
                 // exit(1);
             } else {
-                writelog('DEBUG exec succeeded. Command: ' . $cmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
-            }
-            if ($page > 1) {
-                // # 2p目以降は帯とかロゴとかそーゆーので横長になってたらそのページ飛ばす
-                $image_aspect_retio = get_image_aspect_ratio("$shmDir/" . $outputFileBasename . ".png");
-                if ($image_aspect_retio > 2.1) {
-                    // 横長比率が2.1倍超えてたらその画像は使わない
-                    writelog("DEBUG  re generate file.", $writelog_process_name);
-                    if (file_exists("$shmDir/" . $outputFileBasename . ".png")) {
-                        unlink("$shmDir/" . $outputFileBasename . ".png");
+                $fileBytes = filesize("$shmDir/" . $outputFileBasename . ".png");
+                if ($fileBytes > 0) {
+                    // 画像ファイルが作成された場合
+                    writelog('DEBUG exec succeeded. fileBytes:' . $fileBytes . ' Command: ' . $cmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
+                    if ($page > 1) {
+                        // # 2p目以降は帯とかロゴとかそーゆーので横長になってたらそのページ飛ばす
+                        $image_aspect_retio = get_image_aspect_ratio("$shmDir/" . $outputFileBasename . ".png");
+                        if ($image_aspect_retio > 2.1) {
+                            // 横長比率が2.1倍超えてたらその画像は使わない
+                            writelog("DEBUG re generate file.", $writelog_process_name);
+                            if (file_exists("$shmDir/" . $outputFileBasename . ".png")) {
+                                unlink("$shmDir/" . $outputFileBasename . ".png");
+                                $count--;
+                            }
+                        }
+                    }
+                } else {
+                    // 画像ファイルが0バイトの場合
+                    writelog('WARNING exec succeeded but png file is empty. fileBytes:' . $fileBytes . ' Command: ' . $cmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
+                    unlink("$shmDir/" . $outputFileBasename . ".png");
+                    if ($count > 1) {
                         $count--;
                     }
                 }
@@ -466,11 +478,12 @@ if (strcasecmp($ext, 'epub') == 0) {
             clean_shm_dir();
             exit(1);
         } else {
-            if (filesize($previewFile) === 0) {
-                writelog('WARNING Preview file is empty, deleting: ' . $previewFile, $writelog_process_name);
+            $fileBytes = filesize($previewFile);
+            if ($fileBytes === 0) {
+                writelog('WARNING Preview file ' . $previewFile . ' is empty, deleting: ' . $previewFile, $writelog_process_name);
                 unlink($previewFile);
-            }else{
-                writelog('DEBUG exec succeeded. Command: ' . $concatCmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
+            } else {
+                writelog('DEBUG montage exec succeeded. fileBytes:' . $fileBytes . ' Command: ' . $concatCmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
             }
         }
     } else {
@@ -481,8 +494,8 @@ if (strcasecmp($ext, 'epub') == 0) {
     if (is_dir($nestedExtractDir)) {
         writelog("DEBUG rm $nestedExtractDir", $writelog_process_name);
         deleteDirectory($conf["cacheDir"] . '/make_picture/' . $file);
-    }else{
-        writelog("DEBUG no nestedExtractDir:".$nestedExtractDir, $writelog_process_name);
+    } else {
+        writelog("DEBUG no nestedExtractDir:" . $nestedExtractDir, $writelog_process_name);
     }
     clean_shm_dir();
     exit(0);
