@@ -58,8 +58,8 @@ NASに追加すると、ブラウザさえあればどこからでもマンガ�
 2. 必要なツールをインストール：  
 AlmaLinux9の例だと以下のコマンドを実行します。
    ```
-   sudo dnf install -y tar httpd php sqlite-devel.x86_64 zstd.x86_64 libzstd-devel.x86_64 mod_ssl ghostscript.x86_64 poppler-utils unzip cifs-utils fuse fuse-libs epel-release 
-   sudo dnf install -y b3sum php-zstd.x86_64 ImageMagick libavif-devel
+   sudo dnf install -y tar httpd php sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release
+   sudo dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig unrar fd-find mupdf-devel
    ```
 3. 追加で必要なツールをインストール：  
 以下コマンドを展開してpathの切られてる/usr/local/bin/あたりにコピーします。  

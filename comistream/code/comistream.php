@@ -11,7 +11,7 @@
  * @author      Comistream Project.
  * @copyright   2024 Comistream Project.
  * @license     GPL3.0 License
- * @version     1.0.1
+ * @version     1.1.0
  * @link        https://github.com/sorshi/comistream-reader
  *
  */
