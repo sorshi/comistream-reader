@@ -222,6 +222,29 @@ th.indexcollastmod{
 th.indexcolsize {
   width:5em;
 }
+
+th a {
+    display: inline-block;
+    position: relative;
+    color: inherit;
+    text-decoration: none;
+}
+th a:hover {
+    color: #2a2a2a;
+}
+th.sort-asc a::after,
+th.sort-desc a::after {
+    position: absolute;
+    right: -1.2em;
+    font-size: 0.9em;
+}
+th.sort-asc a::after {
+    content: '▲';
+}
+th.sort-desc a::after {
+    content: '▼';
+}
+
 /* table column */
 td.indexcolicon {
   padding-left:10px;

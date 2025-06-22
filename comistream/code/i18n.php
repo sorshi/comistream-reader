@@ -51,55 +51,55 @@ class I18n
      */
     private function detectLanguage()
     {
-        error_log("detectLanguage - 言語検出開始");
+        writelog("DEBUG: detectLanguage - 言語検出開始");
         // 1. Cookieから言語設定を取得
         if (isset($_COOKIE['lang'])) {
-            error_log("Cookie lang値: " . $_COOKIE['lang']);
+            writelog("DEBUG: Cookie lang値: " . $_COOKIE['lang']);
             if (array_key_exists($_COOKIE['lang'], $this->availableLangs)) {
                 $this->lang = $_COOKIE['lang'];
-                error_log("Cookie から言語設定: " . $this->lang);
+                writelog("DEBUG: Cookie から言語設定: " . $this->lang);
                 return;
             } else {
-                error_log("Cookie に言語設定はありますが、対応していない言語です: " . $_COOKIE['lang']);
+                writelog("DEBUG: Cookie に言語設定はありますが、対応していない言語です: " . $_COOKIE['lang']);
             }
         } else {
-            error_log("Cookie に言語設定はありません");
+            writelog("DEBUG: Cookie に言語設定はありません");
         }
 
         // 2. Accept-Languageヘッダから言語設定を取得
         if (isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])) {
             $browserLangs = explode(',', $_SERVER['HTTP_ACCEPT_LANGUAGE']);
-            error_log("ブラウザ言語: " . $_SERVER['HTTP_ACCEPT_LANGUAGE']);
+            writelog("DEBUG: ブラウザ言語: " . $_SERVER['HTTP_ACCEPT_LANGUAGE']);
             foreach ($browserLangs as $browserLang) {
                 $langCode = substr($browserLang, 0, 2);
                 if ($langCode === 'ja') {
                     $this->lang = 'ja';
-                    error_log("ブラウザ言語から言語設定: " . $this->lang);
+                    writelog("DEBUG: ブラウザ言語から言語設定: " . $this->lang);
                     return;
                 } elseif ($langCode === 'en') {
                     $this->lang = 'en';
-                    error_log("ブラウザ言語から言語設定: " . $this->lang);
+                    writelog("DEBUG: ブラウザ言語から言語設定: " . $this->lang);
                     return;
                 } elseif ($langCode === 'zh') {
                     // 中国語の場合、詳細な地域コードを確認
                     $fullLangCode = substr($browserLang, 0, 5);
                     if (strpos($fullLangCode, 'zh-TW') === 0) {
                         $this->lang = 'zh_TW';
-                        error_log("ブラウザ言語から言語設定(台湾): " . $this->lang);
+                        writelog("DEBUG: ブラウザ言語から言語設定(台湾): " . $this->lang);
                         return;
                     } elseif (strpos($fullLangCode, 'zh-HK') === 0) {
                         $this->lang = 'zh_HK';
-                        error_log("ブラウザ言語から言語設定(香港): " . $this->lang);
+                        writelog("DEBUG: ブラウザ言語から言語設定(香港): " . $this->lang);
                         return;
                     }
                     // 中国語だが地域が特定できない場合は英語をデフォルトとする
                 }
             }
         } else {
-            error_log("ブラウザ言語設定はありません");
+            writelog("DEBUG: ブラウザ言語設定はありません");
         }
         
-        error_log("デフォルト言語を使用: " . $this->lang);
+        writelog("DEBUG: デフォルト言語を使用: " . $this->lang);
     }
 
     /**
@@ -119,14 +119,14 @@ class I18n
         $mappedLang = isset($langMap[$this->lang]) ? $langMap[$this->lang] : $this->lang;
         $langFile = __DIR__ . '/../lang/' . $mappedLang . '.php';
         
-        error_log("言語ファイル読み込み: " . $langFile);
+        writelog("DEBUG: 言語ファイル読み込み: " . $langFile);
         if (file_exists($langFile)) {
             $this->translations = require($langFile);
-            error_log("言語ファイル読み込み成功");
+            writelog("DEBUG: 言語ファイル読み込み成功");
         } else {
             // デフォルト言語のファイルが見つからない場合は空の配列を設定
             $this->translations = [];
-            error_log("言語ファイルが見つかりません: " . $langFile);
+            writelog("DEBUG: 言語ファイルが見つかりません: " . $langFile);
         }
     }
 

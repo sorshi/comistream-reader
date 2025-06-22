@@ -109,9 +109,9 @@ function get_icon($filename, $is_dir) {
 }
 
 function format_size($bytes) {
-    if ($bytes >= 1073741824) return number_format($bytes / 1073741824, 2) . 'G';
-    if ($bytes >= 1048576) return number_format($bytes / 1048576, 2) . 'M';
-    if ($bytes >= 1024) return number_format($bytes / 1024, 2) . 'K';
+    if ($bytes >= 1073741824) return number_format($bytes / 1073741824, 0) . 'G';
+    if ($bytes >= 1048576) return number_format($bytes / 1048576, 0) . 'M';
+    if ($bytes >= 1024) return number_format($bytes / 1024, 0) . 'K';
     if ($bytes > 0) return $bytes . 'B';
     return '-';
 }
@@ -141,10 +141,15 @@ if (!is_dir($physical_path)) {
     exit;
 }
 
+$sort_by = strtolower($_GET['sort'] ?? 'name');
+$sort_order = strtolower($_GET['order'] ?? 'asc');
+if (!in_array($sort_by, ['name', 'lastmod', 'size'])) $sort_by = 'name';
+if (!in_array($sort_order, ['asc', 'desc'])) $sort_order = 'asc';
+
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover') 
     ? '/theme/style_cover.css?2025062201'
-    : '/theme/style.css?2025040100';
+    : '/theme/style.css?2025062201';
 
 header('Content-Type: text/html; charset=utf-8');
 
@@ -195,9 +200,20 @@ $js_config = json_encode([
   <thead>
     <tr class="indexhead">
       <th class="indexcolicon"><img src="/theme/icons/blank.png" alt="[ICO]"></th>
-      <th class="indexcolname">Name</th>
-      <th class="indexcollastmod">Last modified</th>
-      <th class="indexcolsize">Size</th>
+      <?php
+      function print_sort_header($title, $sort_key, $current_sort_by, $current_sort_order, $request_path) {
+          $order = ($current_sort_by === $sort_key && $current_sort_order === 'asc') ? 'desc' : 'asc';
+          $class = 'indexcol' . $sort_key;
+          if ($current_sort_by === $sort_key) {
+              $class .= ' sort-' . $current_sort_order;
+          }
+          $url = '?path=' . urlencode($request_path) . '&sort=' . $sort_key . '&order=' . $order;
+          echo '<th class="' . $class . '"><a href="' . htmlspecialchars($url) . '">' . $title . '</a></th>';
+      }
+      print_sort_header('Name', 'name', $sort_by, $sort_order, $request_path);
+      print_sort_header('Last modified', 'lastmod', $sort_by, $sort_order, $request_path);
+      print_sort_header('Size', 'size', $sort_by, $sort_order, $request_path);
+      ?>
     </tr>
   </thead>
   <tbody>
@@ -228,13 +244,18 @@ $js_config = json_encode([
             'name' => $item,
             'is_dir' => $is_dir,
             'size' => $is_dir ? -1 : $stat['size'],
-            'mtime' => $stat['mtime']
+            'lastmod' => $stat['mtime']
         ];
         if ($is_dir) $dirs[] = $entry;
         else $files[] = $entry;
     }
     
-    $sort_func = fn($a, $b) => $b['mtime'] <=> $a['mtime'];
+    $sort_func = function($a, $b) use ($sort_by, $sort_order) {
+        $val_a = $a[$sort_by];
+        $val_b = $b[$sort_by];
+        $cmp = ($sort_by === 'name') ? strcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
+        return ($sort_order === 'asc') ? $cmp : -$cmp;
+    };
     usort($dirs, $sort_func);
     usort($files, $sort_func);
     $sorted_items = array_merge($dirs, $files);
@@ -251,7 +272,7 @@ $js_config = json_encode([
         $icon_img_src = ($viewmode === 'cover' && $item['is_dir']) ? '/theme/icons/blank.png' : $icon;
         echo '<td class="indexcolicon"><a href="' . htmlspecialchars($href) . '"><img src="' . $icon_img_src . '" alt="[ICO]"></a></td>';
         echo '<td class="indexcolname"><a href="' . htmlspecialchars($href) . '"' . (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') . '>' . htmlspecialchars($item['name']) . '</a></td>';
-        echo '<td class="indexcollastmod">' . date('Y-m-d H:i', $item['mtime']) . '</td>';
+        echo '<td class="indexcollastmod">' . date('Y-m-d H:i', $item['lastmod']) . '</td>';
         echo '<td class="indexcolsize">' . format_size($item['size']) . '</td>';
         echo '</tr>';
     }
