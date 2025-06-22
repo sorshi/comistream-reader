@@ -715,8 +715,15 @@ if(window.matchMedia("(any-hover:hover)").matches){
   window.addEventListener("DOMContentLoaded",addMouseOutEvent);
   window.addEventListener("DOMContentLoaded",addModalMouseOutEvent);
 }
-</script>
 
+// プレビュー表示中はスクロールイベントを無効化
+window.addEventListener("scroll", function(event) {
+    if (modal.style.display == "block"){
+        event.preventDefault();
+    }
+}, { passive: false });
+</script>
+<script src="/theme/js/i18n.js"></script>
 <div class="footer">
   Comistream - Nihondo 2022<br>
 </div>

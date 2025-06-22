@@ -8,7 +8,7 @@ const availableLanguages = {
   ja: "日本語",
   en: "English",
   zh_TW: "繁體中文（台灣）",
-  zh_HK: "繁體中文（香港）"
+  zh_HK: "繁體中文（香港）",
 };
 
 // グローバル変数
@@ -80,7 +80,7 @@ function getCurrentLang() {
 function loadLanguageFile(callback) {
   currentLang = getCurrentLang();
   const script = document.createElement("script");
-  script.src = themeDir + "/theme/lang/" + currentLang + ".js";
+  script.src = "/theme/lang/" + currentLang + ".js";
   script.onload = function () {
     translations = i18n_translations;
     if (callback) callback();
@@ -119,60 +119,60 @@ function switchLanguage(lang) {
  * 言語メニューの表示/非表示を切り替える
  */
 function switchLanguageMenu() {
-  const menu = document.getElementById('languageMenu');
-  const icon = document.getElementById('languageIcon');
-  
+  const menu = document.getElementById("languageMenu");
+  const icon = document.getElementById("languageIcon");
+
   // 言語オプションが空の場合は作成
-  const options = document.getElementById('languageOptions');
+  const options = document.getElementById("languageOptions");
   if (!options.children.length) {
     for (const [code, name] of Object.entries(availableLanguages)) {
-      const langBtn = document.createElement('div');
+      const langBtn = document.createElement("div");
       langBtn.textContent = name;
-      langBtn.style.padding = '8px 16px';
-      langBtn.style.cursor = 'pointer';
-      langBtn.style.color = code === currentLang ? '#ffcc00' : 'white';
-      langBtn.style.fontWeight = code === currentLang ? 'bold' : 'normal';
-      langBtn.style.borderRadius = '4px';
-      
-      langBtn.addEventListener('mouseover', function() {
-        this.style.backgroundColor = 'rgba(255,255,255,0.2)';
+      langBtn.style.padding = "8px 16px";
+      langBtn.style.cursor = "pointer";
+      langBtn.style.color = code === currentLang ? "#ffcc00" : "white";
+      langBtn.style.fontWeight = code === currentLang ? "bold" : "normal";
+      langBtn.style.borderRadius = "4px";
+
+      langBtn.addEventListener("mouseover", function () {
+        this.style.backgroundColor = "rgba(255,255,255,0.2)";
       });
-      
-      langBtn.addEventListener('mouseout', function() {
-        this.style.backgroundColor = 'transparent';
+
+      langBtn.addEventListener("mouseout", function () {
+        this.style.backgroundColor = "transparent";
       });
-      
-      langBtn.addEventListener('click', function() {
+
+      langBtn.addEventListener("click", function () {
         switchLanguage(code);
       });
-      
+
       options.appendChild(langBtn);
     }
   }
-  
+
   // メニューの位置調整
   const rect = icon.getBoundingClientRect();
-  menu.style.top = (rect.bottom + window.scrollY) + 'px';
-  menu.style.left = (rect.left + window.scrollX - 40) + 'px';
-  
+  menu.style.top = rect.bottom + window.scrollY + "px";
+  menu.style.left = rect.left + window.scrollX - 40 + "px";
+
   // 表示/非表示の切り替え
-  if (menu.style.display === 'none' || !menu.style.display) {
-    menu.style.display = 'block';
-    
+  if (menu.style.display === "none" || !menu.style.display) {
+    menu.style.display = "block";
+
     // ドキュメントクリックでメニューを閉じる
-    const closeMenu = function(e) {
+    const closeMenu = function (e) {
       if (!menu.contains(e.target) && e.target !== icon) {
-        menu.style.display = 'none';
-        document.removeEventListener('click', closeMenu);
+        menu.style.display = "none";
+        document.removeEventListener("click", closeMenu);
       }
     };
-    
+
     // イベントリスナーを遅延して追加（現在のクリックが反応しないように）
     setTimeout(() => {
-      document.addEventListener('click', closeMenu);
+      document.addEventListener("click", closeMenu);
     }, 10);
   } else {
-    menu.style.display = 'none';
+    menu.style.display = "none";
   }
 }
 
