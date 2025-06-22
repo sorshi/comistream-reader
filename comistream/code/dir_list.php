@@ -148,8 +148,8 @@ if (!in_array($sort_order, ['asc', 'desc'])) $sort_order = 'asc';
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover') 
-    ? '/theme/style_cover.css?2025062201'
-    : '/theme/style.css?2025062201';
+    ? '/theme/style_cover.css?2025062202'
+    : '/theme/style.css?2025062202';
 
 header('Content-Type: text/html; charset=utf-8');
 

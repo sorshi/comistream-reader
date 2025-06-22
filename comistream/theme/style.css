@@ -67,7 +67,7 @@ a:hover{
   float:left;
   width:32px;
   height:28px;
-  margin:2px 0px 0px 0px;
+  margin:1px 0px 0px 0px;
   background:url("icons/guest.png") center/contain no-repeat;
   cursor: pointer;
 }
