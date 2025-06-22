@@ -1,9 +1,48 @@
 <?php
 
+require_once __DIR__ . '/comistream_lib.php';
+
 // Script configuration
 ini_set('output_buffering', 'On');
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
+
+// DB接続
+$dbh = null;
+if ($global_use_db_flag == 1) {
+    $db_path = __DIR__ . '/../data/db/comistream.sqlite';
+    if (file_exists($db_path)) {
+        $DSN = "sqlite:" . $db_path;
+        try {
+            $dbh = new PDO($DSN);
+            $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $dbh->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            // In a real app, you'd want to log this error properly
+            error_log('Connection failed: ' . $e->getMessage());
+            // For security, don't echo detailed errors to the user
+            http_response_code(500);
+            echo "Database connection error.";
+            exit;
+        }
+    }
+}
+
+// Read config from DB if connected
+if ($dbh) {
+    readConfig($dbh);
+    global $conf;
+    $cgiPath = $conf['cgiPath'] ?? '/cgi-bin/comistream.php';
+    $hlsCgiPath = $conf['hlsCgiPath'] ?? '/cgi-bin/livestream.php';
+    $bibiPath = $conf['bibiPath'] ?? '/bibi/';
+    $publicDir = '';
+} else {
+    // Fallback to defaults if DB is not available
+    $cgiPath = '/cgi-bin/comistream.php';
+    $hlsCgiPath = '/cgi-bin/livestream.php';
+    $bibiPath = '/bibi/';
+    $publicDir = '';
+}
 
 // Define mappings from file extensions to icons.
 // This replaces the AddIcon directives from .htaccess.
@@ -81,6 +120,8 @@ function format_size($bytes) {
 $document_root = $_SERVER['DOCUMENT_ROOT'];
 $request_path = urldecode($_GET['path'] ?? '');
 
+writelog("INFO dir_list: Access to " . $request_path, "dir_list");
+
 // Sanitize to prevent directory traversal
 $request_path = str_replace('..', '', $request_path);
 $physical_path = realpath($document_root . '/' . $request_path);
@@ -102,10 +143,21 @@ if (!is_dir($physical_path)) {
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover') 
-    ? '/theme/style_cover.css?2025040101'
+    ? '/theme/style_cover.css?2025062201'
     : '/theme/style.css?2025040100';
 
 header('Content-Type: text/html; charset=utf-8');
+
+// Define Javascript variables to be used in header/footer
+$js_config = json_encode([
+    'cgiPath' => $cgiPath,
+    'hlsCgiPath' => $hlsCgiPath,
+    'bibiPath' => $bibiPath,
+    'publicDir' => $publicDir,
+    'themeDir' => '', // themeDir seems to be consistently empty/root
+    'currentPath' => $request_path,
+    'loginUser' => $_COOKIE['comistreamUser'] ?? ''
+]);
 
 ?>
 <!DOCTYPE html>
@@ -114,6 +166,16 @@ header('Content-Type: text/html; charset=utf-8');
   <meta charset="UTF-8">
   <title>Index of <?php echo htmlspecialchars('/' . $request_path); ?></title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <script>
+    // Pass PHP config to Javascript
+    const comistreamConfig = <?php echo $js_config; ?>;
+    const cgiPath = comistreamConfig.cgiPath;
+    const hlsCgiPath = comistreamConfig.hlsCgiPath;
+    const bibiPath = comistreamConfig.bibiPath;
+    const publicDir = comistreamConfig.publicDir;
+    const themeDir = comistreamConfig.themeDir;
+    const loginuser = comistreamConfig.loginUser;
+  </script>
   <link rel="manifest" href="/theme/manifest.json" crossorigin="use-credentials">
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes">
@@ -123,7 +185,7 @@ header('Content-Type: text/html; charset=utf-8');
   <link rel="shortcut icon" href="/theme/icons/comistream.png" />
   <link rel="icon" type="image/png" href="/theme/icons/comistream.png" />
   <link rel="apple-touch-icon" href="/theme/icons/comistreamapp.png" />
-  <link rel="stylesheet" href="<?php echo $stylesheet_path; ?>">
+  <link id="stylesheet" rel="stylesheet" href="<?php echo $stylesheet_path; ?>">
 </head>
 <body>
 
@@ -144,10 +206,12 @@ header('Content-Type: text/html; charset=utf-8');
         $parent_path = dirname('/' . rtrim($request_path, '/'));
         if (DIRECTORY_SEPARATOR !== '/') $parent_path = str_replace(DIRECTORY_SEPARATOR, '/', $parent_path);
         if ($parent_path === '/' || $parent_path === '.') $parent_path = '/';
-        echo '<tr>';
-        echo '<td class="indexcolicon"><a href="' . htmlspecialchars($parent_path) . '"><img src="' . get_icon_map()['__parent'] . '" alt="[PARENTDIR]"></a></td>';
+        echo '<tr class="parent-dir-row">';
+        $parent_icon_src = ($viewmode === 'cover') ? '/theme/icons/blank.png' : get_icon_map()['__parent'];
+        echo '<td class="indexcolicon"><a href="' . htmlspecialchars($parent_path) . '"><img src="' . $parent_icon_src . '" alt="[PARENTDIR]"></a></td>';
         echo '<td class="indexcolname"><a href="' . htmlspecialchars($parent_path) . '">Parent Directory</a></td>';
-        echo '<td>&nbsp;</td><td>-</td>';
+        echo '<td class="indexcollastmod">&nbsp;</td>';
+        echo '<td class="indexcolsize">-</td>';
         echo '</tr>';
     }
 
@@ -182,7 +246,10 @@ header('Content-Type: text/html; charset=utf-8');
         if ($item['is_dir']) $href .= '/';
 
         echo '<tr>';
-        echo '<td class="indexcolicon"><a href="' . htmlspecialchars($href) . '"><img src="' . $icon . '" alt="[ICO]"></a></td>';
+        // For directories in cover view, the icon is a background image on the link, not an img tag.
+        // So, we provide a blank image for cover view directories to maintain layout.
+        $icon_img_src = ($viewmode === 'cover' && $item['is_dir']) ? '/theme/icons/blank.png' : $icon;
+        echo '<td class="indexcolicon"><a href="' . htmlspecialchars($href) . '"><img src="' . $icon_img_src . '" alt="[ICO]"></a></td>';
         echo '<td class="indexcolname"><a href="' . htmlspecialchars($href) . '"' . (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') . '>' . htmlspecialchars($item['name']) . '</a></td>';
         echo '<td class="indexcollastmod">' . date('Y-m-d H:i', $item['mtime']) . '</td>';
         echo '<td class="indexcolsize">' . format_size($item['size']) . '</td>';

@@ -3,15 +3,19 @@
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
+  DirectoryIndex index.php index.html
 
   # Do not rewrite for special aliased paths.
-  # This rule prevents rewrite loops by exiting early for the target script and asset paths.
   RewriteRule ^(cgi-bin/|theme/|bibi/) - [L]
 
-  # For requests that do not correspond to an existing file...
-  RewriteCond %{REQUEST_FILENAME} !-f
-  # ...rewrite the request to the main directory listing script.
-  # This will handle both directory listings and custom 404 pages for non-files.
+  # Do not rewrite if the request is for an existing file.
+  RewriteCond %{REQUEST_FILENAME} -f
+  RewriteRule ^ - [L]
+
+  # For directories, rewrite to the listing script ONLY if an index file does not exist.
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteCond %{REQUEST_FILENAME}/index.php !-f
+  RewriteCond %{REQUEST_FILENAME}/index.html !-f
   RewriteRule ^(.*)$ /cgi-bin/dir_list.php?path=$1 [L,QSA]
 </IfModule>
 

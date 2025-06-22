@@ -1,17 +1,9 @@
 </div><!--/.wrapper-->
 
 <script>
-///// 可変設定 ##################################################
-// CGIの置き場所（URL）
-const cgiPath   = "/cgi-bin/comistream.php";
-const hlsCgiPath= "/cgi-bin/livestream.php";
-const bibiPath = "/bibi/";
-// Apache公開ディレクトリのパス（URLスキーム・ホストを除いた部分）
-const publicDir = "/nas";
-const themeDir = "";
-///// 可変設定 ##################################################
+// const cgiPath, hlsCgiPath, bibiPath, publicDir, themeDir are now defined in the main html from dir_list.php
 
-const iconPath = themeDir+"/theme/icons/";
+const iconPath = "/theme/icons/"; // themeDir is empty, so we can hardcode this.
 const colname = document.getElementsByClassName("indexcolname");
 
 const modal = document.querySelector("#modal");
@@ -22,7 +14,7 @@ let previewWindowHeight = Math.round(812 * document.documentElement.clientWidth 
 var script = document.createElement('script');
 
 // scriptのsrc属性に読み込みたいスクリプトのURLを設定します。
-script.src = `${themeDir}/theme/js/long-press-event.min.js`;
+script.src = "/theme/js/long-press-event.min.js";
 
 // script要素をDOMに追加します。これによりスクリプトが読み込まれ実行されます。
 document.body.appendChild(script);
@@ -38,7 +30,7 @@ window.addEventListener('long-press', function(e) {
 
 function openFileMenu(e){
   // ターゲットのhref要素から相対パスを作成しcgiの引数にする
-  var fileLink = e.target.href.replace( location.origin+publicDir+"/", "" );
+  var fileLink = new URL(e.target.href).pathname.substring(1);
   fileLink = fileLink.replaceAll( "&", "%26" );
   fileLink = fileLink.replaceAll( "=", "%3D" );
 
@@ -51,7 +43,7 @@ function openFileMenu(e){
 
 function openBookDetailMenu(e){
   // ターゲットのhref要素から相対パスを作成しcgiの引数にする
-  var fileLink = e.target.href.replace( location.origin+publicDir+"/", "" );
+  var fileLink = new URL(e.target.href).pathname.substring(1);
   fileLink = fileLink.replaceAll( "&", "%26" );
   fileLink = fileLink.replaceAll( "=", "%3D" );
 
@@ -64,7 +56,7 @@ function openBookDetailMenu(e){
 
 function linkhook(e) {
   // ターゲットのhref要素から相対パスを作成しcgiの引数にする
-  var fileLink = e.target.href.replace( location.origin+publicDir+"/", "" );
+  var fileLink = new URL(e.target.href).pathname.substring(1);
   // <tr><td valign="top"><a href="" id=""><img src="book.png"/></a></td> <td><a href="" onclick></a></td>
   fileLink = fileLink.replaceAll( "&", "%26" );
   fileLink = fileLink.replaceAll( "=", "%3D" );
@@ -137,7 +129,7 @@ function toggleRaw(){
 
 function getBookmark() {
   // サーバからディレクトリ内の既読リストを取得
-  var pathName = window.location.pathname.replace(publicDir,"");
+  var pathName = comistreamConfig.currentPath;
   var xmlHttp = new XMLHttpRequest();
   xmlHttp.open("GET", cgiPath + "?mode=list&file="+pathName, false);
   try{
@@ -172,7 +164,7 @@ function getBookmark() {
 
 // お気に入りフラグの設定
 function toggleFavorite(e){
-  var fileLink = e.target.firstChild.href.replace( location.origin+publicDir+"/", "" );
+  var fileLink = new URL(e.target.firstChild.href).pathname.substring(1);
   // <tr><td valign="top"><a href="" id=""><img src="book.png"/></a></td> <td><a href="" onclick></a></td>
   fileLink = fileLink.replaceAll( "&", "%26" );
   fileLink = fileLink.replaceAll( "=", "%3D" );
@@ -206,7 +198,7 @@ function searchFavButton(){
 
 // 最後に開いたファイルの取得
 function getHistory(){
-  var pathName = window.location.pathname.replace(publicDir,"");
+  var pathName = comistreamConfig.currentPath;
   var xmlHttp = new XMLHttpRequest();
   xmlHttp.open("GET", cgiPath + "?mode=history", false);
   xmlHttp.send(null);
@@ -300,7 +292,7 @@ function login(){
 // ディレクトリのカスタムアイコンを設定する関数
 function applyDirectoryCustomIcons(){
   const colname = document.getElementsByClassName("indexcolname");
-  const imgPath = location.origin+themeDir+"/theme/covers/";
+  const imgPath = location.origin+"/theme/covers/";
   
   for (let i = 2; i < colname.length; i++) {
     const elm = colname[i].firstChild;
@@ -399,16 +391,17 @@ function applyDirectoryCustomIcons(){
 
 // リスト・カバービューの切り替え
 function toggleView(){
-  if( document.getElementsByTagName("link")[0].href.match(/style\.css/)) {
+  const stylesheet = document.getElementById("stylesheet");
+  if( stylesheet.href.match(/style\.css/)) {
     document.cookie = "viewmode=cover; path=/; max-age=31536000;";
-    document.getElementsByTagName("link")[0].href = themeDir+"/theme/style_cover.css?2025040101";
+    stylesheet.href = "/theme/style_cover.css?2025040101";
     // Cover Viewに切り替えた時にディレクトリのカスタムアイコンを適用するルン！
     setTimeout(applyDirectoryCustomIcons, 100);
   }else{
     // CoverViewからListViewに切り替える場合、ディレクトリのカスタム背景画像をクリア
     clearDirectoryCustomBackgrounds();
     document.cookie = "viewmode=list; path=/; max-age=31536000;";
-    document.getElementsByTagName("link")[0].href = themeDir+"/theme/style.css?2025040100";
+    stylesheet.href = "/theme/style.css?2025040100";
   }
 }
 
@@ -533,8 +526,8 @@ window.addEventListener('pageshow', function(event) {
 
 // ドキュメントの tr タグを走査
 //setTimeout( function(){
-const imgPath = location.origin+themeDir+"/theme/covers/";
-const previewPath = location.origin+themeDir+"/theme/preview/";
+const imgPath = location.origin+"/theme/covers/";
+const previewPath = location.origin+"/theme/preview/";
 var img = document.createElement('img');
 img.loading = "lazy";
 img.className = "cover_to_preview";
@@ -656,8 +649,9 @@ for (var i = 2; i < colname.length; i++ ) {
     var coverImg = img.cloneNode(false);
     const extension = elm.href.split(".").pop();
     const extensionLength = (extension.length* -1) -1;
-    coverImg.src = imgPath + elm.href.replace( location.origin+themeDir+"/", "" ).slice(0, extensionLength)+".jpg";
-    colname[i].setAttribute('data-image', previewPath + elm.href.replace( location.origin+themeDir+"/", "" ).slice(0, extensionLength)+".webp");
+    const imagePath = new URL(elm.href).pathname.substring(1);
+    coverImg.src = imgPath + imagePath.slice(0, extensionLength)+".jpg";
+    colname[i].setAttribute('data-image', previewPath + imagePath.slice(0, extensionLength)+".webp");
     colname[i].appendChild(coverImg);
   }
 }

@@ -263,6 +263,9 @@ td.indexcolname {
   color: #444;
   background: url("icons/largefolderx1.webp") center no-repeat;
 }
+.parent-dir-row .indexcolname a {
+  background: url("icons/largefolderx1.webp") center no-repeat;
+}
 td.indexcollastmod {
   display: none;
 }

@@ -42,7 +42,6 @@ for(var keyValues of document.cookie.split(";") ){
   if( keyValue[0].match(/comistreamUser/) ){
     // ユーザ名設定
     document.getElementById("loginIcon").className = "login";
-    var loginuser = keyValue[1];
   }else if( keyValue[0].match(/rawMode/) ){
     // 圧縮有無設定
     document.getElementById("rawMode").className = keyValue[1];
