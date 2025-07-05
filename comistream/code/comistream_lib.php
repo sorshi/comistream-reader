@@ -581,6 +581,7 @@ function getBookmarkList()
             }
 
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                // writelog("DEBUG getBookmarkList() DB LINE:" . print_r($row, true));
                 $fav = $row['favorite'] == 1 ? "\t*" : '';
                 // 既読は最終ページが0に設定されている仕様
                 if ($row['has_read'] === 1) {
@@ -596,6 +597,8 @@ function getBookmarkList()
         } else {
             echo file_get_contents("$bookmarkDir/$user/$file/bookmark");
         }
+    }else{
+        // writelog("DEBUG getBookmarkList() guest user,not send");
     }
     exit(0);
 } //end function writelog

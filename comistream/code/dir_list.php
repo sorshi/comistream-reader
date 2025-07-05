@@ -1,5 +1,18 @@
 <?php
 
+/**
+ * Comistream Directory Listing
+ *
+ * Apacheのmod_autoindexの代わりにディレクトリリスティング表示を行います
+ *
+ * @package     sorshi/comistream-reader
+ * @author      Comistream Project.
+ * @copyright   2024 Comistream Project.
+ * @license     GPL3.0 License
+ * @version     1.2.0
+ * @link        https://github.com/sorshi/comistream-reader
+ */
+
 require_once __DIR__ . '/comistream_lib.php';
 
 // Script configuration
@@ -256,7 +269,7 @@ $js_config = json_encode([
     'bibiPath' => $bibiPath,
     'publicDir' => $publicDir,
     'themeDir' => '', // themeDir seems to be consistently empty/root
-    'currentPath' => $request_path,
+    'currentPath' => '/' . ltrim($request_path, '/'), // Add leading slash for mod_autoindex compatibility, avoid double slashes
     'loginUser' => $_COOKIE['comistreamUser'] ?? ''
 ]);
 
@@ -301,7 +314,17 @@ $js_config = json_encode([
                 <?php
                 function print_sort_header($title, $sort_key, $current_sort_by, $current_sort_order, $request_path)
                 {
-                    $order = ($current_sort_by === $sort_key && $current_sort_order === 'asc') ? 'desc' : 'asc';
+                    if ($current_sort_by === $sort_key) {
+                        // 現在のソート対象と同じカラムがクリックされた場合は逆順にする
+                        $order = ($current_sort_order === 'asc') ? 'desc' : 'asc';
+                    } else {
+                        // 異なるカラムがクリックされた場合はそのカラムのデフォルト値を使用
+                        if ($sort_key === 'lastmod' || $sort_key === 'size') {
+                            $order = 'desc';  // Last modifiedとSizeは降順が初期値
+                        } else {
+                            $order = 'asc';   // Nameなどは昇順が初期値
+                        }
+                    }
                     $class = 'indexcol' . $sort_key;
                     if ($current_sort_by === $sort_key) {
                         $class .= ' sort-' . $current_sort_order;
@@ -330,12 +353,15 @@ $js_config = json_encode([
                 echo '</tr>';
             }
 
-            $items = scandir($physical_path);
+            $items = scandir($physical_path, SCANDIR_SORT_NONE);
             $dirs = [];
             $files = [];
+            $all_items = [];
 
             foreach ($items as $item) {
                 if ($item === '.' || $item === '..') continue;
+                // Skip hidden files (files starting with dot)
+                if (strpos($item, '.') === 0) continue;
                 $item_path = $physical_path . '/' . $item;
                 $is_dir = is_dir($item_path);
                 $stat = stat($item_path);
@@ -345,19 +371,42 @@ $js_config = json_encode([
                     'size' => $is_dir ? -1 : $stat['size'],
                     'lastmod' => $stat['mtime']
                 ];
+
+                // すべてのアイテムを配列に追加
+                $all_items[] = $entry;
+
+                // 従来の分割ソート用に分類も保持
                 if ($is_dir) $dirs[] = $entry;
                 else $files[] = $entry;
             }
 
-            $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
-                $val_a = $a[$sort_by];
-                $val_b = $b[$sort_by];
-                $cmp = ($sort_by === 'name') ? strcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
-                return ($sort_order === 'asc') ? $cmp : -$cmp;
-            };
-            usort($dirs, $sort_func);
-            usort($files, $sort_func);
-            $sorted_items = array_merge($dirs, $files);
+            // ソート設定：name順とlastmod順の場合は混在ソート、それ以外は分割ソート
+            // ハードコーディング設定：分割ソートを強制する場合は true に変更
+            $force_separate_sort = false;
+            $use_mixed_sort = (($sort_by === 'name' || $sort_by === 'lastmod') && !$force_separate_sort);
+
+            if ($use_mixed_sort) {
+                // 混在ソート（MacのFinderライク）
+                $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
+                    $val_a = $a[$sort_by];
+                    $val_b = $b[$sort_by];
+                    $cmp = ($sort_by === 'name') ? strcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
+                    return ($sort_order === 'asc') ? $cmp : -$cmp;
+                };
+                usort($all_items, $sort_func);
+                $sorted_items = $all_items;
+            } else {
+                // 分割ソート（従来通り：ディレクトリが先、ファイルが後）
+                $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
+                    $val_a = $a[$sort_by];
+                    $val_b = $b[$sort_by];
+                    $cmp = ($sort_by === 'name') ? strcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
+                    return ($sort_order === 'asc') ? $cmp : -$cmp;
+                };
+                usort($dirs, $sort_func);
+                usort($files, $sort_func);
+                $sorted_items = array_merge($dirs, $files);
+            }
 
             foreach ($sorted_items as $item) {
                 $icon = get_icon($item['name'], $item['is_dir']);
@@ -370,7 +419,16 @@ $js_config = json_encode([
                 // So, we provide a blank image for cover view directories to maintain layout.
                 $icon_img_src = ($viewmode === 'cover' && $item['is_dir']) ? '/theme/icons/blank.png' : $icon;
                 echo '<td class="indexcolicon"><a href="' . htmlspecialchars($href) . '"><img src="' . $icon_img_src . '" alt="[ICO]"></a></td>';
-                echo '<td class="indexcolname"><a href="' . htmlspecialchars($href) . '"' . (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') . '>' . htmlspecialchars($item['name']) . '</a></td>';
+
+                // Add onclick handler for files (not directories) to maintain compatibility with mod_autoindex
+                $onclick_attr = '';
+                if (!$item['is_dir']) {
+                    $onclick_attr = ' onclick="return linkhook(event)"';
+                }
+
+                echo '<td class="indexcolname"><a href="' . htmlspecialchars($href) . '"' . 
+                     (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') . 
+                     $onclick_attr . '>' . htmlspecialchars($item['name']) . '</a></td>';
                 echo '<td class="indexcollastmod">' . date('Y-m-d H:i', $item['lastmod']) . '</td>';
                 echo '<td class="indexcolsize">' . format_size($item['size']) . '</td>';
                 echo '</tr>';
