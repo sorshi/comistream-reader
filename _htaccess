@@ -1,6 +1,16 @@
 # Comistream - PHP Directory Listing
 # This file should be deployed as .htaccess in the DocumentRoot.
 
+# Enable directory listing to allow mod_rewrite to work
+Options +Indexes
+
+# Note: AllowEncodedSlashes and UnsafeAllow3F must be set in Apache config files (httpd.conf or virtual host), not in .htaccess
+
+# Force Apache to allow directory access
+<RequireAll>
+  Require all granted
+</RequireAll>
+
 <IfModule mod_rewrite.c>
   RewriteEngine On
   DirectoryIndex index.php index.html
@@ -13,10 +23,18 @@
   RewriteRule ^ - [L]
 
   # For directories, rewrite to the listing script ONLY if an index file does not exist.
+  # Force rewrite for all directories that don't have index files
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteCond %{REQUEST_FILENAME}/index.php !-f
   RewriteCond %{REQUEST_FILENAME}/index.html !-f
-  RewriteRule ^(.*)$ /cgi-bin/dir_list.php?path=$1 [L,QSA]
+  RewriteCond %{THE_REQUEST} \s/+(.+?)[\s?] [NC]
+  RewriteRule ^ /cgi-bin/dir_list.php?path=%1 [L,QSA,E=no-gzip:1]
+  
+  # Emergency fallback: Force rewrite for 3+ level directories
+  RewriteCond %{REQUEST_URI} ^/[^/]+/[^/]+/[^/]+/
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{THE_REQUEST} \s/+(.+?)[\s?] [NC]
+  RewriteRule ^ /cgi-bin/dir_list.php?path=%1 [L,QSA,E=no-gzip:1]
 </IfModule>
 
 # General settings

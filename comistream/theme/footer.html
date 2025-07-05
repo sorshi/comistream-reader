@@ -426,7 +426,7 @@ function addMouseOverEvent(){
     for (let i = 0; i < cover.length; i++) {
       cover[i].addEventListener("mouseover", function (e) {
         // console.log(e.target);
-        if( document.getElementsByTagName("link")[0].href.match(/style\.css/)) {
+        if( document.getElementById("stylesheet").href.match(/style\.css/)) {
             // console.log("not cover");
         }else{
           // カバービューの時のみ動作
@@ -550,7 +550,7 @@ for (var i = 2; i < colname.length; i++ ) {
 
     // === ディレクトリのカスタムアイコン処理 ===
     // カバービューの場合のみディレクトリのカスタムアイコンを設定するルン！
-    let currentCSS = document.getElementsByTagName("link")[0].href;
+    let currentCSS = document.getElementById("stylesheet").href;
     let isCoverView = currentCSS.includes("style_cover.css");
     // 初期読み込み時にカバービューの場合のみ、個別にディレクトリアイコンを設定
     if (isCoverView) {
@@ -725,6 +725,6 @@ window.addEventListener("scroll", function(event) {
 </script>
 <script src="/theme/js/i18n.js"></script>
 <div class="footer">
-  Comistream - Nihondo 2022<br>
+  Comistream - Nihondo 2025<br>
 </div>
 <!--/.footer-->
