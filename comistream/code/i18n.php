@@ -60,7 +60,8 @@ class I18n
                 writelog("DEBUG: Cookie から言語設定: " . $this->lang);
                 return;
             } else {
-                writelog("DEBUG: Cookie に言語設定はありますが、対応していない言語です: " . $_COOKIE['lang']);
+                $safeCookie = preg_replace('/[^a-zA-Z0-9_\-]/', '', $_COOKIE['lang']);
+                writelog("DEBUG: Cookie lang値: " . $safeCookie);
             }
         } else {
             writelog("DEBUG: Cookie に言語設定はありません");

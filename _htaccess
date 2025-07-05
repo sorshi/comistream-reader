@@ -2,7 +2,6 @@
 # This file should be deployed as .htaccess in the DocumentRoot.
 
 # Enable directory listing to allow mod_rewrite to work
-Options +Indexes
 
 # Note: AllowEncodedSlashes and UnsafeAllow3F must be set in Apache config files (httpd.conf or virtual host), not in .htaccess
 

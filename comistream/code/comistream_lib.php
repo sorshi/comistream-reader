@@ -3546,7 +3546,7 @@ function readConfig($dbh)
         }
         // mutoolのパスを確認
         if (!(isset($conf["mutool"]))) {
-            $mutool = exec('which mutool') ?? '';
+            $mutool = exec('which mutool') ?: '';
             sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('mutool', ?);", "クエリに失敗しました",array($mutool));
             $conf["mutool"] = $mutool;
         }

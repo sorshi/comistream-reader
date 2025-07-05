@@ -119,11 +119,12 @@ function switchLanguage(lang) {
  * 言語メニューの表示/非表示を切り替える
  */
 function switchLanguageMenu() {
-  const menu = document.getElementById("languageMenu");
-  const icon = document.getElementById("languageIcon");
+  const menu    = document.getElementById("languageMenu");
+  const icon    = document.getElementById("languageIcon");
+  const options = document.getElementById("languageOptions");
+  if (!menu || !icon || !options) return;   // silently abort if elements missing
 
   // 言語オプションが空の場合は作成
-  const options = document.getElementById("languageOptions");
   if (!options.children.length) {
     for (const [code, name] of Object.entries(availableLanguages)) {
       const langBtn = document.createElement("div");

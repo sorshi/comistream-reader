@@ -216,7 +216,10 @@ $request_path = urldecode($_GET['path'] ?? '');
 writelog("INFO dir_list: Access to " . $request_path, "dir_list");
 
 // Sanitize to prevent directory traversal
-$request_path = str_replace('..', '', $request_path);
+// Decode and normalize the path
+$request_path = urldecode($request_path);
+// Remove any null bytes
+$request_path = str_replace("\0", '', $request_path);
 $physical_path = realpath($document_root . '/' . $request_path);
 
 // Security check: ensure path is within doc root and exists

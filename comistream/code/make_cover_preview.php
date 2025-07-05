@@ -406,7 +406,8 @@ if (strcasecmp($ext, 'epub') == 0) {
         $page = 1;
         $pageOutCmd = outputPage(true);
         writelog('DEBUG outputPage() returned:' . $pageOutCmd);
-        $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > \"$coverFile\"";
+        $cmd = $pageOutCmd . " | " . escapeshellarg($convert) . " - " . escapeshellarg($usm) . " -strip -resize " . escapeshellarg($resize) . " -quality " . escapeshellarg($conf["quality"]) . " -format jpeg jpeg:- > " . escapeshellarg($coverFile);
+
         exec($cmd, $output, $return_var);
         if ($return_var !== 0) {
             writelog('ERROR exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
