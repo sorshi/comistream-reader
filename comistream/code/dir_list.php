@@ -7,7 +7,7 @@
  *
  * @package     sorshi/comistream-reader
  * @author      Comistream Project.
- * @copyright   2024 Comistream Project.
+ * @copyright   2024-2025 Comistream Project.
  * @license     GPL3.0 License
  * @version     1.2.0
  * @link        https://github.com/sorshi/comistream-reader
@@ -250,10 +250,52 @@ if (!is_dir($physical_path)) {
     exit;
 }
 
+// セッション開始
+session_start();
+
+// ディレクトリ別ソート設定をセッションから取得
+$current_path = '/' . ltrim($request_path, '/');
+$sort_prefs = $_SESSION['dirSortPrefs'] ?? [];
+
+// POSTリクエストでlocalStorageからのデータを受信
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'sync_sort_prefs') {
+    if (isset($_POST['sort_prefs'])) {
+        $localStorage_data = json_decode($_POST['sort_prefs'], true);
+        if ($localStorage_data) {
+            $_SESSION['dirSortPrefs'] = $localStorage_data;
+            $sort_prefs = $localStorage_data;
+        }
+    }
+    // Ajax レスポンス
+    header('Content-Type: application/json');
+    echo json_encode(['status' => 'success']);
+    exit;
+}
+
+// ソート設定を取得（URLパラメータ優先、なければセッションから）
 $sort_by = strtolower($_GET['sort'] ?? 'name');
 $sort_order = strtolower($_GET['order'] ?? 'asc');
+
+// URLパラメータがない場合はセッションから取得
+if (!isset($_GET['sort']) && !isset($_GET['order'])) {
+    if (isset($sort_prefs[$current_path])) {
+        $sort_by = $sort_prefs[$current_path]['sort'] ?? 'name';
+        $sort_order = $sort_prefs[$current_path]['order'] ?? 'asc';
+    }
+}
+
+// バリデーション
 if (!in_array($sort_by, ['name', 'lastmod', 'size'])) $sort_by = 'name';
 if (!in_array($sort_order, ['asc', 'desc'])) $sort_order = 'asc';
+
+// ソート設定が変更された場合はセッションを更新
+if (isset($_GET['sort']) || isset($_GET['order'])) {
+    $sort_prefs[$current_path] = [
+        'sort' => $sort_by,
+        'order' => $sort_order
+    ];
+    $_SESSION['dirSortPrefs'] = $sort_prefs;
+}
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
@@ -270,7 +312,8 @@ $js_config = json_encode([
     'publicDir' => $publicDir,
     'themeDir' => '', // themeDir seems to be consistently empty/root
     'currentPath' => '/' . ltrim($request_path, '/'), // Add leading slash for mod_autoindex compatibility, avoid double slashes
-    'loginUser' => $_COOKIE['comistreamUser'] ?? ''
+    'loginUser' => $_COOKIE['comistreamUser'] ?? '',
+    'hasSessionSortPrefs' => isset($_SESSION['dirSortPrefs']) // セッションにソート設定があるかどうか
 ]);
 
 ?>
@@ -290,6 +333,68 @@ $js_config = json_encode([
         const publicDir = comistreamConfig.publicDir;
         const themeDir = comistreamConfig.themeDir;
         const loginuser = comistreamConfig.loginUser;
+        const hasSessionSortPrefs = comistreamConfig.hasSessionSortPrefs;
+        
+        // localStorage + Session 同期処理
+        window.addEventListener('DOMContentLoaded', function() {
+            // セッションにソート設定がない場合のみlocalStorageから同期
+            if (!hasSessionSortPrefs) {
+                syncLocalStorageToSession();
+            }
+            
+            // ソート変更時の処理
+            document.addEventListener('click', function(e) {
+                if (e.target.closest('th.indexcolname a, th.indexcollastmod a, th.indexcolsize a')) {
+                    // ソート変更をlocalStorageに反映（非同期）
+                    setTimeout(updateLocalStorageFromSession, 100);
+                }
+            });
+        });
+        
+        function syncLocalStorageToSession() {
+            const localSortPrefs = localStorage.getItem('dirSortPrefs');
+            if (localSortPrefs) {
+                const formData = new FormData();
+                formData.append('action', 'sync_sort_prefs');
+                formData.append('sort_prefs', localSortPrefs);
+                
+                fetch(window.location.href, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // 同期完了後、必要に応じてページリロード
+                        const currentPath = window.location.pathname;
+                        const prefs = JSON.parse(localSortPrefs);
+                        if (prefs[currentPath] && !window.location.search) {
+                            // 保存された設定でソート
+                            const sort = prefs[currentPath].sort;
+                            const order = prefs[currentPath].order;
+                            if (sort !== 'name' || order !== 'asc') {
+                                window.location.href = `${currentPath}?sort=${sort}&order=${order}`;
+                            }
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('同期エラー:', error);
+                });
+            }
+        }
+        
+        function updateLocalStorageFromSession() {
+            // 現在のソート設定をlocalStorageに保存
+            const currentPath = window.location.pathname;
+            const urlParams = new URLSearchParams(window.location.search);
+            const sort = urlParams.get('sort') || 'name';
+            const order = urlParams.get('order') || 'asc';
+            
+            let sortPrefs = JSON.parse(localStorage.getItem('dirSortPrefs') || '{}');
+            sortPrefs[currentPath] = { sort, order };
+            localStorage.setItem('dirSortPrefs', JSON.stringify(sortPrefs));
+        }
     </script>
     <link rel="manifest" href="/theme/manifest.json" crossorigin="use-credentials">
     <meta name="apple-mobile-web-app-capable" content="yes" />
