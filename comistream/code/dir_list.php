@@ -224,21 +224,41 @@ function format_size($bytes)
 
 // Main script execution
 $document_root = $_SERVER['DOCUMENT_ROOT'];
-$request_path = urldecode($_GET['path'] ?? '');
+$request_path = $_GET['path'] ?? '';
 
-writelog("INFO dir_list: Access to " . $request_path, "dir_list");
+writelog("INFO dir_list: Raw path param: " . $request_path, "dir_list");
 
-// Sanitize to prevent directory traversal
-// Decode and normalize the path
-$request_path = urldecode($request_path);
-// Remove any null bytes
-$request_path = str_replace("\0", '', $request_path);
-$physical_path = realpath($document_root . '/' . $request_path);
+// Sanitize to prevent directory traversal and handle problematic characters
+// 1. URLデコード（1回のみ） - rawurldecode()を使用して+をスペースに変換しない
+$request_path = rawurldecode($request_path);
+
+// 2. 危険な文字を除去
+$request_path = str_replace([
+    "\0",        // null byte
+    "\r",        // carriage return
+    "\n",        // newline
+    "\t",        // tab
+    chr(7),      // bell
+    chr(8),      // backspace
+    chr(11),     // vertical tab
+    chr(12),     // form feed
+], '', $request_path);
+
+// 3. 相対パス攻撃を防ぐ
+$request_path = str_replace(['../', '.\\', '..\\'], '', $request_path);
+
+// 4. パスを正規化
+$request_path = '/' . ltrim($request_path, '/');
+
+writelog("INFO dir_list: Sanitized path: " . $request_path, "dir_list");
+
+// 5. 物理パスを取得
+$physical_path = realpath($document_root . $request_path);
 
 // Security check: ensure path is within doc root and exists
 if ($physical_path === false || strpos($physical_path, $document_root) !== 0) {
     http_response_code(403);
-    writelog("ERROR dir_list: Forbidden access attempt: " . $request_path);
+    writelog("ERROR dir_list: Forbidden access attempt: " . $request_path . " -> " . ($physical_path ?: 'false'), "dir_list");
     echo "403 Forbidden";
     exit;
 }
@@ -254,7 +274,7 @@ if (!is_dir($physical_path)) {
 session_start();
 
 // ディレクトリ別ソート設定をセッションから取得
-$current_path = '/' . ltrim($request_path, '/');
+$current_path = $request_path; // 既に正規化済み
 $sort_prefs = $_SESSION['dirSortPrefs'] ?? [];
 
 // POSTリクエストでlocalStorageからのデータを受信
@@ -311,7 +331,7 @@ $js_config = json_encode([
     'bibiPath' => $bibiPath,
     'publicDir' => $publicDir,
     'themeDir' => '', // themeDir seems to be consistently empty/root
-    'currentPath' => '/' . ltrim($request_path, '/'), // Add leading slash for mod_autoindex compatibility, avoid double slashes
+    'currentPath' => $request_path, // Already normalized
     'loginUser' => $_COOKIE['comistreamUser'] ?? '',
     'hasSessionSortPrefs' => isset($_SESSION['dirSortPrefs']) // セッションにソート設定があるかどうか
 ]);
@@ -434,7 +454,7 @@ $js_config = json_encode([
                     if ($current_sort_by === $sort_key) {
                         $class .= ' sort-' . $current_sort_order;
                     }
-                    $url = '?path=' . urlencode($request_path) . '&sort=' . $sort_key . '&order=' . $order;
+                    $url = '?path=' . rawurlencode($request_path) . '&sort=' . $sort_key . '&order=' . $order;
                     echo '<th class="' . $class . '"><a href="' . htmlspecialchars($url) . '">' . $title . '</a></th>';
                 }
                 print_sort_header('Name', 'name', $sort_by, $sort_order, $request_path);
@@ -446,9 +466,9 @@ $js_config = json_encode([
         <tbody>
             <?php
             if ($physical_path !== $document_root) {
-                $parent_path = dirname('/' . rtrim($request_path, '/'));
+                $parent_path = dirname($request_path);
                 if (DIRECTORY_SEPARATOR !== '/') $parent_path = str_replace(DIRECTORY_SEPARATOR, '/', $parent_path);
-                if ($parent_path === '/' || $parent_path === '.') $parent_path = '/';
+                if ($parent_path === '/' || $parent_path === '.' || $parent_path === '') $parent_path = '/';
                 echo '<tr class="parent-dir-row">';
                 $parent_icon_src = ($viewmode === 'cover') ? '/theme/icons/blank.png' : get_icon_map()['__parent'];
                 echo '<td class="indexcolicon"><a href="' . htmlspecialchars($parent_path) . '"><img src="' . $parent_icon_src . '" alt="[PARENTDIR]"></a></td>';
@@ -515,8 +535,7 @@ $js_config = json_encode([
 
             foreach ($sorted_items as $item) {
                 $icon = get_icon($item['name'], $item['is_dir']);
-                $href = '/' . trim($request_path, '/') . '/' . rawurlencode($item['name']);
-                $href = str_replace('//', '/', $href);
+                $href = rtrim($request_path, '/') . '/' . rawurlencode($item['name']);
                 if ($item['is_dir']) $href .= '/';
 
                 echo '<tr>';
