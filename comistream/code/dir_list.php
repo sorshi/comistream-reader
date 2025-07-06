@@ -319,8 +319,8 @@ if (isset($_GET['sort']) || isset($_GET['order'])) {
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
-    ? '/theme/style_cover.css?2025062202'
-    : '/theme/style.css?2025062202';
+    ? '/theme/style_cover.css?2025062211'
+    : '/theme/style.css?2025062211';
 
 header('Content-Type: text/html; charset=utf-8');
 
@@ -333,7 +333,9 @@ $js_config = json_encode([
     'themeDir' => '', // themeDir seems to be consistently empty/root
     'currentPath' => $request_path, // Already normalized
     'loginUser' => $_COOKIE['comistreamUser'] ?? '',
-    'hasSessionSortPrefs' => isset($_SESSION['dirSortPrefs']) // セッションにソート設定があるかどうか
+    'hasSessionSortPrefs' => isset($_SESSION['dirSortPrefs']), // セッションにソート設定があるかどうか
+    'currentSort' => $sort_by, // 現在のソート項目
+    'currentOrder' => $sort_order // 現在のソート順序
 ]);
 
 ?>
@@ -354,14 +356,14 @@ $js_config = json_encode([
         const themeDir = comistreamConfig.themeDir;
         const loginuser = comistreamConfig.loginUser;
         const hasSessionSortPrefs = comistreamConfig.hasSessionSortPrefs;
-        
+
         // localStorage + Session 同期処理
         window.addEventListener('DOMContentLoaded', function() {
             // セッションにソート設定がない場合のみlocalStorageから同期
             if (!hasSessionSortPrefs) {
                 syncLocalStorageToSession();
             }
-            
+
             // ソート変更時の処理
             document.addEventListener('click', function(e) {
                 if (e.target.closest('th.indexcolname a, th.indexcollastmod a, th.indexcolsize a')) {
@@ -370,49 +372,52 @@ $js_config = json_encode([
                 }
             });
         });
-        
+
         function syncLocalStorageToSession() {
             const localSortPrefs = localStorage.getItem('dirSortPrefs');
             if (localSortPrefs) {
                 const formData = new FormData();
                 formData.append('action', 'sync_sort_prefs');
                 formData.append('sort_prefs', localSortPrefs);
-                
+
                 fetch(window.location.href, {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        // 同期完了後、必要に応じてページリロード
-                        const currentPath = window.location.pathname;
-                        const prefs = JSON.parse(localSortPrefs);
-                        if (prefs[currentPath] && !window.location.search) {
-                            // 保存された設定でソート
-                            const sort = prefs[currentPath].sort;
-                            const order = prefs[currentPath].order;
-                            if (sort !== 'name' || order !== 'asc') {
-                                window.location.href = `${currentPath}?sort=${sort}&order=${order}`;
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // 同期完了後、必要に応じてページリロード
+                            const currentPath = window.location.pathname;
+                            const prefs = JSON.parse(localSortPrefs);
+                            if (prefs[currentPath] && !window.location.search) {
+                                // 保存された設定でソート
+                                const sort = prefs[currentPath].sort;
+                                const order = prefs[currentPath].order;
+                                if (sort !== 'name' || order !== 'asc') {
+                                    window.location.href = `${currentPath}?sort=${sort}&order=${order}`;
+                                }
                             }
                         }
-                    }
-                })
-                .catch(error => {
-                    console.error('同期エラー:', error);
-                });
+                    })
+                    .catch(error => {
+                        console.error('同期エラー:', error);
+                    });
             }
         }
-        
+
         function updateLocalStorageFromSession() {
             // 現在のソート設定をlocalStorageに保存
             const currentPath = window.location.pathname;
             const urlParams = new URLSearchParams(window.location.search);
             const sort = urlParams.get('sort') || 'name';
             const order = urlParams.get('order') || 'asc';
-            
+
             let sortPrefs = JSON.parse(localStorage.getItem('dirSortPrefs') || '{}');
-            sortPrefs[currentPath] = { sort, order };
+            sortPrefs[currentPath] = {
+                sort,
+                order
+            };
             localStorage.setItem('dirSortPrefs', JSON.stringify(sortPrefs));
         }
     </script>
@@ -550,9 +555,9 @@ $js_config = json_encode([
                     $onclick_attr = ' onclick="return linkhook(event)"';
                 }
 
-                echo '<td class="indexcolname"><a href="' . htmlspecialchars($href) . '"' . 
-                     (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') . 
-                     $onclick_attr . '>' . htmlspecialchars($item['name']) . '</a></td>';
+                echo '<td class="indexcolname"><a href="' . htmlspecialchars($href) . '"' .
+                    (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') .
+                    $onclick_attr . '>' . htmlspecialchars($item['name']) . '</a></td>';
                 echo '<td class="indexcollastmod">' . date('Y-m-d H:i', $item['lastmod']) . '</td>';
                 echo '<td class="indexcolsize">' . format_size($item['size']) . '</td>';
                 echo '</tr>';

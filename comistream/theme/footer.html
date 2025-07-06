@@ -127,6 +127,71 @@ function toggleRaw(){
 }
 
 
+
+// ソート設定の変更
+function applySortChange() {
+  const sortBy = document.getElementById('sortBy').value;
+  const sortOrder = document.getElementById('sortOrder').value;
+  const currentPath = window.location.pathname;
+  
+  // 新しいURLを作成してページを遷移
+  const newUrl = `${currentPath}?sort=${sortBy}&order=${sortOrder}`;
+  window.location.href = newUrl;
+}
+
+// ソートパネルの表示/非表示切り替え
+function toggleSortPanel() {
+  const sortPanel = document.getElementById('sortPanel');
+  const sortToggle = document.getElementById('sortToggle');
+  
+  if (sortPanel.classList.contains('show')) {
+    // パネルを非表示
+    sortPanel.classList.remove('show');
+    sortToggle.classList.remove('active');
+    document.removeEventListener('click', closeSortPanelOnClickOutside);
+  } else {
+    // パネルを表示
+    sortPanel.classList.add('show');
+    sortToggle.classList.add('active');
+    
+    // パネル外クリックで閉じる（少し遅らせて設定）
+    setTimeout(() => {
+      document.addEventListener('click', closeSortPanelOnClickOutside);
+    }, 100);
+  }
+}
+
+// パネル外クリックで閉じる
+function closeSortPanelOnClickOutside(event) {
+  const sortPanel = document.getElementById('sortPanel');
+  const sortToggle = document.getElementById('sortToggle');
+  
+  // クリックがパネルやトグルボタンの外だった場合のみ閉じる
+  if (!sortPanel.contains(event.target) && !sortToggle.contains(event.target)) {
+    sortPanel.classList.remove('show');
+    sortToggle.classList.remove('active');
+    document.removeEventListener('click', closeSortPanelOnClickOutside);
+  }
+}
+
+// ページ読み込み時にソート設定を反映
+function initializeSortControls() {
+  // PHPから渡された現在のソート設定を優先して使用
+  const currentSort = comistreamConfig.currentSort || 'name';
+  const currentOrder = comistreamConfig.currentOrder || 'asc';
+  
+  // selectボックスに現在の値を設定
+  const sortBySelect = document.getElementById('sortBy');
+  const sortOrderSelect = document.getElementById('sortOrder');
+  
+  if (sortBySelect) {
+    sortBySelect.value = currentSort;
+  }
+  if (sortOrderSelect) {
+    sortOrderSelect.value = currentOrder;
+  }
+}
+
 function getBookmark() {
   // サーバからディレクトリ内の既読リストを取得
   var pathName = comistreamConfig.currentPath;
@@ -663,6 +728,9 @@ setTimeout( getBookmark() );
 //});
 setTimeout( getHistory() );
 
+// ソート設定を初期化
+initializeSortControls();
+
 
 document.body.onkeydown = function(event){
 if( document.activeElement != searchform.textbox ){
@@ -723,7 +791,7 @@ window.addEventListener("scroll", function(event) {
     }
 }, { passive: false });
 </script>
-<script src="/theme/js/i18n.js"></script>
+<script src="/theme/js/i18n.js" defer></script>
 <div class="footer">
   Comistream - Nihondo 2025<br>
 </div>

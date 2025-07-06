@@ -63,10 +63,31 @@ for(var keyValues of document.cookie.split(";") ){
 
 <div>
   <span class="breadcrumb" id="breadcrumb">/</span>
-  <form name="searchform" action="javascript:search()">
-    <input class="textbox" type="search" name="textbox" results="10" placeholder="ファイル名を検索">
-  </form>
-  <div id="favbutton" class="favbutton" onclick="javascript:searchFavButton()"></div>
+  <div class="search-controls">
+    <div id="favbutton" class="favbutton" onclick="javascript:searchFavButton()"></div>
+    <form name="searchform" action="javascript:search()">
+      <input class="textbox" type="search" name="textbox" results="10" placeholder="ファイル名を検索">
+    </form>
+    <div id="sortToggle" class="sort-toggle" onclick="javascript:toggleSortPanel()"></div>
+    
+    <!-- ソート設定パネル（収納式） -->
+    <div class="sort-panel" id="sortPanel">
+      <div class="sort-panel-inner">
+        <span class="sort-label">ソート:</span>
+        <label for="sortBy" class="visually-hidden">ソート項目</label>
+        <select id="sortBy" class="sort-select" onchange="applySortChange()">
+          <option value="name">名前</option>
+          <option value="lastmod">更新日時</option>
+          <option value="size">サイズ</option>
+        </select>
+        <label for="sortOrder" class="visually-hidden">ソート順序</label>
+        <select id="sortOrder" class="sort-select" onchange="applySortChange()">
+          <option value="asc">昇順</option>
+          <option value="desc">降順</option>
+        </select>
+      </div>
+    </div>
+  </div>
 </div>
 
 <br>
