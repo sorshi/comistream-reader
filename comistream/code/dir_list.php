@@ -319,8 +319,8 @@ if (isset($_GET['sort']) || isset($_GET['order'])) {
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
-    ? '/theme/style_cover.css?2025062211'
-    : '/theme/style.css?2025062211';
+    ? '/theme/style_cover.css?2025062212'
+    : '/theme/style.css?2025062212';
 
 header('Content-Type: text/html; charset=utf-8');
 

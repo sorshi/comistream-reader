@@ -73,7 +73,7 @@ for(var keyValues of document.cookie.split(";") ){
     <!-- ソート設定パネル（収納式） -->
     <div class="sort-panel" id="sortPanel">
       <div class="sort-panel-inner">
-        <span class="sort-label">ソート:</span>
+        <span class="sort-label" id="sortLabel">ソート:</span>
         <label for="sortBy" class="visually-hidden">ソート項目</label>
         <select id="sortBy" class="sort-select" onchange="applySortChange()">
           <option value="name">名前</option>

@@ -34,6 +34,14 @@ const i18n_translations = {
   "favorites": "Favorites",
   "show_all": "Show All",
   
+  // Sort Related
+  "sort": "Sort",
+  "sort_by_name": "Name",
+  "sort_by_lastmod": "Last Modified",
+  "sort_by_size": "Size",
+  "sort_asc": "Ascending",
+  "sort_desc": "Descending",
+  
   // Messages
   "loading": "Loading...",
   "no_results": "No files found",

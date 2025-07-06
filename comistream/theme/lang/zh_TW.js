@@ -34,6 +34,14 @@ const i18n_translations = {
   "favorites": "我的最愛",
   "show_all": "顯示全部",
   
+  // 排序相關
+  "sort": "排序",
+  "sort_by_name": "名稱",
+  "sort_by_lastmod": "修改日期",
+  "sort_by_size": "大小",
+  "sort_asc": "升序",
+  "sort_desc": "降序",
+  
   // 訊息
   "loading": "載入中...",
   "no_results": "找不到相關檔案",

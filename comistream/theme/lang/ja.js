@@ -34,6 +34,14 @@ const i18n_translations = {
   "favorites": "お気に入り",
   "show_all": "すべて表示",
   
+  // ソート関連
+  "sort": "ソート",
+  "sort_by_name": "名前",
+  "sort_by_lastmod": "更新日時",
+  "sort_by_size": "サイズ",
+  "sort_asc": "昇順",
+  "sort_desc": "降順",
+  
   // メッセージ
   "loading": "読み込み中...",
   "no_results": "該当するファイルがありません",

@@ -199,6 +199,42 @@ function translatePage() {
     searchInput.placeholder = _("search_files");
   }
 
+  // ソート関連のテキストを翻訳
+  const sortLabel = document.getElementById('sortLabel');
+  if (sortLabel) {
+    sortLabel.textContent = _("sort") + ':';
+  }
+
+  // ソート項目のオプションを翻訳
+  const sortBySelect = document.getElementById('sortBy');
+  if (sortBySelect) {
+    const options = sortBySelect.options;
+    for (let i = 0; i < options.length; i++) {
+      const option = options[i];
+      if (option.value === 'name') {
+        option.textContent = _("sort_by_name");
+      } else if (option.value === 'lastmod') {
+        option.textContent = _("sort_by_lastmod");
+      } else if (option.value === 'size') {
+        option.textContent = _("sort_by_size");
+      }
+    }
+  }
+
+  // ソート順序のオプションを翻訳
+  const sortOrderSelect = document.getElementById('sortOrder');
+  if (sortOrderSelect) {
+    const options = sortOrderSelect.options;
+    for (let i = 0; i < options.length; i++) {
+      const option = options[i];
+      if (option.value === 'asc') {
+        option.textContent = _("sort_asc");
+      } else if (option.value === 'desc') {
+        option.textContent = _("sort_desc");
+      }
+    }
+  }
+
   // その他のUIテキストを翻訳（必要に応じて追加）
 }
 
