@@ -483,6 +483,9 @@ $js_config = json_encode([
                 echo '</tr>';
             }
 
+            // Performance measurement: Start scandir
+            $perf_scandir_start = microtime(true);
+            
             $items = scandir($physical_path, SCANDIR_SORT_NONE);
             $dirs = [];
             $files = [];
@@ -509,11 +512,18 @@ $js_config = json_encode([
                 if ($is_dir) $dirs[] = $entry;
                 else $files[] = $entry;
             }
+            
+            // Performance measurement: End scandir
+            $perf_scandir_end = microtime(true);
+            $perf_scandir_time = ($perf_scandir_end - $perf_scandir_start) * 1000; // milliseconds
 
             // ソート設定：name順とlastmod順の場合は混在ソート、それ以外は分割ソート
             // ハードコーディング設定：分割ソートを強制する場合は true に変更
             $force_separate_sort = false;
             $use_mixed_sort = (($sort_by === 'name' || $sort_by === 'lastmod') && !$force_separate_sort);
+
+            // Performance measurement: Start sort
+            $perf_sort_start = microtime(true);
 
             if ($use_mixed_sort) {
                 // 混在ソート（MacのFinderライク）
@@ -537,6 +547,29 @@ $js_config = json_encode([
                 usort($files, $sort_func);
                 $sorted_items = array_merge($dirs, $files);
             }
+
+            // Performance measurement: End sort
+            $perf_sort_end = microtime(true);
+            $perf_sort_time = ($perf_sort_end - $perf_sort_start) * 1000; // milliseconds
+
+            // Performance log: Output performance data
+            $total_items = count($all_items);
+            $dir_count = count($dirs);
+            $file_count = count($files);
+            $sort_mode = $use_mixed_sort ? 'mixed' : 'separate';
+            
+            writelog("DEBUG dir_list: " . sprintf(
+                "PERF dir_list: scandir=%.2fms sort=%.2fms mode=%s key=%s order=%s total=%d dirs=%d files=%d path=%s",
+                $perf_scandir_time,
+                $perf_sort_time,
+                $sort_mode,
+                $sort_by,
+                $sort_order,
+                $total_items,
+                $dir_count,
+                $file_count,
+                $request_path
+            ), "dir_list");
 
             foreach ($sorted_items as $item) {
                 $icon = get_icon($item['name'], $item['is_dir']);
