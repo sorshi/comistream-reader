@@ -131,8 +131,28 @@ function toggleRaw(){
 // ソート設定の変更
 function applySortChange() {
   const sortBy = document.getElementById('sortBy').value;
-  const sortOrder = document.getElementById('sortOrder').value;
+  let sortOrder = document.getElementById('sortOrder').value;
   const currentPath = window.location.pathname;
+  
+  // 現在のソート設定を取得
+  const currentSort = comistreamConfig.currentSort || 'name';
+  const currentOrder = comistreamConfig.currentOrder || 'asc';
+  
+  // デフォルトの名前順・昇順から更新日時順に切り替える場合は降順に自動変更
+  if (currentSort === 'name' && currentOrder === 'asc' && sortBy === 'lastmod') {
+    sortOrder = 'desc';
+    // selectボックスも更新
+    document.getElementById('sortOrder').value = 'desc';
+    console.log('INFO: Switching from default name/asc to lastmod/desc');
+  }
+  
+  // 更新日時・サイズから名前順に切り替える場合は昇順に自動変更
+  if ((currentSort === 'lastmod' || currentSort === 'size') && sortBy === 'name') {
+    sortOrder = 'asc';
+    // selectボックスも更新
+    document.getElementById('sortOrder').value = 'asc';
+    console.log('INFO: Switching from ' + currentSort + '/' + currentOrder + ' to name/asc');
+  }
   
   // 新しいURLを作成してページを遷移
   const newUrl = `${currentPath}?sort=${sortBy}&order=${sortOrder}`;

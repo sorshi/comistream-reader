@@ -448,9 +448,17 @@ $js_config = json_encode([
                         // 現在のソート対象と同じカラムがクリックされた場合は逆順にする
                         $order = ($current_sort_order === 'asc') ? 'desc' : 'asc';
                     } else {
-                        // 異なるカラムがクリックされた場合はそのカラムのデフォルト値を使用
-                        if ($sort_key === 'lastmod' || $sort_key === 'size') {
-                            $order = 'desc';  // Last modifiedとSizeは降順が初期値
+                        // 異なるカラムがクリックされた場合の処理
+                        if ($sort_key === 'lastmod') {
+                            // 更新日時順への切り替えは常に降順から開始
+                            $order = 'desc';
+                            
+                            // デフォルトの名前順・昇順から更新日時順への切り替えをログ出力
+                            if ($current_sort_by === 'name' && $current_sort_order === 'asc') {
+                                writelog("INFO dir_list: Switching from default name/asc to lastmod/desc for path: " . $request_path, "dir_list");
+                            }
+                        } else if ($sort_key === 'size') {
+                            $order = 'desc';  // Sizeは降順が初期値
                         } else {
                             $order = 'asc';   // Nameなどは昇順が初期値
                         }
