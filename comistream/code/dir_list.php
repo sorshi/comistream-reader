@@ -18,7 +18,8 @@ require_once __DIR__ . '/comistream_lib.php';
 // Script configuration
 ini_set('output_buffering', 'On');
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
 
 // DB接続
 $dbh = null;
@@ -57,7 +58,8 @@ if ($dbh) {
     $publicDir = '';
 }
 
-function escape_problematic_chars($filepath) {
+function escape_problematic_chars($filepath)
+{
     // 問題を引き起こす特定の文字のみをパーセントエンコード（/は保持）
     $problematic_chars = ['#', '?', '&', '=', '%', '\\', ':', '@', '<', '>', '"', "'", '|', '*', ' '];
     $encoded_chars = array_map('rawurlencode', $problematic_chars);
@@ -459,7 +461,7 @@ $js_config = json_encode([
                         if ($sort_key === 'lastmod') {
                             // 更新日時順への切り替えは常に降順から開始
                             $order = 'desc';
-                            
+
                             // デフォルトの名前順・昇順から更新日時順への切り替えをログ出力
                             if ($current_sort_by === 'name' && $current_sort_order === 'asc') {
                                 writelog("INFO dir_list: Switching from default name/asc to lastmod/desc for path: " . $request_path, "dir_list");
@@ -502,7 +504,7 @@ $js_config = json_encode([
 
             // Performance measurement: Start scandir
             $perf_scandir_start = microtime(true);
-            
+
             $items = scandir($physical_path, SCANDIR_SORT_NONE);
             $dirs = [];
             $files = [];
@@ -529,7 +531,7 @@ $js_config = json_encode([
                 if ($is_dir) $dirs[] = $entry;
                 else $files[] = $entry;
             }
-            
+
             // Performance measurement: End scandir
             $perf_scandir_end = microtime(true);
             $perf_scandir_time = ($perf_scandir_end - $perf_scandir_start) * 1000; // milliseconds
@@ -574,7 +576,7 @@ $js_config = json_encode([
             $dir_count = count($dirs);
             $file_count = count($files);
             $sort_mode = $use_mixed_sort ? 'mixed' : 'separate';
-            
+
             writelog("DEBUG dir_list: " . sprintf(
                 "PERF dir_list: scandir=%.2fms sort=%.2fms mode=%s key=%s order=%s total=%d dirs=%d files=%d path=%s",
                 $perf_scandir_time,

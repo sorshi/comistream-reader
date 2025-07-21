@@ -27,7 +27,15 @@ function getCleanFilePath(element) {
   }
   
   // パスの先頭の/を除去
-  return rawFilepath && rawFilepath.startsWith('/') ? rawFilepath.substring(1) : rawFilepath;
+  if (!rawFilepath) return "";
+
+  // basic normalisation / sanitisation
+  rawFilepath = rawFilepath.replace(/\0/g, "");           // NUL byte
+  rawFilepath = rawFilepath.replace(/^\//, "");           // leading slash
+  // prevent “…/../” traversal
+  while (rawFilepath.startsWith("../")) rawFilepath = rawFilepath.substring(3);
+
+  return rawFilepath;
 }
 
 // 新しい<script>要素を作成します。

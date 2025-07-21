@@ -849,6 +849,7 @@ function outputPage($isFileout = false)
             writelog("DEBUG outputPage() AVIF and Low memory mode detected ,NOT trimming mode page:$page");
         } else {
             // サーバー側で左右余白トリミング
+            // TODO 左右余白トリミングはlibvipsで行う
             $crop_half_cmd = " | $convert " . '- -strip -crop 99%x99%+0+0 -fuzz 20% -trim +repage - ';
             writelog("DEBUG outputPage() trimming mode page:$page position:$position_int crop_split_view_parts:$crop_split_view_parts");
         }
@@ -888,6 +889,10 @@ function outputPage($isFileout = false)
         } elseif (preg_match('/\.pdf$/i', $ext)) {
             // PDFから画像を抽出
             // TODO 全PDFをmutoolで処理するように
+            // mutool poster -x 1 -y 1 -p $PAGE_NUM "$INPUT_PDF" "$SINGLE_PAGE_PDF" > /dev/null 2>&1
+            // mutool extract -p "" -o "$WORK_DIR/img-%d.%s" "$SINGLE_PAGE_PDF" > /dev/null 2>&1
+            // or draw
+
             $cpdfTempDir = $tempDir . '/' . getmypid();
             // IS_IMAGE_PDFファイルの存在確認
             if (file_exists("$cacheDir/$file/IS_IMAGE_PDF")) {
@@ -1793,7 +1798,7 @@ function printHTML()
     //     $pageGenerator = "const pageGenerator = \"/cgi-bin/comistream_page_out\";";
     //     writelog("DEBUG printHTML() pageGenerator: comistream_page_out");
     // } else {
-        $pageGenerator = "const pageGenerator = \"/cgi-bin/comistream.php\";";
+    $pageGenerator = "const pageGenerator = \"/cgi-bin/comistream.php\";";
     // }
 
     $htmlContent =  <<<EOF
