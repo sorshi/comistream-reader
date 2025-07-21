@@ -57,6 +57,13 @@ if ($dbh) {
     $publicDir = '';
 }
 
+function escape_problematic_chars($filepath) {
+    // 問題を引き起こす特定の文字のみをパーセントエンコード（/は保持）
+    $problematic_chars = ['#', '?', '&', '=', '%', '\\', ':', '@', '<', '>', '"', "'", '|', '*', ' '];
+    $encoded_chars = array_map('rawurlencode', $problematic_chars);
+    return str_replace($problematic_chars, $encoded_chars, $filepath);
+}
+
 // Define mappings from file extensions to icons.
 // This replaces the AddIcon directives from .htaccess.
 function get_icon_map()
@@ -482,10 +489,12 @@ $js_config = json_encode([
                 $parent_path = dirname($request_path);
                 if (DIRECTORY_SEPARATOR !== '/') $parent_path = str_replace(DIRECTORY_SEPARATOR, '/', $parent_path);
                 if ($parent_path === '/' || $parent_path === '.' || $parent_path === '') $parent_path = '/';
+                // Parent Directoryでも問題のある文字を一時的に置換
+                $escaped_parent_path = escape_problematic_chars($parent_path);
                 echo '<tr class="parent-dir-row">';
                 $parent_icon_src = ($viewmode === 'cover') ? '/theme/icons/blank.png' : get_icon_map()['__parent'];
-                echo '<td class="indexcolicon"><a href="' . htmlspecialchars($parent_path) . '"><img src="' . $parent_icon_src . '" alt="[PARENTDIR]"></a></td>';
-                echo '<td class="indexcolname"><a href="' . htmlspecialchars($parent_path) . '">Parent Directory</a></td>';
+                echo '<td class="indexcolicon"><a href="' . htmlspecialchars($parent_path) . '" data-filepath="' . htmlspecialchars($escaped_parent_path) . '"><img src="' . $parent_icon_src . '" alt="[PARENTDIR]"></a></td>';
+                echo '<td class="indexcolname"><a href="' . htmlspecialchars($parent_path) . '" data-filepath="' . htmlspecialchars($escaped_parent_path) . '">Parent Directory</a></td>';
                 echo '<td class="indexcollastmod">&nbsp;</td>';
                 echo '<td class="indexcolsize">-</td>';
                 echo '</tr>';
@@ -582,13 +591,26 @@ $js_config = json_encode([
             foreach ($sorted_items as $item) {
                 $icon = get_icon($item['name'], $item['is_dir']);
                 $href = rtrim($request_path, '/') . '/' . rawurlencode($item['name']);
-                if ($item['is_dir']) $href .= '/';
+                // JavaScript用に生のファイルパスも保存（#文字対応）
+                $raw_filepath = rtrim($request_path, '/') . '/' . $item['name'];
+                // #文字を一時的に置換（ブラウザが#でURLを切るのを防ぐ）
+                $escaped_filepath = escape_problematic_chars($raw_filepath);
+                if ($item['is_dir']) {
+                    $href .= '/';
+                    $raw_filepath .= '/';
+                    $escaped_filepath .= '/';
+                }
+
+                // デバッグ用ログ（問題のある文字を含むファイルの場合のみ）
+                if (preg_match('/[#?&=%\\:@<>"\'|* ]/', $item['name'])) {
+                    writelog("DEBUG dir_list: Special characters found in filename: " . $item['name'] . ", raw_filepath: " . $raw_filepath . ", percent_encoded: " . $escaped_filepath, "dir_list");
+                }
 
                 echo '<tr>';
                 // For directories in cover view, the icon is a background image on the link, not an img tag.
                 // So, we provide a blank image for cover view directories to maintain layout.
                 $icon_img_src = ($viewmode === 'cover' && $item['is_dir']) ? '/theme/icons/blank.png' : $icon;
-                echo '<td class="indexcolicon"><a href="' . htmlspecialchars($href) . '"><img src="' . $icon_img_src . '" alt="[ICO]"></a></td>';
+                echo '<td class="indexcolicon"><a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"><img src="' . $icon_img_src . '" alt="[ICO]"></a></td>';
 
                 // Add onclick handler for files (not directories) to maintain compatibility with mod_autoindex
                 $onclick_attr = '';
@@ -596,7 +618,7 @@ $js_config = json_encode([
                     $onclick_attr = ' onclick="return linkhook(event)"';
                 }
 
-                echo '<td class="indexcolname"><a href="' . htmlspecialchars($href) . '"' .
+                echo '<td class="indexcolname"><a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"' .
                     (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') .
                     $onclick_attr . '>' . htmlspecialchars($item['name']) . '</a></td>';
                 echo '<td class="indexcollastmod">' . date('Y-m-d H:i', $item['lastmod']) . '</td>';

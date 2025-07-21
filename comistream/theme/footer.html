@@ -10,6 +10,26 @@ const modal = document.querySelector("#modal");
 const modalImage = document.querySelector("#modal-image");
 let previewWindowHeight = Math.round(812 * document.documentElement.clientWidth / 1734); // プレビュー画像の表示上の高さ
 
+// data-filepath属性から正確なファイルパスを取得するヘルパー関数（パーセントエンコーディング対応）
+function getCleanFilePath(element) {
+  var dataFilepath = element.getAttribute('data-filepath');
+  var hrefFilepath = element.getAttribute('href');
+  var rawFilepath = dataFilepath || hrefFilepath;
+  
+  // パーセントエンコーディングをデコード
+  if (rawFilepath) {
+    try {
+      rawFilepath = decodeURIComponent(rawFilepath);
+    } catch (e) {
+      // デコードに失敗した場合はそのまま使用
+      console.warn('Failed to decode filepath:', rawFilepath, e);
+    }
+  }
+  
+  // パスの先頭の/を除去
+  return rawFilepath && rawFilepath.startsWith('/') ? rawFilepath.substring(1) : rawFilepath;
+}
+
 // 新しい<script>要素を作成します。
 var script = document.createElement('script');
 
@@ -29,10 +49,11 @@ window.addEventListener('long-press', function(e) {
 });
 
 function openFileMenu(e){
-  // ターゲットのhref要素から相対パスを作成しcgiの引数にする
-  var fileLink = new URL(e.target.href).pathname.substring(1);
-  fileLink = fileLink.replaceAll( "&", "%26" );
-  fileLink = fileLink.replaceAll( "=", "%3D" );
+  // data-filepath属性から正確なファイルパスを取得（#文字対応）
+  var fileLink = getCleanFilePath(e.target);
+  
+  // URLパラメータ用にエンコード
+  fileLink = encodeURIComponent(fileLink).replaceAll( "&", "%26" ).replaceAll( "=", "%3D" );
 
   document.getElementById("newname").value = e.target.innerText;
   document.getElementById("orgname").value = e.target.innerText;
@@ -42,10 +63,11 @@ function openFileMenu(e){
 }
 
 function openBookDetailMenu(e){
-  // ターゲットのhref要素から相対パスを作成しcgiの引数にする
-  var fileLink = new URL(e.target.href).pathname.substring(1);
-  fileLink = fileLink.replaceAll( "&", "%26" );
-  fileLink = fileLink.replaceAll( "=", "%3D" );
+  // data-filepath属性から正確なファイルパスを取得（#文字対応）
+  var fileLink = getCleanFilePath(e.target);
+  
+  // URLパラメータ用にエンコード
+  fileLink = encodeURIComponent(fileLink).replaceAll( "&", "%26" ).replaceAll( "=", "%3D" );
 
   document.getElementById("fileA").value = e.target.innerText;
   document.getElementById("fileB").value = e.target.innerText;
@@ -55,11 +77,11 @@ function openBookDetailMenu(e){
 }
 
 function linkhook(e) {
-  // ターゲットのhref要素から相対パスを作成しcgiの引数にする
-  var fileLink = new URL(e.target.href).pathname.substring(1);
-  // <tr><td valign="top"><a href="" id=""><img src="book.png"/></a></td> <td><a href="" onclick></a></td>
-  fileLink = fileLink.replaceAll( "&", "%26" );
-  fileLink = fileLink.replaceAll( "=", "%3D" );
+  // data-filepath属性から正確なファイルパスを取得（#文字対応）
+  var fileLink = getCleanFilePath(e.target);
+  
+  // URLパラメータ用にエンコード
+  fileLink = encodeURIComponent(fileLink).replaceAll( "&", "%26" ).replaceAll( "=", "%3D" );
   // console.log("linkhook()"+fileLink);
 
   // altキー押下時はファイル操作メニューを開く
@@ -249,10 +271,11 @@ function getBookmark() {
 
 // お気に入りフラグの設定
 function toggleFavorite(e){
-  var fileLink = new URL(e.target.firstChild.href).pathname.substring(1);
-  // <tr><td valign="top"><a href="" id=""><img src="book.png"/></a></td> <td><a href="" onclick></a></td>
-  fileLink = fileLink.replaceAll( "&", "%26" );
-  fileLink = fileLink.replaceAll( "=", "%3D" );
+  // data-filepath属性から正確なファイルパスを取得（#文字対応）
+  var fileLink = getCleanFilePath(e.target.firstChild);
+  
+  // URLパラメータ用にエンコード
+  fileLink = encodeURIComponent(fileLink).replaceAll( "&", "%26" ).replaceAll( "=", "%3D" );
 
   var favQuery = "file=" + fileLink + "&mode=";
   if( e.target.style.backgroundImage ){
@@ -385,8 +408,19 @@ function applyDirectoryCustomIcons(){
     if (elm && elm.href && elm.href.match(/\/$/)) {
       // ディレクトリの場合のみ処理
       
-      // href属性からパスを組み立てるルン！
-      let fullHref = elm.href;
+      // data-filepath属性から正確なパスを取得（パーセントエンコーディング対応）
+      let fullHref = elm.getAttribute('data-filepath') || elm.getAttribute('href');
+      
+      // パーセントエンコーディングをデコード
+      if (fullHref) {
+        try {
+          fullHref = decodeURIComponent(fullHref);
+        } catch (e) {
+          // デコードに失敗した場合はそのまま使用
+          console.warn('Failed to decode directory path:', fullHref, e);
+        }
+      }
+      
       let pathAfterPublicDir = "";
       let publicDirWithSlash = publicDir + "/";
 
@@ -395,8 +429,14 @@ function applyDirectoryCustomIcons(){
       } else {
         // publicDir が空か、含まれていない場合は、URLのパス部分から取得するルン
         try {
-          let urlObj = new URL(fullHref);
-          pathAfterPublicDir = urlObj.pathname;
+          // 絶対URLかチェック
+          if (fullHref.startsWith('http://') || fullHref.startsWith('https://')) {
+            let urlObj = new URL(fullHref);
+            pathAfterPublicDir = urlObj.pathname;
+          } else {
+            // 相対URLの場合はそのまま使用
+            pathAfterPublicDir = fullHref;
+          }
           if (pathAfterPublicDir.startsWith("/")) {
             pathAfterPublicDir = pathAfterPublicDir.substring(1);
           }
@@ -639,8 +679,19 @@ for (var i = 2; i < colname.length; i++ ) {
     let isCoverView = currentCSS.includes("style_cover.css");
     // 初期読み込み時にカバービューの場合のみ、個別にディレクトリアイコンを設定
     if (isCoverView) {
-      // href属性からパスを組み立てるルン！
-      let fullHref = elm.href;
+      // data-filepath属性から正確なパスを取得（パーセントエンコーディング対応）
+      let fullHref = elm.getAttribute('data-filepath') || elm.getAttribute('href');
+      
+      // パーセントエンコーディングをデコード
+      if (fullHref) {
+        try {
+          fullHref = decodeURIComponent(fullHref);
+        } catch (e) {
+          // デコードに失敗した場合はそのまま使用
+          console.warn('Failed to decode directory path (initial load):', fullHref, e);
+        }
+      }
+      
       let pathAfterPublicDir = "";
       let publicDirWithSlash = publicDir + "/";
 
@@ -649,8 +700,14 @@ for (var i = 2; i < colname.length; i++ ) {
       } else {
         // publicDir が空か、含まれていない場合は、URLのパス部分から取得するルン
         try {
-          let urlObj = new URL(fullHref);
-          pathAfterPublicDir = urlObj.pathname;
+          // 絶対URLかチェック
+          if (fullHref.startsWith('http://') || fullHref.startsWith('https://')) {
+            let urlObj = new URL(fullHref);
+            pathAfterPublicDir = urlObj.pathname;
+          } else {
+            // 相対URLの場合はそのまま使用
+            pathAfterPublicDir = fullHref;
+          }
           if (pathAfterPublicDir.startsWith("/")) {
             pathAfterPublicDir = pathAfterPublicDir.substring(1);
           }
@@ -732,9 +789,35 @@ for (var i = 2; i < colname.length; i++ ) {
     colname[i].id = elm.textContent;
     elm.onclick = linkhook;
     var coverImg = img.cloneNode(false);
-    const extension = elm.href.split(".").pop();
+    
+    // data-filepath属性から正確なファイルパスを取得（パーセントエンコーディング対応）
+    const dataFilepath = elm.getAttribute('data-filepath');
+    const hrefFilepath = elm.getAttribute('href');
+    let rawFilepath = dataFilepath || hrefFilepath;
+    
+    // パーセントエンコーディングをデコード
+    if (rawFilepath) {
+      try {
+        rawFilepath = decodeURIComponent(rawFilepath);
+      } catch (e) {
+        // デコードに失敗した場合はそのまま使用
+        console.warn('Failed to decode filepath for cover image:', rawFilepath, e);
+      }
+    }
+    
+    // デバッグ用ログ（特殊文字を含むファイルの場合のみ）
+    if (elm.textContent.match(/[#?&=%\\:@<>"'|* ]/) || (rawFilepath && rawFilepath.match(/[#?&=%\\:@<>"'|* ]/))) {
+      console.log('DEBUG cover image path:', {
+        filename: elm.textContent,
+        dataFilepath: dataFilepath,
+        hrefFilepath: hrefFilepath,
+        rawFilepath: rawFilepath
+      });
+    }
+    
+    const extension = rawFilepath.split(".").pop();
     const extensionLength = (extension.length* -1) -1;
-    const imagePath = new URL(elm.href).pathname.substring(1);
+    const imagePath = rawFilepath.startsWith('/') ? rawFilepath.substring(1) : rawFilepath;
     coverImg.src = imgPath + imagePath.slice(0, extensionLength)+".jpg";
     colname[i].setAttribute('data-image', previewPath + imagePath.slice(0, extensionLength)+".webp");
     colname[i].appendChild(coverImg);
