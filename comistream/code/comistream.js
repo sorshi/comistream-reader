@@ -730,7 +730,9 @@ function loadPage(dir) {
     preCaches.recordPageTurn();
 
     document.getElementById("image").style.backgroundImage =
-      "url(comistream.php?file=" +
+      "url('" +
+      pageGenerator +
+      "?file=" +
       file +
       "&size=" +
       size +
@@ -738,7 +740,7 @@ function loadPage(dir) {
       page +
       view_query +
       als +
-      ")";
+      "')";
     globalDivImageUrl = getFullImageUrl(page);
     debugLog("loadPage() globalDivImageUrl:" + globalDivImageUrl);
 
@@ -784,7 +786,9 @@ function loadPage(dir) {
   if (mode == 2) {
     if (page < maxPage) {
       document.getElementById("nextimage").style.backgroundImage =
-        "url(comistream.php?file=" +
+        "url('" +
+        pageGenerator +
+        "?file=" +
         file +
         "&size=" +
         size +
@@ -792,7 +796,7 @@ function loadPage(dir) {
         (1 + parseInt(page)) +
         view_query +
         als +
-        ")";
+        "')";
     } else {
       document.getElementById("nextimage").style.backgroundImage = "none";
     }
@@ -801,7 +805,8 @@ function loadPage(dir) {
   nextpage = dir * mode + page;
   if (nextpage > 0 && nextpage <= maxPage) {
     nextimage1.src =
-      "comistream.php?file=" +
+      pageGenerator +
+      "?file=" +
       file +
       "&size=" +
       size +
@@ -833,7 +838,8 @@ function loadPage(dir) {
     // }
     if (mode == 2)
       nextimage2.src =
-        "comistream.php?file=" +
+        pageGenerator +
+        "?file=" +
         file +
         "&size=" +
         size +
@@ -852,7 +858,8 @@ function preLoadImages(nextpage) {
   //let nextpage = dir*mode+page;
   if (nextpage > 0 && nextpage <= maxPage) {
     let nextImageUrl =
-      "comistream.php?file=" +
+      pageGenerator +
+      "?file=" +
       file +
       "&size=" +
       size +
@@ -874,7 +881,8 @@ async function preLoadInitialImages(startPage) {
     let nextpage = startPage + i;
     if (nextpage > 0 && nextpage <= maxPage) {
       let nextImageUrl =
-        "comistream.php?file=" +
+        pageGenerator +
+        "?file=" +
         file +
         "&size=" +
         size +
@@ -1452,7 +1460,7 @@ function changeAutoLightSplitMode(autoLightSplitMode) {
     // 横長画像を半分に分割して表示
     // campusdiv.style.width = '100%';
     campusdiv.style.height = "100%";
-    campusdiv.backgroundImage = "url(" + imgurl + ")";
+    campusdiv.backgroundImage = "url('" + imgurl + "')";
     // campusdiv.style.backgroundPosition = 'right';
     campusdiv.style.backgroundPosition = autoLightSplitModeViewPosition;
     campusdiv.style.backgroundRepeat = "no-repeat";
@@ -1475,7 +1483,7 @@ function changeAutoLightSplitMode(autoLightSplitMode) {
     //縦長画像をそのまま表示
     campusdiv.style.width = "100%";
     campusdiv.style.height = "100%";
-    campusdiv.backgroundImage = "url(" + imgurl + ")";
+    campusdiv.backgroundImage = "url('" + imgurl + "')";
     campusdiv.style.backgroundPosition = "center";
     campusdiv.style.backgroundRepeat = "no-repeat";
     campusdiv.style.backgroundSize = "contain";
@@ -1572,7 +1580,8 @@ function quickSpredView() {
       if (autoLightSplitMode) {
         als = "&als=1";
         image1.src =
-          "comistream.php?file=" +
+          pageGenerator +
+          "?file=" +
           file +
           "&size=" +
           size +
@@ -1604,7 +1613,8 @@ function quickSpredView() {
         // 見開き左側表示
         image1.style.width = "50%";
         image1.src =
-          "comistream.php?file=" +
+          pageGenerator +
+          "?file=" +
           file +
           "&size=" +
           size +
@@ -1615,7 +1625,8 @@ function quickSpredView() {
         // 見開き右側表示
         image2.style.width = "50%";
         image2.src =
-          "comistream.php?file=" +
+          pageGenerator +
+          "?file=" +
           file +
           "&size=" +
           size +

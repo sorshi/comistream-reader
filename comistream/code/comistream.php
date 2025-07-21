@@ -142,6 +142,9 @@ $file = array_key_exists("file", $param) ? $param["file"] : "";
 $base_file_hash = array_key_exists("base_file_hash", $param) ? $param["base_file_hash"] : "";
 $mode = array_key_exists("mode", $param) ? $param["mode"] : "";
 $size = array_key_exists("size", $param) ? $param["size"] : "";
+// 効果が低かったので無効化
+// $pageGenerator = array_key_exists("Go", $param) ? $param["Go"] : null;
+// writelog("INFO Query string : Go:$pageGenerator");
 $newname = array_key_exists("newname", $param) ? $param["newname"] : "";
 $orgname = array_key_exists("orgname", $param) ? $param["orgname"] : "";
 
@@ -275,7 +278,24 @@ if ($mode === 'delete' && !empty($orgname)) {
     outputPage();
     exit(0);
 } elseif ($mode === 'open' && !empty($file)) {
-
+    // if (isset($pageGenerator)) {
+    //     // 明示的設定がある場合はその値を採用
+    //     // セキュリティ確保のため、明示的設定値が1か0以外の場合はデフォルトの0とする
+    //     if ($pageGenerator === '1' || $pageGenerator === '0') {
+    //         $_SESSION['pageGenerator'] = $pageGenerator;
+    //         writelog("INFO param pageGenerator explicitly set to: $pageGenerator");
+    //     } else {
+    //         $_SESSION['pageGenerator'] = 0;
+    //         writelog("INFO param pageGenerator was exist,but invalid value; set to default: 0:" . $pageGenerator);
+    //     }
+    // } elseif (isset($_SESSION['pageGenerator'])) {
+    //     // 明示的設定がなくセッションがある場合はそのまま維持
+    //     writelog("INFO session pageGenerator using existing value: " . $_SESSION['pageGenerator']);
+    // } else {
+    //     // どちらもない場合はデフォルト値0を設定
+    //     $_SESSION['pageGenerator'] = 0;
+    //     writelog("INFO session pageGenerator set to default: 0");
+    // }
     // ファイルオープン
     $originalFile = $file; // 元のファイル名を保存
     list($escapedFile, $coverFile, $previewFile) = openPage();

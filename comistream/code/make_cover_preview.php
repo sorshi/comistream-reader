@@ -255,15 +255,54 @@ if (strcasecmp($ext, 'epub') == 0) {
         // 作成ファイルのディレクトリを作成
         create_cover_dir($coverFile);
 
-        // ImageMagickを使用して画像を処理し、$coverFileに保存
-        $cmd = "$convert \"$coverFilePath\" $usm -strip -resize $resize -quality 80 -format jpeg jpeg:\"$coverFile\"";
-        exec($cmd, $output, $return_var);
+        // 画像を処理し、$coverFileに保存（libvips優先、フォールバック：ImageMagick）
+        if (isVipsAvailable()) {
+            writelog("DEBUG: Using libvips for cover image processing", $writelog_process_name);
+            
+            try {
+                // 画像を読み込み
+                $image = \Jcupitt\Vips\Image::newFromFile($coverFilePath);
+                
+                // リサイズ処理
+                $targetSize = intval($resize);
+                $scale = $targetSize / max($image->width, $image->height);
+                
+                if ($scale < 1) {
+                    $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                    writelog("DEBUG: Cover image resized with scale: $scale", $writelog_process_name);
+                }
+                
+                // JPEG形式で保存（strip=メタデータ削除）
+                $image->jpegsave($coverFile, ['Q' => 80]);
+                
+                writelog("DEBUG: Cover image successfully processed with libvips", $writelog_process_name);
+                
+            } catch (\Jcupitt\Vips\Exception $e) {
+                writelog("ERROR: Failed to convert cover image with libvips: " . $e->getMessage(), $writelog_process_name);
+                writelog("DEBUG: Falling back to ImageMagick", $writelog_process_name);
+                
+                // フォールバック：ImageMagick
+                $cmd = "$convert \"$coverFilePath\" $usm -strip -resize $resize -quality 80 -format jpeg jpeg:\"$coverFile\"";
+                exec($cmd, $output, $return_var);
 
-        if ($return_var !== 0) {
-            writelog("ERROR: Failed to convert cover image: $cmd", $writelog_process_name);
-            deleteDirectory($epubTempDir);
-            clean_shm_dir();
-            exit(1);
+                if ($return_var !== 0) {
+                    writelog("ERROR: Failed to convert cover image with ImageMagick: $cmd", $writelog_process_name);
+                    deleteDirectory($epubTempDir);
+                    clean_shm_dir();
+                    exit(1);
+                }
+            }
+        } else {
+            // ImageMagickを使用して画像を処理し、$coverFileに保存
+            $cmd = "$convert \"$coverFilePath\" $usm -strip -resize $resize -quality 80 -format jpeg jpeg:\"$coverFile\"";
+            exec($cmd, $output, $return_var);
+
+            if ($return_var !== 0) {
+                writelog("ERROR: Failed to convert cover image: $cmd", $writelog_process_name);
+                deleteDirectory($epubTempDir);
+                clean_shm_dir();
+                exit(1);
+            }
         }
 
         // 一時ディレクトリを削除
@@ -304,11 +343,45 @@ if (strcasecmp($ext, 'epub') == 0) {
         $shmDir = create_shm_dir();
         for ($i = 0; $i < min(12, count($imageFiles)); $i++) {
             $outputFileBasename = sprintf("%03d", $i + 1);
-            $cmd = "$convert \"" . $imageFiles[$i] . "\" $usm -strip -resize $resize -quality $quality -format png png:\"$shmDir/" . $outputFileBasename . ".png\"";
-            exec($cmd, $output, $return_var);
 
-            if ($return_var !== 0) {
-                writelog("ERROR: Failed to convert image: $cmd", $writelog_process_name);
+            // libvipsが利用可能なら高速処理を使用（ライブラリ版）
+            if (isVipsAvailable()) {
+                try {
+                    // 画像を読み込み
+                    $image = \Jcupitt\Vips\Image::newFromFile($imageFiles[$i]);
+                    
+                    // リサイズ処理
+                    $targetSize = intval($resize);
+                    $scale = $targetSize / max($image->width, $image->height);
+                    
+                    if ($scale < 1) {
+                        $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                    }
+                    
+                    // PNG形式で保存
+                    $outputPath = "$shmDir/" . $outputFileBasename . ".png";
+                    $image->pngsave($outputPath, []);
+                    
+                    writelog("DEBUG: Image $i successfully processed with libvips", $writelog_process_name);
+                    
+                } catch (\Jcupitt\Vips\Exception $e) {
+                    writelog("ERROR: Failed to convert image with libvips: " . $e->getMessage(), $writelog_process_name);
+                    // フォールバック：ImageMagick
+                    $cmd = "$convert \"" . $imageFiles[$i] . "\" $usm -strip -resize $resize -quality $quality -format png png:\"$shmDir/" . $outputFileBasename . ".png\"";
+                    exec($cmd, $output, $return_var);
+
+                    if ($return_var !== 0) {
+                        writelog("ERROR: Failed to convert image with ImageMagick: $cmd", $writelog_process_name);
+                    }
+                }
+            } else {
+                // ImageMagickを使用
+                $cmd = "$convert \"" . $imageFiles[$i] . "\" $usm -strip -resize $resize -quality $quality -format png png:\"$shmDir/" . $outputFileBasename . ".png\"";
+                exec($cmd, $output, $return_var);
+
+                if ($return_var !== 0) {
+                    writelog("ERROR: Failed to convert image: $cmd", $writelog_process_name);
+                }
             }
         }
 

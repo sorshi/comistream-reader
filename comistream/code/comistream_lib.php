@@ -74,7 +74,33 @@ function getCookie()
 } // end function getCookie
 
 
-##### syslogにログ出力 ######################################################################
+/**
+ * syslogにログメッセージを出力します
+ * 
+ * アプリケーションのログメッセージをsyslogに書き込みます。
+ * メッセージ内容に応じてログレベルを自動判定し、ファイル名と行番号情報を付加します。
+ * 文字エンコーディングも自動変換するため、日本語メッセージも安全に出力できます。
+ * 
+ * @param string $messages ログメッセージ（改行文字は自動的にスペースに変換される）
+ * @param string $processname プロセス名（デフォルト: 'Comistream'）
+ * @return void
+ * 
+ * @example
+ * // デバッグメッセージ
+ * writelog("DEBUG 画像処理開始: input.jpg");
+ * 
+ * // エラーメッセージ
+ * writelog("ERROR ファイルが見つかりません: /path/to/file.jpg");
+ * 
+ * // カスタムプロセス名
+ * writelog("INFO カバー生成完了", "CoverGenerator");
+ * 
+ * // 緊急メッセージ（EMERG、ALERTなどを含む場合、適切なログレベルで記録）
+ * writelog("EMERG システムが不安定な状態です");
+ * 
+ * @since 1.0.0
+ * @author Comistream Project
+ */
 function writelog($messages, $processname = 'Comistream')
 {
     global $writelog_process_name, $global_debug_flag;
@@ -116,7 +142,34 @@ function writelog($messages, $processname = 'Comistream')
     closelog();
 } //end function writelog
 
-##### 任意のエラー画面を表示してスクリプトを終了する  ############################################################
+/**
+ * エラー画面を表示してスクリプトを終了します
+ * 
+ * カスタマイズされたエラー画面を表示し、適切なHTTPステータスコードを設定して
+ * スクリプトの実行を終了します。国際化対応しており、ユーザーの言語設定に
+ * 応じてエラーメッセージを表示します。
+ * 
+ * @param string $title エラーページのタイトル
+ * @param string $message エラーメッセージ本文
+ * @param bool $isError trueの場合404エラー、falseの場合は通常レスポンス（デフォルト: true）
+ * @return void スクリプトはこの関数内で終了します（exit）
+ * 
+ * @example
+ * // ファイル不存在エラー
+ * errorExit("ファイルが見つかりません", "指定されたファイルは存在しないか削除された可能性があります。");
+ * 
+ * // 権限エラー
+ * errorExit("アクセス拒否", "このファイルにアクセスする権限がありません。", true);
+ * 
+ * // 単なる情報表示（エラーではない）
+ * errorExit("処理完了", "データの更新が正常に完了しました。", false);
+ * 
+ * // データベース接続エラー
+ * errorExit("システムエラー", "データベースに接続できませんでした。管理者にお問い合わせください。");
+ * 
+ * @since 1.0.0
+ * @author Comistream Project
+ */
 function errorExit($title, $message, $isError = true)
 {
     // I18nインスタンスを取得
@@ -597,7 +650,7 @@ function getBookmarkList()
         } else {
             echo file_get_contents("$bookmarkDir/$user/$file/bookmark");
         }
-    }else{
+    } else {
         // writelog("DEBUG getBookmarkList() guest user,not send");
     }
     exit(0);
@@ -863,7 +916,7 @@ function outputPage($isFileout = false)
                 // テキストを含むPDFは mutool > pdftoppm の優先順位でレンダリング
                 // フラグファイル:$cacheDir/$file/TEXT_PDF
                 $mutool = $conf["mutool"] ?? '';
-                writelog("DEBUG outputPage() mutool:".$mutool);
+                writelog("DEBUG outputPage() mutool:" . $mutool);
 
                 if (!empty($mutool) && is_executable($mutool)) {
                     // mutoolが最速なので優先して使用
@@ -871,7 +924,6 @@ function outputPage($isFileout = false)
                     $pagefile = "$page.png";
                     $input_format = "png:-"; // 入力はPNG
                     writelog("DEBUG outputPage() Using mutool for PDF rendering.");
-
                 } else {
                     // 上記が使えない場合はpdftoppmにフォールバック
                     $pdftoppm = $conf["pdftoppm"];
@@ -990,35 +1042,134 @@ function outputPage($isFileout = false)
         } else {
             writelog("DEBUG outputPage() Auto Light Split mode off");
         }
-        if (strpos($_SERVER['HTTP_ACCEPT'], 'webp') !== false) {
-            // WebP使えればファイルをWebPで出力
-            // cwebpはAVIFに対応していないのでImageMagick convertで変換
-            $cmd = "$pageInput $crop_half_cmd | $convert $input_format -define webp:emulate-jpeg-size=true -define webp:thread-level=1 -resize {$width}x -quality $quality webp:- ";
-            writelog("DEBUG outputPage() webp cmd:" . $cmd);
-            $pageImg = shell_exec($cmd);
 
-            if (strlen($pageImg) == 0) {
-                header("Cache-Control: no-store");
-                writelog("ERROR Archive image cannot extract image. Delete cache and reload.$file");
-                deleteCacheDirAndReload();
+        // libvipsが利用可能なら高速処理を使用
+        if (isVipsAvailable()) {
+            writelog("DEBUG outputPage() Using libvips for image processing");
+
+            if (strpos($_SERVER['HTTP_ACCEPT'], 'webp') !== false) {
+                // WebP使えばlibvipsで高速処理（ライブラリ版）
+                try {
+                    // 画像バイナリを取得
+                    $inputCmd = "$pageInput $crop_half_cmd";
+                    writelog("DEBUG outputPage() vips input cmd:" . $inputCmd);
+                    $imageBinary = shell_exec($inputCmd);
+
+                    if (strlen($imageBinary) > 0) {
+                        // バイナリから画像を読み込み
+                        $image = \Jcupitt\Vips\Image::newFromBuffer($imageBinary);
+
+                        // 縮小処理
+                        $currentWidth = $image->width;
+                        $targetWidth = intval($width);
+
+                        if ($targetWidth > 0 && $currentWidth > $targetWidth) {
+                            $scale = $targetWidth / $currentWidth;
+                            $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                            writelog("DEBUG outputPage() vips resized with scale: $scale");
+                        }
+
+                        // WebP形式でバッファに出力
+                        $pageImg = $image->writeToBuffer('.webp', ['Q' => intval($quality)]);
+
+                        if (strlen($pageImg) == 0) {
+                            header("Cache-Control: no-store");
+                            writelog("ERROR Archive image cannot extract image. Delete cache and reload.$file");
+                            deleteCacheDirAndReload();
+                        } else {
+                            header("Content-type: image/webp");
+                            header("Cache-Control: private, max-age=86400");
+                            echo $pageImg;
+                            writelog("DEBUG outputPage() vips filesize:" . strlen($pageImg));
+                        }
+                    } else {
+                        writelog("ERROR vips input command returned empty data");
+                        $pageImg = null;
+                    }
+                } catch (\Jcupitt\Vips\Exception $e) {
+                    writelog("ERROR vips processing failed: " . $e->getMessage());
+                    // フォールバックコードは以下で実行される
+                    $pageImg = null;
+                }
             } else {
-                header("Content-type: image/webp");
-                header("Cache-Control: private, max-age=86400");
-                echo $pageImg;
-                writelog("DEBUG outputPage() filesize:" . strlen($pageImg));
+                // JPEGでlibvips高速処理（ライブラリ版）
+                try {
+                    // 画像バイナリを取得
+                    $inputCmd = "$pageInput $crop_half_cmd";
+                    writelog("DEBUG outputPage() vips input cmd:" . $inputCmd);
+                    $imageBinary = shell_exec($inputCmd);
+
+                    if (strlen($imageBinary) > 0) {
+                        // バイナリから画像を読み込み
+                        $image = \Jcupitt\Vips\Image::newFromBuffer($imageBinary);
+
+                        // 縮小処理
+                        $currentWidth = $image->width;
+                        $targetWidth = intval($width);
+
+                        if ($targetWidth > 0 && $currentWidth > $targetWidth) {
+                            $scale = $targetWidth / $currentWidth;
+                            $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                            writelog("DEBUG outputPage() vips resized with scale: $scale");
+                        }
+
+                        // JPEG形式でバッファに出力
+                        $pageImg = $image->writeToBuffer('.jpg', ['Q' => intval($quality)]);
+
+                        if (strlen($pageImg) == 0) {
+                            header("Cache-Control: no-store");
+                            writelog("ERROR Archive image cannot extract image. Delete cache and reload.$file");
+                            deleteCacheDirAndReload();
+                        } else {
+                            header("Content-type: image/jpeg");
+                            header("Cache-Control: private, max-age=86400");
+                            echo $pageImg;
+                            writelog("DEBUG outputPage() vips filesize:" . strlen($pageImg));
+                        }
+                    } else {
+                        writelog("ERROR vips input command returned empty data");
+                        $pageImg = null;
+                    }
+                } catch (\Jcupitt\Vips\Exception $e) {
+                    writelog("ERROR vips processing failed: " . $e->getMessage());
+                    // フォールバックコードは以下で実行される
+                    $pageImg = null;
+                }
             }
         } else {
-            // ファイルをJPGで出力
-            $pageImg = shell_exec("$pageInput $crop_half_cmd | $convert $input_format -format jpeg -resize {$width}x -quality $quality jpeg:-");
-            if (strlen($pageImg) == 0) {
-                header("Cache-Control: no-store");
-                writelog("ERROR Archive image cannot extract image. Delete cache and reload.$file");
-                deleteCacheDirAndReload();
+            // フォールバック：ImageMagickを使用
+            writelog("DEBUG outputPage() Fallback to ImageMagick processing");
+
+            if (strpos($_SERVER['HTTP_ACCEPT'], 'webp') !== false) {
+                // WebP使えればファイルをWebPで出力
+                // cwebpはAVIFに対応していないのでImageMagick convertで変換
+                $cmd = "$pageInput $crop_half_cmd | $convert $input_format -define webp:emulate-jpeg-size=true -define webp:thread-level=1 -resize {$width}x -quality $quality webp:- ";
+                writelog("DEBUG outputPage() webp cmd:" . $cmd);
+                $pageImg = shell_exec($cmd);
+
+                if (strlen($pageImg) == 0) {
+                    header("Cache-Control: no-store");
+                    writelog("ERROR Archive image cannot extract image. Delete cache and reload.$file");
+                    deleteCacheDirAndReload();
+                } else {
+                    header("Content-type: image/webp");
+                    header("Cache-Control: private, max-age=86400");
+                    echo $pageImg;
+                    writelog("DEBUG outputPage() filesize:" . strlen($pageImg));
+                }
             } else {
-                header("Content-type: image/jpeg");
-                header("Cache-Control: private, max-age=86400");
-                echo $pageImg;
-                writelog("DEBUG outputPage() filesize:" . strlen($pageImg));
+                // ファイルをJPGで出力
+                $pageImg = shell_exec("$pageInput $crop_half_cmd | $convert $input_format -format jpeg -resize {$width}x -quality $quality jpeg:-");
+                if (strlen($pageImg) == 0) {
+                    header("Cache-Control: no-store");
+                    writelog("ERROR Archive image cannot extract image. Delete cache and reload.$file");
+                    deleteCacheDirAndReload();
+                } else {
+                    header("Content-type: image/jpeg");
+                    header("Cache-Control: private, max-age=86400");
+                    echo $pageImg;
+                    writelog("DEBUG outputPage() filesize:" . strlen($pageImg));
+                }
             }
         }
     }
@@ -1048,7 +1199,401 @@ function deleteCacheDirAndReload()
 } //end function deleteCacheDirAndReload
 
 
-##### 中身が入ってるディレクトリを削除する汎用関数 ############################################
+/**
+ * libvipsライブラリが利用可能かどうかを判定します
+ * 
+ * 以下の条件を全て満たした場合にtrueを返します:
+ * - PECL vips拡張がロードされている
+ * - Composerのautoloadファイルが存在する
+ * - Jcupitt\Vips\Imageクラスが存在する
+ * 
+ * @return bool libvipsが利用可能ならtrue、利用不可能ならfalse
+ * 
+ * @example
+ * if (isVipsAvailable()) {
+ *     // libvipsを使用した高速画像処理
+ *     $result = vipsResizeStream($inputData, 800, 85, 'webp');
+ * } else {
+ *     // ImageMagickなどのフォールバック処理
+ *     $result = shell_exec("convert input.jpg -resize 800x output.webp");
+ * }
+ * 
+ * @see vipsConvert()
+ * @see vipsResizeStream()
+ * @see vipsThumbnail()
+ * @see vipsGetImageInfo()
+ * 
+ * @since 20250721
+ * @author Comistream Project
+ */
+function isVipsAvailable()
+{
+    // global $conf;
+    // test
+    // return false;
+
+    // PECLのvips拡張がロードされているかチェック
+    if (!extension_loaded('vips')) {
+        writelog("INFO isVipsAvailable() vips extension not loaded");
+        return false;
+    }
+
+    // Composerのautoloadファイルが存在するかチェック
+    $composerAutoload = __DIR__ . '/composer/vendor/autoload.php';
+    if (!file_exists($composerAutoload)) {
+        writelog("INFO isVipsAvailable() composer autoload not found: " . $composerAutoload);
+        return false;
+    }
+
+    // autoloadを読み込み
+    require_once $composerAutoload;
+
+    // Jcupitt\Vips\Imageクラスが存在するかチェック
+    if (!class_exists('\Jcupitt\Vips\Image')) {
+        writelog("INFO isVipsAvailable() Jcupitt\\Vips\\Image class not found");
+        return false;
+    }
+
+    writelog("INFO isVipsAvailable() vips is available via PECL and Composer");
+    return true;
+}
+
+/**
+ * libvipsを使用してファイルからファイルへの画像変換・処理を行います
+ * 
+ * この関数は現在未使用ですが、将来的な利用のために保持されています。
+ * 高速な画像処理が可能で、リサイズ、フォーマット変換、品質調整などが行えます。
+ * 
+ * @param string $input 入力画像ファイルのパス
+ * @param string $output 出力画像ファイルのパス
+ * @param array $options 処理オプション
+ *                       - 'resize': int サムネイルサイズ（最大辺の長さ）
+ *                       - 'strip': bool メタデータを削除するかどうか
+ *                       - 'quality': int JPEG品質（1-100）
+ *                       - 'format': string 出力フォーマット（'webp', 'jpeg', 'png'）
+ * @return bool 処理成功時はtrue、失敗時はfalse
+ * 
+ * @example
+ * // JPEGをWebPに変換してリサイズ
+ * $success = vipsConvert(
+ *     '/path/to/input.jpg', 
+ *     '/path/to/output.webp',
+ *     ['resize' => 800, 'quality' => 80, 'format' => 'webp', 'strip' => true]
+ * );
+ * 
+ * @since 未実装
+ * @author Comistream Project
+ */
+function vipsConvert($input, $output, $options = [])
+{
+    if (!isVipsAvailable()) {
+        return false;
+    }
+
+    try {
+        writelog("INFO vipsConvert() start with input: $input, output: $output");
+
+        // 画像を読み込み
+        $image = \Jcupitt\Vips\Image::newFromFile($input);
+
+        // リサイズオプションがある場合
+        if (isset($options['resize'])) {
+            $targetSize = intval($options['resize']);
+            $scale = $targetSize / max($image->width, $image->height);
+            if ($scale < 1) {
+                $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                writelog("DEBUG vipsConvert() resized to scale: $scale");
+            }
+        }
+
+        // メタデータを削除（stripオプション）
+        if (isset($options['strip']) && $options['strip']) {
+            $image = $image->copy(['interpretation' => $image->interpretation]);
+        }
+
+        // 出力オプションを準備
+        $saveOptions = [];
+        if (isset($options['quality'])) {
+            $saveOptions['Q'] = intval($options['quality']);
+        }
+
+        // フォーマットに基づいて保存
+        $format = isset($options['format']) ? strtolower($options['format']) : 'jpeg';
+        switch ($format) {
+            case 'webp':
+                $image->webpsave($output, $saveOptions);
+                break;
+            case 'png':
+                $image->pngsave($output, $saveOptions);
+                break;
+            case 'jpeg':
+            case 'jpg':
+            default:
+                $image->jpegsave($output, $saveOptions);
+                break;
+        }
+
+        writelog("DEBUG vipsConvert() success");
+        return true;
+    } catch (\Jcupitt\Vips\Exception $e) {
+        writelog("ERROR vipsConvert() failed: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * libvipsを使用してメモリ上で画像をリサイズし、バイナリデータとして返します
+ * 
+ * この関数は現在未使用ですが、将来的な利用のために保持されています。
+ * ファイルまたはバイナリデータから画像を読み込み、指定幅にリサイズして
+ * 指定フォーマットのバイナリデータとして返します。Webアプリケーションの
+ * 画像配信に適しています。
+ * 
+ * @param string|resource $input 入力画像（ファイルパスまたはバイナリデータ）
+ * @param int $width リサイズ後の幅（ピクセル）。アスペクト比は保持されます
+ * @param int $quality 画像品質（1-100）。PNG以外のフォーマットで有効
+ * @param string $format 出力フォーマット（'jpeg', 'webp', 'png'）
+ * @return string|false 成功時は画像バイナリデータ、失敗時はfalse
+ * 
+ * @example
+ * // ファイルからWebP形式でリサイズ
+ * $imageData = vipsResizeStream('/path/to/image.jpg', 800, 85, 'webp');
+ * if ($imageData !== false) {
+ *     header('Content-Type: image/webp');
+ *     echo $imageData;
+ * }
+ * 
+ * // バイナリデータからJPEGでリサイズ  
+ * $inputData = file_get_contents('/path/to/image.png');
+ * $resizedData = vipsResizeStream($inputData, 600, 75, 'jpeg');
+ * 
+ * @since 未実装
+ * @author Comistream Project
+ */
+function vipsResizeStream($input, $width, $quality = 75, $format = 'jpeg')
+{
+    if (!isVipsAvailable()) {
+        return false;
+    }
+
+    try {
+        writelog("DEBUG vipsResizeStream() start with width: $width, format: $format");
+
+        // 画像データを読み込み (ファイルまたはバッファから)
+        if (is_string($input) && file_exists($input)) {
+            $image = \Jcupitt\Vips\Image::newFromFile($input);
+        } else {
+            // バッファから読み込む場合
+            $image = \Jcupitt\Vips\Image::newFromBuffer($input);
+        }
+
+        // 現在の幅を取得して縮小率を計算
+        $currentWidth = $image->width;
+        $targetWidth = intval($width);
+
+        if ($targetWidth > 0 && $currentWidth > $targetWidth) {
+            $scale = $targetWidth / $currentWidth;
+            $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+            writelog("DEBUG vipsResizeStream() resized with scale: $scale");
+        }
+
+        // フォーマットに応じてバッファに出力
+        $saveOptions = ['Q' => intval($quality)];
+        $format = strtolower($format);
+
+        switch ($format) {
+            case 'webp':
+                $outputData = $image->writeToBuffer('.webp', $saveOptions);
+                break;
+            case 'png':
+                $outputData = $image->writeToBuffer('.png', []);
+                break;
+            case 'jpeg':
+            case 'jpg':
+            default:
+                $outputData = $image->writeToBuffer('.jpg', $saveOptions);
+                break;
+        }
+
+        writelog("DEBUG vipsResizeStream() success, output size: " . strlen($outputData) . " bytes");
+        return $outputData;
+    } catch (\Jcupitt\Vips\Exception $e) {
+        writelog("ERROR vipsResizeStream() failed: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * libvipsを使用してサムネイル画像を生成します
+ * 
+ * この関数は現在未使用ですが、将来的な利用のために保持されています。
+ * 入力画像から指定サイズのサムネイルを作成し、ファイルに保存します。
+ * アスペクト比を保持しながら、最大辺が指定サイズになるようにリサイズします。
+ * 
+ * @param string $input 入力画像ファイルのパス
+ * @param string $output 出力サムネイルファイルのパス（拡張子で形式を判定）
+ * @param int $size サムネイルサイズ（最大辺の長さをピクセルで指定）
+ * @param int $quality 画像品質（1-100）。JPEG/WebPで有効、PNGでは無視
+ * @return bool 処理成功時はtrue、失敗時はfalse
+ * 
+ * @example
+ * // 300pxのJPEGサムネイルを作成
+ * $success = vipsThumbnail('/path/to/large_image.jpg', '/path/to/thumb.jpg', 300, 85);
+ * 
+ * // WebPサムネイルを作成（拡張子で自動判定）
+ * $success = vipsThumbnail('/path/to/photo.png', '/path/to/thumb.webp', 200, 80);
+ * 
+ * // PNGサムネイル（品質設定は無効）
+ * $success = vipsThumbnail('/path/to/logo.svg', '/path/to/thumb.png', 150);
+ * 
+ * @since 未実装
+ * @author Comistream Project
+ */
+function vipsThumbnail($input, $output, $size, $quality = 75)
+{
+    if (!isVipsAvailable()) {
+        return false;
+    }
+
+    try {
+        writelog("DEBUG vipsThumbnail() start with size: $size, quality: $quality");
+
+        // 画像を読み込み
+        $image = \Jcupitt\Vips\Image::newFromFile($input);
+
+        // サムネイルサイズを計算
+        $targetSize = intval($size);
+        $scale = $targetSize / max($image->width, $image->height);
+
+        if ($scale < 1) {
+            // リサイズ
+            $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+            writelog("DEBUG vipsThumbnail() resized to scale: $scale");
+        }
+
+        // 出力フォーマットを拡張子から判定
+        $pathInfo = pathinfo($output);
+        $extension = strtolower($pathInfo['extension'] ?? '');
+
+        $saveOptions = [];
+        if ($extension !== 'png') {
+            $saveOptions['Q'] = intval($quality);
+        }
+
+        // フォーマットに応じて保存
+        switch ($extension) {
+            case 'webp':
+                $image->webpsave($output, $saveOptions);
+                break;
+            case 'png':
+                $image->pngsave($output, []);
+                break;
+            case 'jpg':
+            case 'jpeg':
+            default:
+                $image->jpegsave($output, $saveOptions);
+                break;
+        }
+
+        writelog("DEBUG vipsThumbnail() success");
+        return true;
+    } catch (\Jcupitt\Vips\Exception $e) {
+        writelog("ERROR vipsThumbnail() failed: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * libvipsを使用して画像ファイルの基本情報を取得します
+ * 
+ * 指定された画像ファイルから幅、高さ、アスペクト比を高速で取得します。
+ * libvipsが利用できない場合はfalseを返します。
+ * 
+ * @param string $imagePath 画像ファイルのパス
+ * @return array|false 成功時は画像情報の連想配列、失敗時はfalse
+ *                     連想配列の形式: ['width' => int, 'height' => int, 'ratio' => float]
+ * 
+ * @example
+ * $info = vipsGetImageInfo('/path/to/image.jpg');
+ * if ($info !== false) {
+ *     echo "サイズ: {$info['width']}x{$info['height']}\n";
+ *     echo "比率: {$info['ratio']}\n";
+ *     
+ *     if ($info['ratio'] > 1) {
+ *         echo "横長画像\n";
+ *     } elseif ($info['ratio'] < 1) {
+ *         echo "縦長画像\n";  
+ *     } else {
+ *         echo "正方形画像\n";
+ *     }
+ * }
+ * 
+ * @since 20250721
+ * @author Comistream Project
+ */
+function vipsGetImageInfo($imagePath)
+{
+    if (!isVipsAvailable()) {
+        return false;
+    }
+
+    try {
+        writelog("DEBUG vipsGetImageInfo() reading: $imagePath");
+
+        // 画像を読み込み
+        $image = \Jcupitt\Vips\Image::newFromFile($imagePath);
+
+        // 画像情報を取得
+        $width = $image->width;
+        $height = $image->height;
+
+        if ($width > 0 && $height > 0) {
+            $ratio = $width / $height;
+
+            writelog("DEBUG vipsGetImageInfo() success: {$width}x{$height}, ratio: $ratio");
+
+            return [
+                'width' => $width,
+                'height' => $height,
+                'ratio' => $ratio
+            ];
+        }
+
+        writelog("ERROR vipsGetImageInfo() invalid dimensions: {$width}x{$height}");
+        return false;
+    } catch (\Jcupitt\Vips\Exception $e) {
+        writelog("ERROR vipsGetImageInfo() failed: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * ディレクトリとその中身を再帰的に削除します
+ * 
+ * 指定されたディレクトリ内のファイル、サブディレクトリ、シンボリックリンクを
+ * 全て削除してから、ディレクトリ自体を削除します。安全な削除処理を行います。
+ * 
+ * @param string $dir 削除対象のディレクトリパス
+ * @return bool 削除成功時はtrue、失敗時はfalse
+ * 
+ * @example
+ * // 一時ディレクトリを削除
+ * if (deleteDirectory('/tmp/comistream_temp')) {
+ *     echo "一時ディレクトリを削除しました\n";
+ * } else {
+ *     echo "削除に失敗しました\n";
+ * }
+ * 
+ * // キャッシュディレクトリをクリーンアップ
+ * $cacheDir = '/var/cache/comistream/book_123';
+ * deleteDirectory($cacheDir);
+ * 
+ * @warning この関数は指定されたディレクトリを完全に削除します。
+ *          実行前に削除対象が正しいことを確認してください。
+ * 
+ * @since 1.0.0
+ * @author Comistream Project
+ */
 function deleteDirectory($dir)
 {
     writelog("DEBUG deleteDirectory() $dir");
@@ -1109,7 +1654,37 @@ function showReloadRequiredImg()
 } //end function showReloadRequiredImg
 
 
-##### レスポンスコンテンツの圧縮 #####################################################################
+/**
+ * HTTPレスポンスコンテンツを圧縮します
+ * 
+ * クライアントがサポートする圧縮方式（zstd、gzip）を自動判定し、
+ * 最適な圧縮方式でコンテンツを圧縮します。対応状況に応じて
+ * 適切なContent-Encodingヘッダーも設定します。
+ * 
+ * @param string $content 圧縮対象のコンテンツ
+ * @return string 圧縮済みのコンテンツ（圧縮できない場合は元のコンテンツをそのまま返す）
+ * 
+ * @example
+ * // HTMLコンテンツを圧縮
+ * $html = '<html><body>大きなHTMLコンテンツ...</body></html>';
+ * $compressed = compressResponse($html);
+ * echo $compressed;
+ * 
+ * // JSONレスポンスを圧縮
+ * $jsonData = json_encode($largeDataArray);
+ * header('Content-Type: application/json');
+ * echo compressResponse($jsonData);
+ * 
+ * // 画像データなど（すでに圧縮済みのデータは効果が少ない）
+ * $imageData = file_get_contents('large_image.jpg');
+ * echo compressResponse($imageData);
+ * 
+ * @note クライアントのAccept-Encodingヘッダーを確認し、サポートされている場合のみ圧縮を行います
+ * @note zstd > gzip > 無圧縮の優先順位で選択されます
+ * 
+ * @since 1.0.0
+ * @author Comistream Project
+ */
 function compressResponse($content)
 {
     $encoding = null;
@@ -1213,6 +1788,14 @@ function printHTML()
     // 言語切り替え用のJavaScript
     $langSwitcherJs = $i18n->getLangSwitcherJs();
 
+    // 新規ページ出力モジュールテスト
+    // if ($_SESSION['pageGenerator'] == 1) {
+    //     $pageGenerator = "const pageGenerator = \"/cgi-bin/comistream_page_out\";";
+    //     writelog("DEBUG printHTML() pageGenerator: comistream_page_out");
+    // } else {
+        $pageGenerator = "const pageGenerator = \"/cgi-bin/comistream.php\";";
+    // }
+
     $htmlContent =  <<<EOF
 <!DOCTYPE html>
 <html lang="{$i18n->getCurrentLang()}" data-long-press-delay="500">
@@ -1290,6 +1873,7 @@ $contents_css
     const publicDir = "$publicDir";
     const themeDir = "$themeDir";
     let global_preload_pages = $global_preload_pages;
+    $pageGenerator
 
     // comistream.js
     $contents_js
@@ -1845,7 +2429,8 @@ function openPdf()
 
     // 既にPDFタイプが判定済みかチェック
     if ((file_exists("$cacheDir/$file/IS_IMAGE_PDF") || file_exists("$cacheDir/$file/TEXT_PDF"))
-    && file_exists("$cacheDir/$file/DONE")) {
+        && file_exists("$cacheDir/$file/DONE")
+    ) {
         writelog("DEBUG openPdf() PDF type already determined, skipping analysis");
         _preparePdfCache();
         return;
@@ -2039,7 +2624,36 @@ function checkContentsIndexArray($indexArray)
 } //end function checkContentsIndexArray
 
 
-##### 別プロセスを起動して表紙画像とプレビュー画像を作成する  ###########################
+/**
+ * 別プロセスを起動して表紙画像とプレビュー画像を作成します
+ * 
+ * 指定されたファイル（書籍・漫画ファイル）から表紙画像とプレビュー画像を
+ * バックグラウンドプロセスで非同期生成します。すでに画像が存在する場合は
+ * スキップされ、不要な重複処理を避けます。
+ * 
+ * @param string $coverProcessFile 処理対象ファイルのパス（URL エンコード対応）
+ * @param string $coverFile 出力される表紙画像ファイルのパス
+ * @param string $previewFile 出力されるプレビュー画像ファイルのパス
+ * @return void 戻り値はありません（バックグラウンド処理で実行）
+ * 
+ * @example
+ * // 書籍の表紙とプレビュー画像を生成
+ * $bookPath = '/path/to/book.zip';
+ * $coverPath = '/path/to/covers/book_cover.jpg';  
+ * $previewPath = '/path/to/preview/book_preview.webp';
+ * makeCover($bookPath, $coverPath, $previewPath);
+ * 
+ * // PDFファイルの場合
+ * $pdfPath = '/path/to/document.pdf';
+ * $coverPath = '/path/to/covers/pdf_cover.jpg';
+ * $previewPath = '/path/to/preview/pdf_preview.webp';
+ * makeCover($pdfPath, $coverPath, $previewPath);
+ * 
+ * @see make_cover_preview.php バックグラウンドで実行される実際の画像生成スクリプト
+ * 
+ * @since 1.0.0
+ * @author Comistream Project
+ */
 function makeCover($coverProcessFile, $coverFile, $previewFile)
 {
     global $conf, $make_coverpage_path, $coverFile, $previewFile;
@@ -2815,10 +3429,74 @@ function checkLoading($file)
 } //end function checkLoading
 
 
-##### フルpathで画像ファイルを渡して画像比率を取得する #######################################################
+/**
+ * 画像ファイルのアスペクト比（縦横比）を取得します
+ * 
+ * 指定された画像ファイルの縦横比を計算します。libvipsが利用可能な場合は
+ * 高速処理を行い、利用できない場合はImageMagickにフォールバックします。
+ * ファイルの存在チェックとサイズ検証も行います。
+ * 
+ * @param string $file_with_path 画像ファイルのフルパス
+ * @return float|int 画像のアスペクト比（幅/高さ）。
+ *                   - 1.0より大きい場合: 横長画像
+ *                   - 1.0の場合: 正方形画像  
+ *                   - 1.0未満の場合: 縦長画像
+ *                   - 0: ファイルが存在しないかエラーが発生
+ * 
+ * @example
+ * // 画像の向きを判定
+ * $ratio = get_image_aspect_ratio('/path/to/image.jpg');
+ * if ($ratio > 1.0) {
+ *     echo "横長画像です（比率: $ratio）\n";
+ * } elseif ($ratio < 1.0 && $ratio > 0) {
+ *     echo "縦長画像です（比率: $ratio）\n";
+ * } elseif ($ratio == 1.0) {
+ *     echo "正方形画像です\n";
+ * } else {
+ *     echo "画像ファイルが読み込めませんでした\n";
+ * }
+ * 
+ * // レイアウト判定での使用例
+ * $aspectRatio = get_image_aspect_ratio($imagePath);
+ * $isLandscape = ($aspectRatio > 1.33); // 4:3より横長
+ * 
+ * @since 1.0.0
+ * @author Comistream Project
+ */
 function get_image_aspect_ratio($file_with_path)
 {
     global $convert;
+
+    if (!file_exists($file_with_path)) {
+        writelog("WARNING get_image_aspect_ratio() no image file:" . $file_with_path);
+        return 0;
+    }
+
+    // ファイルサイズをチェック
+    $file_size = filesize($file_with_path);
+    writelog("DEBUG get_image_aspect_ratio() file exists:" . $file_with_path . " size:" . $file_size . " bytes");
+
+    // ファイルが極端に小さい場合は破損している可能性がある
+    if ($file_size < 100) {
+        writelog("WARNING get_image_aspect_ratio() file too small, possibly corrupted: " . $file_with_path);
+        return 0;
+    }
+
+    // libvipsが利用可能なら高速処理を使用
+    if (isVipsAvailable()) {
+        writelog("DEBUG get_image_aspect_ratio() Using libvips for image info");
+
+        $vipsInfo = vipsGetImageInfo($file_with_path);
+        if ($vipsInfo && isset($vipsInfo['ratio'])) {
+            writelog("DEBUG get_image_aspect_ratio() vips ratio {$vipsInfo['ratio']} width {$vipsInfo['width']} height {$vipsInfo['height']}");
+            return $vipsInfo['ratio'];
+        }
+
+        // libvipsが失敗した場合はフォールバック
+        writelog("DEBUG get_image_aspect_ratio() libvips failed, falling back to ImageMagick");
+    }
+
+    // フォールバック：ImageMagickを使用
     $identify = explode(' ', $convert);
     $magic = $identify[0];
     if (preg_match('/convert$/', $magic)) {
@@ -2831,87 +3509,73 @@ function get_image_aspect_ratio($file_with_path)
     $width = 0;
     $height = 0;
     writelog("DEBUG get_image_aspect_ratio() ImageMagick $magic");
-    if (file_exists($file_with_path)) {
-        // ファイルサイズをチェック
-        $file_size = filesize($file_with_path);
-        writelog("DEBUG get_image_aspect_ratio() file exists:" . $file_with_path . " size:" . $file_size . " bytes");
 
-        // ファイルが極端に小さい場合は破損している可能性がある
-        if ($file_size < 100) {
-            writelog("WARNING get_image_aspect_ratio() file too small, possibly corrupted: " . $file_with_path);
-            return 0;
+    // shell_execの代わりにproc_openを使って詳細な情報を取得
+    $command = "$magic -format \"%w,%h\" " . escapeshellarg($file_with_path);
+    $descriptorspec = [
+        0 => ["pipe", "r"],  // stdin
+        1 => ["pipe", "w"],  // stdout
+        2 => ["pipe", "w"]   // stderr
+    ];
+
+    $process = proc_open($command, $descriptorspec, $pipes);
+    if (is_resource($process)) {
+        fclose($pipes[0]); // stdin不要なので閉じる
+
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        $exit_code = proc_close($process);
+
+        writelog("DEBUG get_image_aspect_ratio() command:$command exit_code:$exit_code stdout:" . trim($stdout));
+
+        if (!empty($stderr)) {
+            writelog("ERROR get_image_aspect_ratio() stderr:" . trim($stderr));
         }
 
-        // shell_execの代わりにproc_openを使って詳細な情報を取得
-        $command = "$magic -format \"%w,%h\" " . escapeshellarg($file_with_path);
-        $descriptorspec = [
-            0 => ["pipe", "r"],  // stdin
-            1 => ["pipe", "w"],  // stdout
-            2 => ["pipe", "w"]   // stderr
-        ];
+        // ImageMagickが失敗した場合の処理
+        if ($exit_code !== 0 || empty(trim($stdout))) {
+            writelog("ERROR get_image_aspect_ratio() ImageMagick failed, exit_code:$exit_code");
 
-        $process = proc_open($command, $descriptorspec, $pipes);
-        if (is_resource($process)) {
-            fclose($pipes[0]); // stdin不要なので閉じる
-
-            $stdout = stream_get_contents($pipes[1]);
-            $stderr = stream_get_contents($pipes[2]);
-            fclose($pipes[1]);
-            fclose($pipes[2]);
-
-            $exit_code = proc_close($process);
-
-            writelog("DEBUG get_image_aspect_ratio() command:$command exit_code:$exit_code stdout:" . trim($stdout));
-
-            if (!empty($stderr)) {
-                writelog("ERROR get_image_aspect_ratio() stderr:" . trim($stderr));
+            // 破損ファイルの可能性がある場合は削除を検討
+            if (!empty($stderr) && (
+                strpos($stderr, 'CRC error') !== false ||
+                strpos($stderr, 'Read Exception') !== false ||
+                strpos($stderr, 'Expected') !== false && strpos($stderr, 'bytes; found') !== false
+            )) {
+                writelog("WARNING get_image_aspect_ratio() corrupted file detected, consider removing:" . $file_with_path);
+                // 自動削除はせず、ログに警告を出すだけに留める
             }
 
-            // ImageMagickが失敗した場合の処理
-            if ($exit_code !== 0 || empty(trim($stdout))) {
-                writelog("ERROR get_image_aspect_ratio() ImageMagick failed, exit_code:$exit_code");
-
-                // 破損ファイルの可能性がある場合は削除を検討
-                if (!empty($stderr) && (
-                    strpos($stderr, 'CRC error') !== false ||
-                    strpos($stderr, 'Read Exception') !== false ||
-                    strpos($stderr, 'Expected') !== false && strpos($stderr, 'bytes; found') !== false
-                )) {
-                    writelog("WARNING get_image_aspect_ratio() corrupted file detected, consider removing:" . $file_with_path);
-                    // 自動削除はせず、ログに警告を出すだけに留める
-                }
-
-                return 0;
-            }
-
-            $return_value = $stdout;
-        } else {
-            writelog("ERROR get_image_aspect_ratio() failed to create process");
             return 0;
         }
 
-        writelog("DEBUG get_image_aspect_ratio() ImageMagick format return_value:" . $return_value);
-        $return_value = explode(',', $return_value);
-        if (count($return_value) < 2) {
-            writelog("ERROR get_image_aspect_ratio() invalid format return_value, expected 'width,height'");
-            return 0;
-        }
-
-        $width = intval($return_value[0]);
-        $height = intval($return_value[1]);
-
-        if ($width <= 0 || $height <= 0) {
-            writelog("ERROR get_image_aspect_ratio() invalid dimensions width:$width height:$height");
-            return 0;
-        }
-
-        $ratio = ($width / $height);
-        writelog("DEBUG get_image_aspect_ratio() ratio $ratio width $width height $height");
-        return $ratio;
+        $return_value = $stdout;
     } else {
-        writelog("WARNING get_image_aspect_ratio() no image file:" . $file_with_path);
+        writelog("ERROR get_image_aspect_ratio() failed to create process");
         return 0;
     }
+
+    writelog("DEBUG get_image_aspect_ratio() ImageMagick format return_value:" . $return_value);
+    $return_value = explode(',', $return_value);
+    if (count($return_value) < 2) {
+        writelog("ERROR get_image_aspect_ratio() invalid format return_value, expected 'width,height'");
+        return 0;
+    }
+
+    $width = intval($return_value[0]);
+    $height = intval($return_value[1]);
+
+    if ($width <= 0 || $height <= 0) {
+        writelog("ERROR get_image_aspect_ratio() invalid dimensions width:$width height:$height");
+        return 0;
+    }
+
+    $ratio = ($width / $height);
+    writelog("DEBUG get_image_aspect_ratio() ratio $ratio width $width height $height");
+    return $ratio;
 } //end function get_image_aspect_ratio
 
 
@@ -3181,6 +3845,12 @@ function handleInitialSetup($postData)
         $md5cmd = exec('which md5sum');
     }
     writelog("DEBUG handleInitialSetup() md5cmd:$md5cmd");
+    // libvipsコマンドの検索
+    // $vips = exec('which vips');
+    // writelog("DEBUG handleInitialSetup() vips:$vips");
+    // $vipsthumbnail = exec('which vipsthumbnail');
+    // writelog("DEBUG handleInitialSetup() vipsthumbnail:$vipsthumbnail");
+
     // $webRootを定義するために、homeの下にpublicかpublic_htmlがあったらそれをフルpathにして代入する
     $webRoot = realpath(__DIR__ . '/../..');
     $publicDirPath = $webRoot . '/public';
@@ -3236,7 +3906,7 @@ function handleInitialSetup($postData)
         $stmt->execute();
 
         // システム設定を作成
-        $variablesToUpdate = ['p7zip', 'cpdf', 'ffmpeg', 'convert', 'montage', 'unzip', 'unrar', 'md5cmd', 'sharePath', 'comistream_tool_dir', 'webRoot', 'pdftoppm', 'pdfinfo', 'mutool'];
+        $variablesToUpdate = ['p7zip', 'cpdf', 'ffmpeg', 'convert', 'montage', 'unzip', 'unrar', 'md5cmd', 'sharePath', 'comistream_tool_dir', 'webRoot', 'pdftoppm', 'pdfinfo', 'mutool', 'vips', 'vipsthumbnail'];
         $stmt = $db->prepare('INSERT OR REPLACE INTO system_config (key, value) VALUES (:key, :value)');
         foreach ($variablesToUpdate as $variable) {
             if (isset($$variable)) {
@@ -3532,6 +4202,12 @@ function readConfig($dbh)
         $quality = $conf["quality"];
         $fullsize_png_compress = $conf["fullsize_png_compress"];
 
+        // libvipsコマンドの設定
+        // $vips = $conf["vips"] ?? '';
+        // $vipsthumbnail = $conf["vipsthumbnail"] ?? '';
+        // $conf["vips"] = $vips;
+        // $conf["vipsthumbnail"] = $vipsthumbnail;
+
         // デバッグモード
         if ($conf["isDebugMode"] == 1) {
             $global_debug_flag = true;
@@ -3550,7 +4226,7 @@ function readConfig($dbh)
         // mutoolのパスを確認
         if (!(isset($conf["mutool"]))) {
             $mutool = exec('which mutool') ?: '';
-            sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('mutool', ?);", "クエリに失敗しました",array($mutool));
+            sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('mutool', ?);", "クエリに失敗しました", array($mutool));
             $conf["mutool"] = $mutool;
         }
         $conf["comistream_tmp_dir_root"] = rtrim($conf["comistream_tmp_dir_root"], DIRECTORY_SEPARATOR);
@@ -3565,7 +4241,44 @@ function readConfig($dbh)
     }
 } //end function readConfig
 
-##### SQL文実行汎用 #################################################
+/**
+ * データベースクエリを安全に実行します
+ * 
+ * PDOを使用してプリペアードステートメントでSQL文を実行し、
+ * SQLインジェクション攻撃を防ぎます。エラーが発生した場合は
+ * 適切なエラーハンドリングを行います。
+ * 
+ * @param PDO $dbh データベースハンドル
+ * @param string $query 実行するSQL文（プレースホルダーを使用可能）
+ * @param string $errmessage エラー発生時に表示するメッセージ
+ * @param array|null $paramarray バインドするパラメータ配列（オプション）
+ * @return PDOStatement 実行済みのPDOStatementオブジェクト
+ * 
+ * @throws PDOException データベースエラーが発生した場合
+ * 
+ * @example
+ * // パラメータなしのクエリ
+ * $result = sql_query($dbh, "SELECT * FROM books", "書籍データの取得に失敗しました");
+ * 
+ * // パラメータありのクエリ
+ * $result = sql_query(
+ *     $dbh, 
+ *     "SELECT * FROM books WHERE id = ?", 
+ *     "書籍の検索に失敗しました",
+ *     [$bookId]
+ * );
+ * 
+ * // 名前付きパラメータの使用
+ * $result = sql_query(
+ *     $dbh,
+ *     "INSERT INTO bookmarks (file, page, user) VALUES (:file, :page, :user)",
+ *     "ブックマークの保存に失敗しました",
+ *     [':file' => $filename, ':page' => $pageNum, ':user' => $username]
+ * );
+ * 
+ * @since 1.0.0
+ * @author Comistream Project
+ */
 function sql_query($dbh, $query, $errmessage, $paramarray = null)
 { // SQL 文を実行
     try {
@@ -3618,7 +4331,36 @@ function recursiveCopy($srcDir, $destDir)
 } //end function recursiveCopy
 
 
-##### ディレクトリが存在しなければ作成する #################################################
+/**
+ * ディレクトリが存在しない場合に作成します
+ * 
+ * 指定されたディレクトリパスが存在しない場合、必要な親ディレクトリも含めて
+ * 再帰的に作成します。適切なパーミッション（0777）が設定され、作成状況は
+ * ログに記録されます。既に存在する場合はtrueを返します。
+ * 
+ * @param string $dir 作成するディレクトリのパス
+ * @return bool 作成成功または既に存在する場合はtrue、失敗時はfalse
+ * 
+ * @example
+ * // キャッシュディレクトリを作成
+ * if (chkAndMakeDir('/var/cache/comistream/temp')) {
+ *     echo "キャッシュディレクトリの準備完了\n";
+ * } else {
+ *     echo "ディレクトリ作成に失敗しました\n";
+ * }
+ * 
+ * // 多階層のディレクトリも一度に作成
+ * chkAndMakeDir('/app/data/books/covers/thumbnails');
+ * 
+ * // 条件付きディレクトリ作成
+ * $uploadDir = '/uploads/user_' . $userId;
+ * if (!chkAndMakeDir($uploadDir)) {
+ *     errorExit("ディレクトリ作成エラー", "アップロード用ディレクトリを作成できませんでした");
+ * }
+ * 
+ * @since 1.0.0
+ * @author Comistream Project
+ */
 function chkAndMakeDir($dir)
 {
     global $writelog_process_name, $conf;
