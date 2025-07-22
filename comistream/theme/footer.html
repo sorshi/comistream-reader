@@ -99,6 +99,16 @@ function linkhook(e) {
     return false;
   }
 
+  // 音楽ファイルの場合
+  if( e.target.href.match(/\.(mp3|m4a|aac|flac|aiff|aif|wav|wave|ogg|oga|wma)$/i ) ){
+    e.preventDefault();
+    // 音楽プレイヤーを開く
+    var musicPlayerHref = "/cgi-bin/music_player.php?file=" + fileLink + "&mode=open";
+    document.getElementById("history").innerHTML = "<a class=\"history_music\" href="+location.origin+musicPlayerHref+">"+e.target.innerText+"</a>"
+    location.href = musicPlayerHref;
+    return false;
+  }
+
   if( e.target.href.match(/\.(m2t|ts|iso|mp4|m4v|avi|mkv|wmv|mpg|m2p|webm)$/i ) ){
     // // 動画対応は開発中
     // location.href = e.target.href;

@@ -47,5 +47,12 @@ FileETag None
     Header always set Expires "Wed, 11 Jan 1984 05:00:00 GMT" "expr=%{REQUEST_STATUS} == 404"
 </IfModule>
 
-# Custom MIME TYPES
+# Custom MIME TYPES for Audio
 AddType audio/flac .flac
+AddType audio/mpeg .mp3
+AddType audio/mp4 .m4a
+AddType audio/aac .aac
+AddType audio/x-aiff .aiff .aif
+AddType audio/wav .wav .wave
+AddType audio/ogg .ogg .oga
+AddType audio/x-ms-wma .wma
