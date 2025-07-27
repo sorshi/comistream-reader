@@ -120,7 +120,7 @@ if (!isset($options['file']) || !isset($options['type'])) {
 
 $file = $options['file'];
 $type = $options['type'];
-
+writelog("DEBUG Start process, type:$type", $writelog_process_name);
 // 作業ディレクトリ作成
 // $conf_cacheDir = $cacheDir;
 if ((isset($options['cache'])) && ($options['cache'] == true)) {
@@ -258,29 +258,31 @@ if (strcasecmp($ext, 'epub') == 0) {
         // 画像を処理し、$coverFileに保存（libvips優先、フォールバック：ImageMagick）
         if (isVipsAvailable()) {
             writelog("DEBUG: Using libvips for cover image processing", $writelog_process_name);
-            
+
             try {
                 // 画像を読み込み
                 $image = \Jcupitt\Vips\Image::newFromFile($coverFilePath);
-                
-                // リサイズ処理
-                $targetSize = intval($resize);
+
+                // リサイズ処理（ImageMagick形式の'x400'から数値を抽出）
+                $targetSize = intval(preg_replace('/[^0-9]/', '', $resize));
+                if ($targetSize <= 0) {
+                    $targetSize = 400; // フォールバック値
+                }
                 $scale = $targetSize / max($image->width, $image->height);
-                
+
                 if ($scale < 1) {
                     $image = $image->resize($scale, ['kernel' => 'lanczos3']);
                     writelog("DEBUG: Cover image resized with scale: $scale", $writelog_process_name);
                 }
-                
+
                 // JPEG形式で保存（strip=メタデータ削除）
-                $image->jpegsave($coverFile, ['Q' => 80]);
-                
+                $image->jpegsave($coverFile, ['Q' => 80, 'strip' => true]);
+
                 writelog("DEBUG: Cover image successfully processed with libvips", $writelog_process_name);
-                
             } catch (\Jcupitt\Vips\Exception $e) {
                 writelog("ERROR: Failed to convert cover image with libvips: " . $e->getMessage(), $writelog_process_name);
                 writelog("DEBUG: Falling back to ImageMagick", $writelog_process_name);
-                
+
                 // フォールバック：ImageMagick
                 $cmd = "$convert \"$coverFilePath\" $usm -strip -resize $resize -quality 80 -format jpeg jpeg:\"$coverFile\"";
                 exec($cmd, $output, $return_var);
@@ -349,21 +351,23 @@ if (strcasecmp($ext, 'epub') == 0) {
                 try {
                     // 画像を読み込み
                     $image = \Jcupitt\Vips\Image::newFromFile($imageFiles[$i]);
-                    
-                    // リサイズ処理
-                    $targetSize = intval($resize);
+
+                    // リサイズ処理（ImageMagick形式の'x400'から数値を抽出）
+                    $targetSize = intval(preg_replace('/[^0-9]/', '', $resize));
+                    if ($targetSize <= 0) {
+                        $targetSize = 400; // フォールバック値
+                    }
                     $scale = $targetSize / max($image->width, $image->height);
-                    
+
                     if ($scale < 1) {
                         $image = $image->resize($scale, ['kernel' => 'lanczos3']);
                     }
-                    
-                    // PNG形式で保存
+
+                    // PNG形式で保存（strip=メタデータ削除）
                     $outputPath = "$shmDir/" . $outputFileBasename . ".png";
-                    $image->pngsave($outputPath, []);
-                    
+                    $image->pngsave($outputPath, ['strip' => true]);
+
                     writelog("DEBUG: Image $i successfully processed with libvips", $writelog_process_name);
-                    
                 } catch (\Jcupitt\Vips\Exception $e) {
                     writelog("ERROR: Failed to convert image with libvips: " . $e->getMessage(), $writelog_process_name);
                     // フォールバック：ImageMagick
@@ -405,65 +409,6 @@ if (strcasecmp($ext, 'epub') == 0) {
         deleteDirectory($epubTempDir);
     }
     exit(0);
-    // } elseif (strcasecmp($ext, 'pdf--------------') == 0) {
-    //     // 以前はPDF専用処理があったけどzip/rarと統合して廃止 =======================================================================================
-    //     writelog("DEBUG pdf detected.", $writelog_process_name);
-    //     if ($type == 'covers') {
-    //         create_cover_dir($coverFile);
-    //         // 表紙はそのままImageMagickで
-    //         $cmd = "$convert \"$fullpathFile\"[0] $usm -density 150 -quality ".$conf["quality"] ." -resize $resize -background white -flatten -format jpeg \"$coverFile\"";
-    //         exec($cmd, $output, $return_var);
-    //         if ($return_var !== 0) {
-    //             writelog("ERROR: Failed to convert cover image: $cmd", $writelog_process_name);
-    //             clean_shm_dir();
-    //             exit(1);
-    //         }
-    //     } elseif ($type == 'preview') {
-    //         create_preview_dir($previewFile);
-    //         $page = 0;
-    //         $count = 0;
-    //         $shmDir = create_shm_dir();
-    //         while ($count <= 12 - 1) {
-    //             //     # ページの静止画作成 / 12ページ
-    //             $outputFileBasename = sprintf("%03d", $count);
-    //             $cmd = "$convert \"$fullpathFile\"[$count] $usm -density 150 -quality ".$conf["quality"] ." -resize $resize -background white -flatten -format png $shmDir/" . $outputFileBasename . ".png";
-    //             exec($cmd, $output, $return_var);
-    //             if ($return_var !== 0) {
-    //                 writelog('ERROR exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
-    //                 // exit(1);
-    //             } else {
-    //                 writelog('DEBUG exec succeeded. Command: ' . $cmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
-    //             }
-    //             if ($page > 1) {
-    //                 // # 2p目以降は帯とかロゴとかそーゆーので横長になってたらそのページ飛ばす
-    //                 $image_aspect_retio = get_image_aspect_ratio("$shmDir/" . $outputFileBasename . ".png");
-    //                 if ($image_aspect_retio > 2) {
-    //                     // 横長比率が2倍超えてたらトリミングしない
-    //                     writelog("DEBUG  re generate file.", $writelog_process_name);
-    //                     if (file_exists("$shmDir/" . $outputFileBasename . ".png")) {
-    //                         unlink("$shmDir/" . $outputFileBasename . ".png");
-    //                         $count--;
-    //                     }
-    //                 }
-    //             }
-    //             $page++;
-    //             $count++;
-    //             // 通常はpageとcountを++
-    //             // 帯とかでページをスキップした場合はpageだけ++
-    //         }
-    //         $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 - | $convert - -quality $quality -define webp:lossless=false \"$previewFile\"";
-    //         writelog("DEBUG concatCmd:$concatCmd", $writelog_process_name);
-    //         exec($concatCmd, $output, $return_var);
-    //         if ($return_var !== 0) {
-    //             writelog('ERROR exec failed. Command: ' . $concatCmd . ' Return code: ' . $return_var, $writelog_process_name);
-    //             clean_shm_dir();
-    //             exit(1);
-    //         } else {
-    //             writelog('DEBUG exec succeeded. Command: ' . $concatCmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
-    //         }
-    //     }
-    //     clean_shm_dir();
-    //     exit(0);
 } elseif (in_array(strtolower($ext), ['zip', 'cbz', 'rar', 'cbr', '7z', 'cb7', 'pdf'])) {
     // zip/rarの場合 =======================================================================================
     // nested archiveの場合は/dev/shm/ではなく$cacheDirに展開する
@@ -473,26 +418,92 @@ if (strcasecmp($ext, 'epub') == 0) {
     openPage();
     // 画像は余白をトリミングする
     $view = 'trimming';
+
     if ($type == 'covers') {
 
         create_cover_dir($coverFile);
         $page = 1;
         $pageOutCmd = outputPage(true);
-        writelog('DEBUG outputPage() returned:' . $pageOutCmd);
-        $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > \"$coverFile\"";
+        writelog('DEBUG $type outputPage() returned:' . $pageOutCmd, $writelog_process_name);
 
-        exec($cmd, $output, $return_var);
-        if ($return_var !== 0) {
-            writelog('ERROR exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
-            exit(1);
-        } else {
-            // 表紙ファイルのサイズを確認
-            if (!file_exists($coverFile) || filesize($coverFile) === 0) {
-                writelog('WARNING Cover file is empty, deleting: ' . $coverFile, $writelog_process_name);
-                unlink($coverFile);
-            } else {
-                writelog('DEBUG exec succeeded. Command: ' . $cmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
+        // libvipsが利用可能なら高速処理を使用
+        if (isVipsAvailable()) {
+            writelog("DEBUG: Using libvips for cover image processing", $writelog_process_name);
+
+            try {
+                // outputPageのコマンドを実行して画像データを取得
+                writelog("DEBUG: will run pageOutCmd:" . $pageOutCmd, $writelog_process_name);
+                $imageData = shell_exec($pageOutCmd);
+
+                if ($imageData === null || strlen($imageData) === 0) {
+                    throw new Exception("Failed to get image data from outputPage command");
+                }
+
+                // libvipsで画像データを読み込み
+                $image = \Jcupitt\Vips\Image::newFromBuffer($imageData);
+
+                // リサイズ処理（ImageMagick形式の'x400'から数値を抽出）
+                $targetSize = intval(preg_replace('/[^0-9]/', '', $resize));
+                if ($targetSize <= 0) {
+                    $targetSize = 400; // フォールバック値
+                }
+                $scale = $targetSize / max($image->width, $image->height);
+
+                if ($scale < 1) {
+                    $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                    writelog("DEBUG: Cover image resized with scale:$scale targetSize:" . $targetSize . " image->width:" . $image->width . " image->height:" . $image->height, $writelog_process_name);
+                } else {
+                    writelog("ERROR: Cover image not resized scale:$scale", $writelog_process_name);
+                }
+
+                // JPEG形式で保存（strip=メタデータ削除）
+                $image->jpegsave($coverFile, ['Q' => intval($conf["quality"]), 'strip' => true]);
+
+                writelog("DEBUG: Cover image successfully processed with libvips", $writelog_process_name);
+            } catch (\Jcupitt\Vips\Exception $e) {
+                writelog("ERROR: Failed to convert cover image with libvips: " . $e->getMessage(), $writelog_process_name);
+                writelog("DEBUG: Falling back to ImageMagick", $writelog_process_name);
+
+                // フォールバック：ImageMagick
+                $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > \"$coverFile\"";
+                exec($cmd, $output, $return_var);
+
+                if ($return_var !== 0) {
+                    writelog('ERROR exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
+                    exit(1);
+                }
+            } catch (Exception $e) {
+                writelog("ERROR: Failed to process cover image: " . $e->getMessage(), $writelog_process_name);
+                writelog("DEBUG: Falling back to ImageMagick", $writelog_process_name);
+
+                // フォールバック：ImageMagick
+                $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > \"$coverFile\"";
+                exec($cmd, $output, $return_var);
+
+                if ($return_var !== 0) {
+                    writelog('ERROR exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
+                    exit(1);
+                }
             }
+        } else {
+            // ImageMagickを使用
+            $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > \"$coverFile\"";
+            exec($cmd, $output, $return_var);
+
+            if ($return_var !== 0) {
+                writelog('ERROR exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
+                exit(1);
+            }
+        }
+
+        // 表紙ファイルのサイズを確認
+        if (!file_exists($coverFile) || filesize($coverFile) === 0) {
+            writelog('WARNING Cover file is empty, deleting: ' . $coverFile, $writelog_process_name);
+            if (file_exists($coverFile)) {
+                unlink($coverFile);
+            }
+        } else {
+            writelog('DEBUG Cover file successfully created. Size: ' . filesize($coverFile) . ' bytes', $writelog_process_name);
         }
     } elseif ($type == 'preview') {
 
@@ -503,40 +514,118 @@ if (strcasecmp($ext, 'epub') == 0) {
         $shmDir = create_shm_dir();
         while ($count <= 12 && $page <= $maxPage) {
 
-            //     # ページの静止画作成 / 12ページ
+            // ページの静止画作成 / 12ページ
             $outputFileBasename = sprintf("%03d", $count);
             $pageOutCmd = outputPage(true);
-            writelog("DEBUG outputPage() $type page:$page count:$count returned:" . $pageOutCmd, $writelog_process_name);
-            $cmd = $pageOutCmd . " | $convert - -fuzz 10% -trim +repage -format png -resize $global_resize -quality $quality $shmDir/" . $outputFileBasename . ".png";
+            writelog("DEBUG --- while start $type page:$page count:$count outputPage() returned:" . $pageOutCmd, $writelog_process_name);
 
-            exec($cmd, $output, $return_var);
-            if ($return_var !== 0) {
-                writelog('WARNING exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
-                // exit(1);
-            } else {
-                $fileBytes = filesize("$shmDir/" . $outputFileBasename . ".png");
+            $outputFile = "$shmDir/" . $outputFileBasename . ".png";
+            $imageProcessed = false;
+
+            // libvipsが利用可能なら高速処理を使用
+            if (isVipsAvailable()) {
+                writelog("DEBUG: Using libvips for preview image processing (page $page)", $writelog_process_name);
+
+                try {
+                    // outputPageのコマンドを実行して画像データを取得
+                    $imageData = shell_exec($pageOutCmd);
+
+                    if ($imageData === null || strlen($imageData) === 0) {
+                        throw new Exception("Failed to get image data from outputPage command");
+                    }
+
+                    // libvipsで画像データを読み込み
+                    $image = \Jcupitt\Vips\Image::newFromBuffer($imageData);
+
+                    // トリミング処理（libvipsでは自動トリミング機能がないためスキップ）
+                    // writelog("DEBUG: Trimming skipped when using libvips (not supported)", $writelog_process_name);
+
+                    // リサイズ処理（ImageMagick形式の'x400'から数値を抽出）
+                    $targetSize = intval(preg_replace('/[^0-9]/', '', $global_resize));
+                    if ($targetSize <= 0) {
+                        $targetSize = 400; // フォールバック値
+                    }
+                    $scale = $targetSize / max($image->width, $image->height);
+
+                    if ($scale < 1) {
+                        $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                        writelog("DEBUG: Preview image resized with scale: $scale", $writelog_process_name);
+                    }
+
+                    // 画像の縦横サイズ情報を取得するルン
+                    $vipsImageWidth = $image->width;
+                    $vipsImageHeight = $image->height;
+                    writelog("DEBUG: Image dimensions - width: $vipsImageWidth, height: $vipsImageHeight", $writelog_process_name);
+
+                    // PNG形式で保存（strip=メタデータ削除）
+                    $image->pngsave($outputFile, ['strip' => true]);
+
+                    $imageProcessed = true;
+                    writelog("DEBUG: Preview image successfully processed with libvips", $writelog_process_name);
+                } catch (\Jcupitt\Vips\Exception $e) {
+                    writelog("ERROR: Failed to convert preview image with libvips: " . $e->getMessage(), $writelog_process_name);
+                    writelog("DEBUG: Falling back to ImageMagick", $writelog_process_name);
+                } catch (Exception $e) {
+                    writelog("ERROR: Failed to process preview image: " . $e->getMessage(), $writelog_process_name);
+                    writelog("DEBUG: Falling back to ImageMagick", $writelog_process_name);
+                }
+            }
+
+            // libvipsで処理できなかった場合はImageMagickを使用
+            if (!$imageProcessed) {
+                $cmd = $pageOutCmd . " | $convert - -fuzz 10% -trim +repage -format png -resize $global_resize -quality $quality $outputFile";
+                exec($cmd, $output, $return_var);
+
+                if ($return_var !== 0) {
+                    writelog('WARNING exec failed. Command: ' . $cmd . ' Return code: ' . $return_var, $writelog_process_name);
+                    // exit(1);
+                } else {
+                    $imageProcessed = true;
+                }
+            }
+
+            // 処理結果を確認
+            if ($imageProcessed && file_exists($outputFile)) {
+                $fileBytes = filesize($outputFile);
                 if ($fileBytes > 0) {
                     // 画像ファイルが作成された場合
-                    writelog('DEBUG exec succeeded. fileBytes:' . $fileBytes . ' Command: ' . $cmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
+                    writelog('DEBUG exec succeeded. fileBytes:' . $fileBytes, $writelog_process_name);
                     if ($page > 1) {
                         // # 2p目以降は帯とかロゴとかそーゆーので横長になってたらそのページ飛ばす
-                        $image_aspect_retio = get_image_aspect_ratio("$shmDir/" . $outputFileBasename . ".png");
-                        if ($image_aspect_retio > 2.1) {
-                            // 横長比率が2.1倍超えてたらその画像は使わない
-                            writelog("DEBUG re generate file.", $writelog_process_name);
-                            if (file_exists("$shmDir/" . $outputFileBasename . ".png")) {
-                                unlink("$shmDir/" . $outputFileBasename . ".png");
+
+                        // アスペクト比計算
+                        if (($vipsImageWidth > 10) && ($vipsImageHeight > 10)) {
+                            $image_aspect_ratio = $vipsImageWidth / $vipsImageHeight;
+                            writelog("DEBUG: vipsImageWidth:$vipsImageWidth vipsImageHeight:$vipsImageHeight image_aspect_ratio:$image_aspect_ratio", $writelog_process_name);
+                            $vipsImageWidth = 0;
+                            $vipsImageHeight = 0;
+                        } else {
+                            $image_aspect_ratio = get_image_aspect_ratio($outputFile);
+                            writelog("DEBUG: get_image_aspect_ratio:$image_aspect_ratio", $writelog_process_name);
+                        }
+                        // 横長比率が2.1倍超えてたらその画像は使わない
+                        if ($image_aspect_ratio > 2.1) {
+                            writelog("WARNING re generate file.", $writelog_process_name);
+                            if (file_exists($outputFile)) {
+                                unlink($outputFile);
                                 $count--;
                             }
+                        } else {
+                            writelog("DEBUG image_aspect_ratio:$image_aspect_ratio", $writelog_process_name);
                         }
                     }
                 } else {
                     // 画像ファイルが0バイトの場合
-                    writelog('WARNING exec succeeded but png file is empty. fileBytes:' . $fileBytes . ' Command: ' . $cmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
-                    unlink("$shmDir/" . $outputFileBasename . ".png");
+                    writelog('WARNING preview image file is empty. fileBytes:' . $fileBytes, $writelog_process_name);
+                    unlink($outputFile);
                     if ($count > 1) {
                         $count--;
                     }
+                }
+            } else {
+                writelog('WARNING preview image processing failed completely', $writelog_process_name);
+                if ($count > 1) {
+                    $count--;
                 }
             }
             $page++;

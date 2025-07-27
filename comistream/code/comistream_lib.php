@@ -881,6 +881,52 @@ function outputPage($isFileout = false)
             if (file_exists("$cacheDir/$file/cp932")) {
                 $pageInput = "LANG=ja_JP.UTF8 $unzip -p -O cp932 \"$cacheDir/$file/file\" \"$pagefile\"";
             } else {
+                // ファイルサイズ検証
+                // 定数定義
+                define('MAX_FILE_SIZE_BYTES', 25 * 1024 * 1024); // 25MB
+                // 1. 7zaのリストコマンドでファイル情報を取得
+                // -slt: 詳細なリスト形式で出力
+                // -p: パスワード指定
+                $command_list = sprintf(
+                    'LANG=ja_JP.UTF8 %s l -slt %s %s',
+                    $p7zip,
+                    escapeshellarg($cacheDir . '/' . $file . '/file'),
+                    escapeshellarg($pagefile)
+                );
+
+                // コマンドを実行し、出力を取得
+                $output = shell_exec($command_list);
+                // writelog("DEBUG outputPage() p7zip list output:" . $output);
+
+                // 2. 出力から展開後のファイルサイズをパース
+                // "Size = [数字]" の行を探す
+                $unpackedSize = 0;
+                if (preg_match('/^Size = (\d+)$/m', $output, $matches)) {
+                    $unpackedSize = (int)$matches[1];
+                } else {
+                    // ... ファイル情報が取得できなかった場合のエラー処理
+                    writelog("ERROR outputPage() Could not find the specified file in the archive.");
+                }
+                // ファイル情報が見つからない、またはサイズが0の場合はエラー
+                if ($unpackedSize === 0) {
+                    // エラー処理: 指定されたファイルがアーカイブ内に見つかりませんでした。
+                    header("HTTP/1.1 500 Internal Server Error");
+                    showReloadRequiredImg(1);
+                    writelog("ERROR outputPage() Could not find the specified file in the archive.");
+                    exit;
+                }
+
+                // 3. ファイルサイズが上限を超えていないかチェック
+                if ($unpackedSize > MAX_FILE_SIZE_BYTES) {
+                    // エラー処理: ファイルサイズが大きすぎます。
+                    header("HTTP/1.1 413 Payload Too Large");
+                    showReloadRequiredImg(2);
+                    writelog("ERROR outputPage() The image file size (" . round($unpackedSize / 1024 / 1024) . "MB) exceeds the 25MB limit.");
+                    exit;
+                } else {
+                    writelog("DEBUG outputPage() The image file size (" . round($unpackedSize / 1024) . "KB) is within the 25MB limit.");
+                }
+
                 $pageInput = "LANG=ja_JP.UTF8 $p7zip e -so \"$cacheDir/$file/file\" \"$pagefile\"";
             }
             // } elseif (preg_match('/\.(rar|cbr)$/i', $ext)) {
@@ -1259,7 +1305,7 @@ function isVipsAvailable()
         return false;
     }
 
-    writelog("INFO isVipsAvailable() vips is available via PECL and Composer");
+    writelog("DEBUG isVipsAvailable() vips is available via PECL and Composer");
     return true;
 }
 
@@ -1642,14 +1688,26 @@ function deleteDirectory($dir)
 
 
 ##### エラー発生時に使う画像表示部分 ############################################
-function showReloadRequiredImg()
+function showReloadRequiredImg($imageType = 1)
 {
     global $conf;
 
     // キャッシュファイルが存在しない場合はリロードを促す画像を返す
+    if ($imageType == 1) {
+        // リロード
+        $filePath = __DIR__ . "/../theme/reload_required.png";
+    } elseif ($imageType == 2) {
+        // ベージが破損している
+        $filePath = __DIR__ . "/../theme/broken_page.png";
+    } elseif ($imageType == 3) {
+        // ページサイズが大きすぎる
+        $filePath = __DIR__ . "/../theme/too_large_page.png";
+    } else {
+        $filePath = __DIR__ . "/../theme/reload_required.png";
+    }
     header("Content-type: image/png");
-    $themeDir = $conf["webRoot"] . "/theme";
-    $filePath = $themeDir . "/reload_required.png";
+    // $themeDir = $conf["webRoot"] . "/theme";
+    // $filePath = $themeDir . "/reload_required.png";
 
     if (file_exists($filePath)) {
         readfile($filePath);
