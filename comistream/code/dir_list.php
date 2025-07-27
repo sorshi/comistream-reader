@@ -549,7 +549,7 @@ $js_config = json_encode([
                 $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
                     $val_a = $a[$sort_by];
                     $val_b = $b[$sort_by];
-                    $cmp = ($sort_by === 'name') ? strcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
+                    $cmp = ($sort_by === 'name') ? strnatcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
                     return ($sort_order === 'asc') ? $cmp : -$cmp;
                 };
                 usort($all_items, $sort_func);
@@ -559,7 +559,7 @@ $js_config = json_encode([
                 $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
                     $val_a = $a[$sort_by];
                     $val_b = $b[$sort_by];
-                    $cmp = ($sort_by === 'name') ? strcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
+                    $cmp = ($sort_by === 'name') ? strnatcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
                     return ($sort_order === 'asc') ? $cmp : -$cmp;
                 };
                 usort($dirs, $sort_func);

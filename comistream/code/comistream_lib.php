@@ -1277,7 +1277,7 @@ function deleteCacheDirAndReload()
  * @since 20250721
  * @author Comistream Project
  */
-function isVipsAvailable()
+function isVipsAvailable($fullLog = false)
 {
     // global $conf;
     // test
@@ -1303,6 +1303,87 @@ function isVipsAvailable()
     if (!class_exists('\Jcupitt\Vips\Image')) {
         writelog("INFO isVipsAvailable() Jcupitt\\Vips\\Image class not found");
         return false;
+    }
+
+    // VIPSのバージョン情報をsyslogに出力
+    if (!$fullLog) {
+
+        try {
+            // VIPS拡張のバージョン取得
+            $vipsExtVersion = 'unknown';
+            if (extension_loaded('vips')) {
+                $vipsExtVersionInfo = phpversion('vips');
+                if ($vipsExtVersionInfo !== false) {
+                    $vipsExtVersion = $vipsExtVersionInfo;
+                }
+            }
+
+            // libvipsの実際のバージョン取得（安全にチェック）
+            $libvipsVersion = 'unknown';
+            try {
+                // 小さなテスト画像を作成してVIPSの動作確認とバージョン取得を試行
+                $testImage = \Jcupitt\Vips\Image::black(1, 1);
+                if ($testImage && method_exists($testImage, 'version')) {
+                    $libvipsVersion = $testImage->version();
+                } elseif (class_exists('\Jcupitt\Vips\Config')) {
+                    // Configクラスがある場合はそこからバージョンを取得
+                    $config = new \Jcupitt\Vips\Config();
+                    if (method_exists($config, 'version')) {
+                        $libvipsVersion = $config->version();
+                    }
+                }
+            } catch (\Exception $e) {
+                $libvipsVersion = 'detection failed';
+            }
+
+            // PHPラッパー（php-vips）のバージョン取得
+            $phpVipsVersion = 'unknown';
+            $composerLockPath = __DIR__ . '/composer/composer.lock';
+            if (file_exists($composerLockPath)) {
+                $lockContent = file_get_contents($composerLockPath);
+                if ($lockContent !== false) {
+                    $lockData = json_decode($lockContent, true);
+                    if (isset($lockData['packages']) && is_array($lockData['packages'])) {
+                        foreach ($lockData['packages'] as $package) {
+                            if (isset($package['name']) && $package['name'] === 'jcupitt/vips' && isset($package['version'])) {
+                                $phpVipsVersion = $package['version'];
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // composer.jsonからの情報取得を試行
+            if ($phpVipsVersion === 'unknown') {
+                $composerJsonPath = __DIR__ . '/composer/composer.json';
+                if (file_exists($composerJsonPath)) {
+                    $jsonContent = file_get_contents($composerJsonPath);
+                    if ($jsonContent !== false) {
+                        $jsonData = json_decode($jsonContent, true);
+                        if (isset($jsonData['require']['jcupitt/vips'])) {
+                            $phpVipsVersion = $jsonData['require']['jcupitt/vips'];
+                        }
+                    }
+                }
+            }
+
+            // パッケージ情報が取得できない場合、動作確認のみ
+            if ($phpVipsVersion === 'unknown') {
+                try {
+                    $testImage = \Jcupitt\Vips\Image::black(1, 1);
+                    if ($testImage) {
+                        $phpVipsVersion = 'working (version unknown)';
+                    }
+                } catch (\Exception $e) {
+                    $phpVipsVersion = 'error: ' . $e->getMessage();
+                }
+            }
+
+            writelog("INFO isVipsAvailable() VIPS extension: $vipsExtVersion, libvips: $libvipsVersion, php-vips: $phpVipsVersion");
+        } catch (\Exception $e) {
+            writelog("WARN isVipsAvailable() version detection failed: " . $e->getMessage());
+        }
     }
 
     writelog("DEBUG isVipsAvailable() vips is available via PECL and Composer");

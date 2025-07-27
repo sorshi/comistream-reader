@@ -139,6 +139,9 @@ if ((isset($options['cache'])) && ($options['cache'] == true)) {
         exit(1);
     }
 }
+// VIPSのバージョン情報を取得
+$isVipsAvailable = isVipsAvailable(true);
+
 // 最終作成ファイル
 $coverFile = $conf["comistream_tool_dir"] . "/data/theme/covers" . $conf["publicDir"] . '/' . $file;
 $coverFile = preg_replace('/\.[^.]+$/', '.jpg', $coverFile);
@@ -256,7 +259,7 @@ if (strcasecmp($ext, 'epub') == 0) {
         create_cover_dir($coverFile);
 
         // 画像を処理し、$coverFileに保存（libvips優先、フォールバック：ImageMagick）
-        if (isVipsAvailable()) {
+        if ($isVipsAvailable) {
             writelog("DEBUG: Using libvips for cover image processing", $writelog_process_name);
 
             try {
@@ -347,7 +350,7 @@ if (strcasecmp($ext, 'epub') == 0) {
             $outputFileBasename = sprintf("%03d", $i + 1);
 
             // libvipsが利用可能なら高速処理を使用（ライブラリ版）
-            if (isVipsAvailable()) {
+            if ($isVipsAvailable) {
                 try {
                     // 画像を読み込み
                     $image = \Jcupitt\Vips\Image::newFromFile($imageFiles[$i]);
@@ -427,7 +430,7 @@ if (strcasecmp($ext, 'epub') == 0) {
         writelog('DEBUG $type outputPage() returned:' . $pageOutCmd, $writelog_process_name);
 
         // libvipsが利用可能なら高速処理を使用
-        if (isVipsAvailable()) {
+        if ($isVipsAvailable) {
             writelog("DEBUG: Using libvips for cover image processing", $writelog_process_name);
 
             try {
@@ -523,7 +526,7 @@ if (strcasecmp($ext, 'epub') == 0) {
             $imageProcessed = false;
 
             // libvipsが利用可能なら高速処理を使用
-            if (isVipsAvailable()) {
+            if ($isVipsAvailable) {
                 writelog("DEBUG: Using libvips for preview image processing (page $page)", $writelog_process_name);
 
                 try {
