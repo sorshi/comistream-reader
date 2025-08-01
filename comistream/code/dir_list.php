@@ -446,6 +446,13 @@ $js_config = json_encode([
         function showSkeletonLoading() {
             const viewmode = getCookie('viewmode') || 'list';
             
+            // スケルトン表示中はフッターを非表示
+            const footer = document.querySelector('.footer');
+            if (footer) {
+                footer.style.opacity = '0';
+                footer.style.transition = 'opacity 0.3s ease';
+            }
+            
             if (viewmode === 'cover') {
                 showCoverSkeleton();
             } else {
@@ -483,22 +490,78 @@ $js_config = json_encode([
             const tbody = document.querySelector('#table-tbody');
             tbody.innerHTML = '';
             
-            // カバー表示用のスケルトンを12個生成
+            // カバー表示用のスケルトンを12個生成（実際のカバービューレイアウトに合わせる）
             for (let i = 0; i < 12; i++) {
                 const row = document.createElement('tr');
                 row.className = 'skeleton-row';
+                // カバービューモードのtr構造に合わせる
+                row.style.cssText = `
+                    display: inline-block !important;
+                    position: relative !important;
+                    width: 150px !important;
+                    height: 310px !important;
+                    margin: 3px !important;
+                    border-bottom: 0px !important;
+                `;
                 row.innerHTML = `
-                    <td class="indexcolicon">
-                        <div class="skeleton-placeholder" style="width: 20px; height: 20px; margin: 0 auto; background: #e9ecef; border-radius: 4px;"></div>
-                    </td>
-                    <td class="indexcolname">
-                        <div style="position: relative; width: 150px; height: 226px; background: #e9ecef; margin-bottom: 8px;">
+                    <td class="indexcolicon" style="
+                        display: block !important;
+                        position: absolute !important;
+                        width: 150px !important;
+                        bottom: 90px !important;
+                        box-sizing: border-box !important;
+                        padding-left: 10px !important;
+                        padding-right: 10px !important;
+                        text-align: right !important;
+                        z-index: 1 !important;
+                    ">
+                        <div class="skeleton-placeholder" style="width: 16px; height: 16px; background: #e9ecef; border-radius: 50%; margin-left: auto;">
                             <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
                         </div>
-                        <div class="skeleton-placeholder" style="width: 80%; height: 16px; margin: 4px auto; background: #e9ecef; border-radius: 4px;"></div>
                     </td>
-                    <td class="indexcollastmod"></td>
-                    <td class="indexcolsize"></td>
+                    <td class="indexcolname" style="
+                        display: block !important;
+                        position: relative !important;
+                        padding: 0px !important;
+                        box-shadow: 0px 0px 15px -5px rgba(0, 0, 0, 0.8) !important;
+                        height: 226px !important;
+                        overflow: hidden !important;
+                    ">
+                        <div style="
+                            position: absolute;
+                            left: 0px;
+                            top: 0px;
+                            width: 150px;
+                            height: 100%;
+                            background: #e9ecef;
+                            overflow: hidden;
+                        ">
+                            <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                        </div>
+                        <a style="
+                            display: block !important;
+                            padding: 5px !important;
+                            font-size: 0.9em !important;
+                            line-height: 1.1em !important;
+                            text-align: left !important;
+                            color: #444 !important;
+                            position: relative !important;
+                            height: 300px !important;
+                            padding-top: 230px !important;
+                            box-sizing: border-box !important;
+                            overflow: hidden !important;
+                            text-overflow: ellipsis !important;
+                        ">
+                            <div class="skeleton-placeholder" style="width: 80%; height: 14px; background: #e9ecef; border-radius: 4px; margin-bottom: 4px;">
+                                <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                            </div>
+                            <div class="skeleton-placeholder" style="width: 60%; height: 14px; background: #e9ecef; border-radius: 4px;">
+                                <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                            </div>
+                        </a>
+                    </td>
+                    <td class="indexcollastmod" style="display: none !important;"></td>
+                    <td class="indexcolsize" style="display: none !important;"></td>
                 `;
                 tbody.appendChild(row);
             }
@@ -518,6 +581,12 @@ $js_config = json_encode([
                 // フェードイン効果
                 tableContainer.classList.remove('skeleton-loading', 'fade-out');
                 tbody.classList.add('actual-content', 'fade-in');
+                
+                // フッターを表示
+                const footer = document.querySelector('.footer');
+                if (footer) {
+                    footer.style.opacity = '1';
+                }
                 
                 // コンテンツが置換された後、カスタムディレクトリアイコンを適用
                 setTimeout(() => {

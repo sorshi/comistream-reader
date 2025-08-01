@@ -108,6 +108,12 @@
   opacity: 1;
 }
 
+/* スケルトンローディング中のフッター制御 */
+.footer {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
 /* カバー表示モード用のスケルトン */
 .skeleton-cover {
   display: inline-block;
