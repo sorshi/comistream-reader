@@ -527,14 +527,16 @@ function toggleView(){
   const stylesheet = document.getElementById("stylesheet");
   if( stylesheet.href.match(/style\.css/)) {
     document.cookie = "viewmode=cover; path=/; max-age=31536000;";
-    stylesheet.href = "/theme/style_cover.css?2025040101";
+    stylesheet.href = "/theme/style_cover.css?2025062212";
     // Cover Viewに切り替えた時にディレクトリのカスタムアイコンを適用するルン！
     setTimeout(applyDirectoryCustomIcons, 100);
   }else{
     // CoverViewからListViewに切り替える場合、ディレクトリのカスタム背景画像をクリア
     clearDirectoryCustomBackgrounds();
     document.cookie = "viewmode=list; path=/; max-age=31536000;";
-    stylesheet.href = "/theme/style.css?2025040100";
+    stylesheet.href = "/theme/style.css?2025062212";
+    // リストビューでも少し遅延してからカスタムアイコンを再適用
+    setTimeout(applyDirectoryCustomIcons, 100);
   }
 }
 
@@ -862,28 +864,7 @@ if( document.activeElement != searchform.textbox ){
 }
 }
 
-//  パンくずリスト作成
-var pathAll = "/<a href=\"/\">TOP</a>";
-var path = "";
-var dirList = window.location.pathname.split("/");
-for (var i=0; i<dirList.length; i++ ) {
-  if( dirList[i] != "" ){
-    path = path + "/" + dirList[i];
-    pathAll = pathAll + "/<a href='" + path + "'>" + decodeURIComponent(dirList[i]) + "</a>";
-  }
-}
-document.getElementById('breadcrumb').innerHTML = pathAll;
-
-document.getElementById("indexlist").insertRow();
-document.getElementById("indexlist").insertRow();
-document.getElementById("indexlist").insertRow();
-document.getElementById("indexlist").insertRow();
-document.getElementById("indexlist").insertRow();
-document.getElementById("indexlist").insertRow();
-document.getElementById("indexlist").insertRow();
-document.getElementById("indexlist").insertRow();
-document.getElementById("indexlist").insertRow();
-document.getElementById("indexlist").insertRow();
+// パンくずリスト作成処理は dir_list.php に移動済み（Progressive HTML Rendering対応）
 
 document.getElementById("fileope").action = cgiPath;
 document.getElementById("openbookdetail").action = cgiPath;
@@ -901,6 +882,13 @@ window.addEventListener("scroll", function(event) {
         event.preventDefault();
     }
 }, { passive: false });
+
+// 初期ロード時のカスタムディレクトリアイコン適用
+// Progressive HTML Renderingでコンテンツが遅延ロードされる可能性があるため、少し遅延させる
+setTimeout(function() {
+    // リストビュー・カバービューの両方でカスタムアイコンを適用
+    applyDirectoryCustomIcons();
+}, 500); // Progressive HTML Renderingの完了を待つため500ms遅延
 </script>
 <script src="/theme/js/i18n.js" defer></script>
 <div class="footer">

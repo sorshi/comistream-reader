@@ -440,67 +440,207 @@ $js_config = json_encode([
     <link rel="icon" type="image/png" href="/theme/icons/comistream.png" />
     <link rel="apple-touch-icon" href="/theme/icons/comistreamapp.png" />
     <link id="stylesheet" rel="stylesheet" href="<?php echo $stylesheet_path; ?>">
+    <link rel="stylesheet" href="/theme/skeleton.css">
+    <script>
+        // スケルトンローディング制御関数
+        function showSkeletonLoading() {
+            const viewmode = getCookie('viewmode') || 'list';
+            
+            if (viewmode === 'cover') {
+                showCoverSkeleton();
+            } else {
+                showListSkeleton();
+            }
+        }
+        
+        function showListSkeleton() {
+            const tbody = document.querySelector('#table-tbody');
+            tbody.innerHTML = '';
+            
+            // スケルトン行を10個生成
+            for (let i = 0; i < 10; i++) {
+                const row = document.createElement('tr');
+                row.className = 'skeleton-row';
+                row.innerHTML = `
+                    <td class="skeleton-cell skeleton-icon">
+                        <div class="skeleton-placeholder"></div>
+                    </td>
+                    <td class="skeleton-cell skeleton-name">
+                        <div class="skeleton-placeholder"></div>
+                    </td>
+                    <td class="skeleton-cell skeleton-lastmod">
+                        <div class="skeleton-placeholder"></div>
+                    </td>
+                    <td class="skeleton-cell skeleton-size">
+                        <div class="skeleton-placeholder"></div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            }
+        }
+        
+        function showCoverSkeleton() {
+            const tbody = document.querySelector('#table-tbody');
+            tbody.innerHTML = '';
+            
+            // カバー表示用のスケルトンを12個生成
+            for (let i = 0; i < 12; i++) {
+                const row = document.createElement('tr');
+                row.className = 'skeleton-row';
+                row.innerHTML = `
+                    <td class="indexcolicon">
+                        <div class="skeleton-placeholder" style="width: 20px; height: 20px; margin: 0 auto; background: #e9ecef; border-radius: 4px;"></div>
+                    </td>
+                    <td class="indexcolname">
+                        <div style="position: relative; width: 150px; height: 226px; background: #e9ecef; margin-bottom: 8px;">
+                            <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                        </div>
+                        <div class="skeleton-placeholder" style="width: 80%; height: 16px; margin: 4px auto; background: #e9ecef; border-radius: 4px;"></div>
+                    </td>
+                    <td class="indexcollastmod"></td>
+                    <td class="indexcolsize"></td>
+                `;
+                tbody.appendChild(row);
+            }
+        }
+        
+        function hideSkeletonLoading(actualHtml) {
+            const tbody = document.querySelector('#table-tbody');
+            const tableContainer = document.getElementById('indexlist');
+            
+            // フェードアウト効果を開始
+            tableContainer.classList.add('skeleton-loading', 'fade-out');
+            
+            setTimeout(() => {
+                // 実際のコンテンツを設定
+                tbody.innerHTML = actualHtml;
+                
+                // フェードイン効果
+                tableContainer.classList.remove('skeleton-loading', 'fade-out');
+                tbody.classList.add('actual-content', 'fade-in');
+                
+                // コンテンツが置換された後、カスタムディレクトリアイコンを適用
+                setTimeout(() => {
+                    if (typeof applyDirectoryCustomIcons === 'function') {
+                        applyDirectoryCustomIcons();
+                    }
+                }, 100);
+            }, 300);
+        }
+        
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+        }
+        
+        // Note: toggleView()関数はfooter.htmlで定義済み（既存処理との競合を回避）
+    </script>
 </head>
 
 <body>
 
     <?php readfile(__DIR__ . '/../theme/header.html'); ?>
 
-    <table id="indexlist">
-        <thead>
-            <tr class="indexhead">
-                <th class="indexcolicon"><img src="/theme/icons/blank.png" alt="[ICO]"></th>
-                <?php
-                function print_sort_header($title, $sort_key, $current_sort_by, $current_sort_order, $request_path)
-                {
-                    if ($current_sort_by === $sort_key) {
-                        // 現在のソート対象と同じカラムがクリックされた場合は逆順にする
-                        $order = ($current_sort_order === 'asc') ? 'desc' : 'asc';
-                    } else {
-                        // 異なるカラムがクリックされた場合の処理
-                        if ($sort_key === 'lastmod') {
-                            // 更新日時順への切り替えは常に降順から開始
-                            $order = 'desc';
-
-                            // デフォルトの名前順・昇順から更新日時順への切り替えをログ出力
-                            if ($current_sort_by === 'name' && $current_sort_order === 'asc') {
-                                writelog("INFO dir_list: Switching from default name/asc to lastmod/desc for path: " . $request_path, "dir_list");
-                            }
-                        } else if ($sort_key === 'size') {
-                            $order = 'desc';  // Sizeは降順が初期値
-                        } else {
-                            $order = 'asc';   // Nameなどは昇順が初期値
-                        }
+    <script>
+        // パンくずリストを設定
+        window.addEventListener('DOMContentLoaded', function() {
+            const breadcrumb = document.getElementById('breadcrumb');
+            
+            if (breadcrumb) {
+                // 既存のfooter.html処理を参考にしたパンくずリスト生成
+                let pathAll = "/<a href=\"/\">TOP</a>";
+                let path = "";
+                const dirList = window.location.pathname.split("/");
+                
+                for (let i = 0; i < dirList.length; i++) {
+                    if (dirList[i] !== "") {
+                        path = path + "/" + dirList[i];
+                        pathAll = pathAll + "/<a href='" + path + "'>" + decodeURIComponent(dirList[i]) + "</a>";
                     }
-                    $class = 'indexcol' . $sort_key;
-                    if ($current_sort_by === $sort_key) {
-                        $class .= ' sort-' . $current_sort_order;
-                    }
-                    $url = '?path=' . rawurlencode($request_path) . '&sort=' . $sort_key . '&order=' . $order;
-                    echo '<th class="' . $class . '"><a href="' . htmlspecialchars($url) . '">' . $title . '</a></th>';
                 }
-                print_sort_header('Name', 'name', $sort_by, $sort_order, $request_path);
-                print_sort_header('Last modified', 'lastmod', $sort_by, $sort_order, $request_path);
-                print_sort_header('Size', 'size', $sort_by, $sort_order, $request_path);
-                ?>
-            </tr>
-        </thead>
-        <tbody>
-            <?php
-            if ($physical_path !== $document_root) {
-                $parent_path = dirname($request_path);
-                if (DIRECTORY_SEPARATOR !== '/') $parent_path = str_replace(DIRECTORY_SEPARATOR, '/', $parent_path);
-                if ($parent_path === '/' || $parent_path === '.' || $parent_path === '') $parent_path = '/';
-                // Parent Directoryでも問題のある文字を一時的に置換
-                $escaped_parent_path = escape_problematic_chars($parent_path);
-                echo '<tr class="parent-dir-row">';
-                $parent_icon_src = ($viewmode === 'cover') ? '/theme/icons/blank.png' : get_icon_map()['__parent'];
-                echo '<td class="indexcolicon"><a href="' . htmlspecialchars($parent_path) . '" data-filepath="' . htmlspecialchars($escaped_parent_path) . '"><img src="' . $parent_icon_src . '" alt="[PARENTDIR]"></a></td>';
-                echo '<td class="indexcolname"><a href="' . htmlspecialchars($parent_path) . '" data-filepath="' . htmlspecialchars($escaped_parent_path) . '">Parent Directory</a></td>';
-                echo '<td class="indexcollastmod">&nbsp;</td>';
-                echo '<td class="indexcolsize">-</td>';
-                echo '</tr>';
+                
+                breadcrumb.innerHTML = pathAll;
             }
+        });
+    </script>
+
+    <div id="skeleton-container">
+        <table id="indexlist" class="skeleton-loading">
+            <thead>
+                <tr class="indexhead">
+                    <th class="indexcolicon"><img src="/theme/icons/blank.png" alt="[ICO]"></th>
+                    <?php
+                    function print_sort_header($title, $sort_key, $current_sort_by, $current_sort_order, $request_path)
+                    {
+                        if ($current_sort_by === $sort_key) {
+                            // 現在のソート対象と同じカラムがクリックされた場合は逆順にする
+                            $order = ($current_sort_order === 'asc') ? 'desc' : 'asc';
+                        } else {
+                            // 異なるカラムがクリックされた場合の処理
+                            if ($sort_key === 'lastmod') {
+                                // 更新日時順への切り替えは常に降順から開始
+                                $order = 'desc';
+
+                                // デフォルトの名前順・昇順から更新日時順への切り替えをログ出力
+                                if ($current_sort_by === 'name' && $current_sort_order === 'asc') {
+                                    writelog("INFO dir_list: Switching from default name/asc to lastmod/desc for path: " . $request_path, "dir_list");
+                                }
+                            } else if ($sort_key === 'size') {
+                                $order = 'desc';  // Sizeは降順が初期値
+                            } else {
+                                $order = 'asc';   // Nameなどは昇順が初期値
+                            }
+                        }
+                        $class = 'indexcol' . $sort_key;
+                        if ($current_sort_by === $sort_key) {
+                            $class .= ' sort-' . $current_sort_order;
+                        }
+                        $url = '?path=' . rawurlencode($request_path) . '&sort=' . $sort_key . '&order=' . $order;
+                        echo '<th class="' . $class . '"><a href="' . htmlspecialchars($url) . '">' . $title . '</a></th>';
+                    }
+                    print_sort_header('Name', 'name', $sort_by, $sort_order, $request_path);
+                    print_sort_header('Last modified', 'lastmod', $sort_by, $sort_order, $request_path);
+                    print_sort_header('Size', 'size', $sort_by, $sort_order, $request_path);
+                    ?>
+                </tr>
+            </thead>
+            <tbody id="table-tbody">
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // ページ読み込み時にスケルトンを表示
+        document.addEventListener('DOMContentLoaded', function() {
+            showSkeletonLoading();
+        });
+    </script>
+
+    <?php
+    // スケルトンローディングを表示してからディレクトリ処理を開始
+    if (ob_get_level()) ob_end_flush();
+    flush();
+
+    // 実際のディレクトリ処理開始
+    ob_start(); // 出力バッファを開始
+
+    $tbody_content = '';
+    
+    if ($physical_path !== $document_root) {
+        $parent_path = dirname($request_path);
+        if (DIRECTORY_SEPARATOR !== '/') $parent_path = str_replace(DIRECTORY_SEPARATOR, '/', $parent_path);
+        if ($parent_path === '/' || $parent_path === '.' || $parent_path === '') $parent_path = '/';
+        // Parent Directoryでも問題のある文字を一時的に置換
+        $escaped_parent_path = escape_problematic_chars($parent_path);
+        $tbody_content .= '<tr class="parent-dir-row">';
+        $parent_icon_src = ($viewmode === 'cover') ? '/theme/icons/blank.png' : get_icon_map()['__parent'];
+        $tbody_content .= '<td class="indexcolicon"><a href="' . htmlspecialchars($parent_path) . '" data-filepath="' . htmlspecialchars($escaped_parent_path) . '"><img src="' . $parent_icon_src . '" alt="[PARENTDIR]"></a></td>';
+        $tbody_content .= '<td class="indexcolname"><a href="' . htmlspecialchars($parent_path) . '" data-filepath="' . htmlspecialchars($escaped_parent_path) . '">Parent Directory</a></td>';
+        $tbody_content .= '<td class="indexcollastmod">&nbsp;</td>';
+        $tbody_content .= '<td class="indexcolsize">-</td>';
+        $tbody_content .= '</tr>';
+    }
 
             // Performance measurement: Start scandir
             $perf_scandir_start = microtime(true);
@@ -590,46 +730,68 @@ $js_config = json_encode([
                 $request_path
             ), "dir_list");
 
-            foreach ($sorted_items as $item) {
-                $icon = get_icon($item['name'], $item['is_dir']);
-                $href = rtrim($request_path, '/') . '/' . rawurlencode($item['name']);
-                // JavaScript用に生のファイルパスも保存（#文字対応）
-                $raw_filepath = rtrim($request_path, '/') . '/' . $item['name'];
-                // #文字を一時的に置換（ブラウザが#でURLを切るのを防ぐ）
-                $escaped_filepath = escape_problematic_chars($raw_filepath);
-                if ($item['is_dir']) {
-                    $href .= '/';
-                    $raw_filepath .= '/';
-                    $escaped_filepath .= '/';
-                }
+    foreach ($sorted_items as $item) {
+        $icon = get_icon($item['name'], $item['is_dir']);
+        $href = rtrim($request_path, '/') . '/' . rawurlencode($item['name']);
+        // JavaScript用に生のファイルパスも保存（#文字対応）
+        $raw_filepath = rtrim($request_path, '/') . '/' . $item['name'];
+        // #文字を一時的に置換（ブラウザが#でURLを切るのを防ぐ）
+        $escaped_filepath = escape_problematic_chars($raw_filepath);
+        if ($item['is_dir']) {
+            $href .= '/';
+            $raw_filepath .= '/';
+            $escaped_filepath .= '/';
+        }
 
-                // デバッグ用ログ（問題のある文字を含むファイルの場合のみ）
-                if (preg_match('/[#?&=%\\:@<>"\'|* ]/', $item['name'])) {
-                    writelog("DEBUG dir_list: Special characters found in filename: " . $item['name'] . ", raw_filepath: " . $raw_filepath . ", percent_encoded: " . $escaped_filepath, "dir_list");
-                }
+        // デバッグ用ログ（問題のある文字を含むファイルの場合のみ）
+        if (preg_match('/[#?&=%\\:@<>"\'|* ]/', $item['name'])) {
+            writelog("DEBUG dir_list: Special characters found in filename: " . $item['name'] . ", raw_filepath: " . $raw_filepath . ", percent_encoded: " . $escaped_filepath, "dir_list");
+        }
 
-                echo '<tr>';
-                // For directories in cover view, the icon is a background image on the link, not an img tag.
-                // So, we provide a blank image for cover view directories to maintain layout.
-                $icon_img_src = ($viewmode === 'cover' && $item['is_dir']) ? '/theme/icons/blank.png' : $icon;
-                echo '<td class="indexcolicon"><a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"><img src="' . $icon_img_src . '" alt="[ICO]"></a></td>';
+        $tbody_content .= '<tr>';
+        // For directories in cover view, the icon is a background image on the link, not an img tag.
+        // So, we provide a blank image for cover view directories to maintain layout.
+        $icon_img_src = ($viewmode === 'cover' && $item['is_dir']) ? '/theme/icons/blank.png' : $icon;
+        $tbody_content .= '<td class="indexcolicon"><a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"><img src="' . $icon_img_src . '" alt="[ICO]"></a></td>';
 
-                // Add onclick handler for files (not directories) to maintain compatibility with mod_autoindex
-                $onclick_attr = '';
-                if (!$item['is_dir']) {
-                    $onclick_attr = ' onclick="return linkhook(event)"';
-                }
+        // Add onclick handler for files (not directories) to maintain compatibility with mod_autoindex
+        $onclick_attr = '';
+        if (!$item['is_dir']) {
+            $onclick_attr = ' onclick="return linkhook(event)"';
+        }
 
-                echo '<td class="indexcolname"><a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"' .
-                    (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') .
-                    $onclick_attr . '>' . htmlspecialchars($item['name']) . '</a></td>';
-                echo '<td class="indexcollastmod">' . date('Y-m-d H:i', $item['lastmod']) . '</td>';
-                echo '<td class="indexcolsize">' . format_size($item['size']) . '</td>';
-                echo '</tr>';
-            }
-            ?>
-        </tbody>
-    </table>
+        // カバービューモードでファイルの場合は表紙画像を追加
+        $indexcolname_content = '';
+        if ($viewmode === 'cover' && !$item['is_dir']) {
+            // カバービューモードでファイルの場合、/theme/covers/ 以下の.jpg画像を使用
+            // 拡張子を.jpgに変更
+            $cover_path = preg_replace('/\.[^.]+$/', '.jpg', $raw_filepath);
+            $cover_image_url = '/theme/covers' . $cover_path;
+            $indexcolname_content = '<img src="' . htmlspecialchars($cover_image_url) . '" alt="Cover" onerror="this.style.display=\'none\'">';
+        }
+        
+        $tbody_content .= '<td class="indexcolname">' . $indexcolname_content . '<a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"' .
+            (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') .
+            $onclick_attr . '>' . htmlspecialchars($item['name']) . '</a></td>';
+        $tbody_content .= '<td class="indexcollastmod">' . date('Y-m-d H:i', $item['lastmod']) . '</td>';
+        $tbody_content .= '<td class="indexcolsize">' . format_size($item['size']) . '</td>';
+        $tbody_content .= '</tr>';
+    }
+
+    // JSONエンコードして JavaScript に送信
+    $tbody_content_json = json_encode($tbody_content);
+    ?>
+
+    <script>
+        // 処理完了後、スケルトンを実際のコンテンツに置換
+        setTimeout(function() {
+            const actualContent = <?php echo $tbody_content_json; ?>;
+            hideSkeletonLoading(actualContent);
+        }, 200); // 少し遅延させてスケルトン表示を確実にする
+    </script>
+
+    <div id="actual-content" style="display: none;">
+    </div>
 
     <?php readfile(__DIR__ . '/../theme/footer.html'); ?>
 
