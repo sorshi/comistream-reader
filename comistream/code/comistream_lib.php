@@ -1940,6 +1940,22 @@ function printHTML()
     $pageGenerator = "const pageGenerator = \"/cgi-bin/comistream.php\";";
     // }
 
+    // 書名をエスケープ
+    $bookNameEscaped = htmlspecialchars($bookName, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+
+    // JavaScript用に安全にエンコードした変数を準備
+    $baseFileJson = json_encode($baseFile);
+    $escapedFileJson = json_encode($escapedFile);
+    $fileJson = json_encode($file);
+    $positionJson = json_encode($position);
+    $directionJson = json_encode($direction);
+    $autosplitJson = json_encode($autosplit);
+    $sizeJson = json_encode($size);
+    $viewQueryJson = json_encode($view_query);
+    $preloadDelayJson = json_encode($global_preload_delay_ms);
+    $publicDirJson = json_encode($publicDir);
+    $themeDirJson = json_encode($themeDir);
+
     $htmlContent =  <<<EOF
 <!DOCTYPE html>
 <html lang="{$i18n->getCurrentLang()}" data-long-press-delay="500">
@@ -2002,20 +2018,20 @@ $contents_css
     var page = $page;
     var prevPage = $page;
     var indexArray = [$indexArray];
-    var position = "$position";
-    var direction = "$direction";
-    var autoSplit = "$autosplit"; // クエリパラメータで停止 offか空文字
+    var position = $positionJson;
+    var direction = $directionJson;
+    var autoSplit = $autosplitJson; // クエリパラメータで停止 offか空文字
     const archiveFileMBytes = $fileSize; // オープンしたファイルのサイズ（MB）
     const averagePageKBytes = $averagePageBytes; // オリジナルの平均ページサイズ(KB)
     const maxPage = $maxPage;
-    const baseFile = "$baseFile";
-    const escapedFile = "$escapedFile";
-    const file = "$file";
-    const size = "$size";
-    const view_query = "$view_query";
-    const global_preload_delay_ms = "$global_preload_delay_ms";
-    const publicDir = "$publicDir";
-    const themeDir = "$themeDir";
+    const baseFile = $baseFileJson;
+    const escapedFile = $escapedFileJson;
+    const file = $fileJson;
+    const size = $sizeJson;
+    const view_query = $viewQueryJson;
+    const global_preload_delay_ms = $preloadDelayJson;
+    const publicDir = $publicDirJson;
+    const themeDir = $themeDirJson;
     let global_preload_pages = $global_preload_pages;
     $pageGenerator
 
@@ -2076,7 +2092,7 @@ $contents_css
         <span class="clock-icon-button" id="clockToggleButton" onclick="toggleClock()"><i data-feather="clock"></i></span>
     </div>
     <div style="clear:both;">
-        <div class="bookName">$bookName</div>
+        <div class="bookName">$bookNameEscaped</div>
         <input id="slider" type="range" value="$maxPage" min="1" max="$maxPage" step="1" /><span id="value" class="value">1</span>
     </div>
     <hr>
@@ -2224,7 +2240,12 @@ function openPage()
     $previewFile = $conf["comistream_tool_dir"] . "/data/theme/preview" . $conf["publicDir"] . '/' . $file . ".webp";
 
     // ファイルIDを作成
-    $fileHash = shell_exec("echo \"$openFile\" | $md5cmd | awk '{print \$1}'");
+    $command_list = sprintf(
+        "echo %s | %s | awk '{print \$1}'",
+        escapeshellarg($openFile),
+        $md5cmd
+    );
+    $fileHash = shell_exec($command_list);
     $fileHash = trim($fileHash);
     if (empty($fileHash)) {
         writelog("ERROR openPage() md5 hash failed." . $openFile);
@@ -2445,13 +2466,21 @@ function openZipRar()
         } else {
             // 展開が重いのでLoading画面表示
             writelog("DEBUG openZipRar():" . $cacheDir . ':' . $conf["cacheDir"]);
+            $command_list = sprintf(
+                'LANG=ja_JP.UTF8 bash %s %s %s',
+                $conf["comistream_tool_dir"] . '/code/nestedExtracter.sh',
+                escapeshellarg($openFile),
+                $cacheDir . '/' . $file
+            );
+
             if ($cacheDir == $conf["cacheDir"]) {
                 // リーダーを開いた場合
                 writelog("DEBUG openZipRar() send nested loading page.");
                 $fileSizeBytes = filesize($openFile);
                 $fileSizeMB = round($fileSizeBytes / (1000 * 1000));
                 printLoading($fileSizeMB);
-                $result = shell_exec("LANG=ja_JP.UTF8 bash " . $conf["comistream_tool_dir"] . "/code/nestedExtracter.sh \"$openFile\" $cacheDir/$file");
+                // $result = shell_exec("LANG=ja_JP.UTF8 bash " . $conf["comistream_tool_dir"] . "/code/nestedExtracter.sh \"$openFile\" $cacheDir/$file");
+                $result = shell_exec($command_list);
                 exit(0);
             } else {
                 // バッチ処理で表紙作成を開いた場合
@@ -2460,7 +2489,8 @@ function openZipRar()
                 if (!chkAndMakeDir($bookOpenCacheDir)) {
                     errorExit('ディレクトリ作成に失敗しました', 'ディレクトリ作成に失敗しました。' . $bookOpenCacheDir . "のパーミッションを確認してください。");
                 }
-                $result = shell_exec("LANG=ja_JP.UTF8 bash " . $conf["comistream_tool_dir"] . "/code/nestedExtracter.sh \"$openFile\" $cacheDir/$file");
+                // $result = shell_exec("LANG=ja_JP.UTF8 bash " . $conf["comistream_tool_dir"] . "/code/nestedExtracter.sh \"$openFile\" $cacheDir/$file");
+                $result = shell_exec($command_list);
             }
         }
         $maxPage = shell_exec("ls $cacheDir/$file/ | grep -Pi \"\\.(jpg|jpeg|png|webp|avif|bmp|gif)\" | tee $cacheDir/$file/index | wc -l");
@@ -2901,6 +2931,7 @@ function get_book_title($bookName)
     $onlyBookName = preg_replace('/(.+)(\.[^.]+)$/', '$1', $onlyBookName); // 拡張子を削除
     $pageTitle = $bookName;
     $pageTitle = preg_replace('/<("[^"]*"|\'[^\']*\'|[^\'">])*>/', '', $pageTitle); // <title>用に書名部分を取り出し、タグ削除
+    $pageTitle = htmlspecialchars($pageTitle, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
     $bookName = preg_replace('/\[(.*?)\] */', '', $bookName); // [ ] を捨てる
 
     // タグ付き作者名・書名 タグなし作者名・書名 書名のみ
