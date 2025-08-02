@@ -230,15 +230,23 @@ function initializeSortControls() {
   const currentSort = comistreamConfig.currentSort || 'name';
   const currentOrder = comistreamConfig.currentOrder || 'asc';
   
+  console.log('DEBUG initializeSortControls called - currentSort:', currentSort, 'currentOrder:', currentOrder);
+  
   // selectボックスに現在の値を設定
   const sortBySelect = document.getElementById('sortBy');
   const sortOrderSelect = document.getElementById('sortOrder');
   
   if (sortBySelect) {
     sortBySelect.value = currentSort;
+    console.log('DEBUG sortBySelect updated to:', sortBySelect.value);
+  } else {
+    console.log('DEBUG sortBySelect not found');
   }
   if (sortOrderSelect) {
     sortOrderSelect.value = currentOrder;
+    console.log('DEBUG sortOrderSelect updated to:', sortOrderSelect.value);
+  } else {
+    console.log('DEBUG sortOrderSelect not found');
   }
 }
 
@@ -639,6 +647,9 @@ function reinitializeContentFeatures() {
       }
     }
   }
+  
+  // ソート設定の表示を更新
+  initializeSortControls();
   
   console.log('DEBUG Content features reinitialized for', colname.length - 2, 'items');
 }
