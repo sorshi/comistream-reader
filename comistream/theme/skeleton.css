@@ -8,6 +8,12 @@
   opacity: 0;
 }
 
+/* フェードアウト単体の場合（skeleton-loadingと組み合わせない場合） */
+.fade-out {
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+}
+
 .skeleton-row {
   border-bottom: 1px solid #edf1f5;
   height: 40px;
@@ -98,10 +104,9 @@
   }
 }
 
-/* 実際のコンテンツの初期状態 */
+/* 実際のコンテンツの初期状態（シンプルアプローチ） */
 .actual-content {
-  opacity: 0;
-  transition: opacity 0.5s ease-in;
+  transition: opacity 0.3s ease-in;
 }
 
 .actual-content.fade-in {

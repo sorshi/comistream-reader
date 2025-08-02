@@ -337,8 +337,8 @@ $stylesheet_path = ($viewmode === 'cover')
 
 header('Content-Type: text/html; charset=utf-8');
 
-// Define Javascript variables to be used in header/footer
-$js_config = json_encode([
+// JavaScript設定は処理完了後に作成するため、ここでは仮設定のみ
+$js_config_temp = json_encode([
     'cgiPath' => $cgiPath,
     'hlsCgiPath' => $hlsCgiPath,
     'bibiPath' => $bibiPath,
@@ -361,16 +361,16 @@ $js_config = json_encode([
     <title>Index of <?php echo htmlspecialchars('/' . $request_path); ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <script>
-        // Pass PHP config to Javascript
-        const comistreamConfig = <?php echo $js_config; ?>;
-        const cgiPath = comistreamConfig.cgiPath;
-        const hlsCgiPath = comistreamConfig.hlsCgiPath;
-        const bibiPath = comistreamConfig.bibiPath;
-        const publicDir = comistreamConfig.publicDir;
-        const themeDir = comistreamConfig.themeDir;
-        const loginuser = comistreamConfig.loginUser;
-        const hasSessionSortPrefs = comistreamConfig.hasSessionSortPrefs;
-        const debugFlag = comistreamConfig.debugFlag;
+        // Pass PHP config to Javascript (temporary config, will be updated after processing)
+        const comistreamConfigTemp = <?php echo $js_config_temp; ?>;
+        const cgiPath = comistreamConfigTemp.cgiPath;
+        const hlsCgiPath = comistreamConfigTemp.hlsCgiPath;
+        const bibiPath = comistreamConfigTemp.bibiPath;
+        const publicDir = comistreamConfigTemp.publicDir;
+        const themeDir = comistreamConfigTemp.themeDir;
+        const loginuser = comistreamConfigTemp.loginUser;
+        const hasSessionSortPrefs = comistreamConfigTemp.hasSessionSortPrefs;
+        const debugFlag = comistreamConfigTemp.debugFlag;
         // PHPの設定に基づいてJavaScriptのデバッグフラグを設定
         // window.DEBUG_ENABLED = $debug_flag;
         (function() {
@@ -587,16 +587,34 @@ $js_config = json_encode([
             const tbody = document.querySelector('#table-tbody');
             const tableContainer = document.getElementById('indexlist');
 
-            // フェードアウト効果を開始
-            tableContainer.classList.add('skeleton-loading', 'fade-out');
+            // スケルトン行のみをフェードアウト（より安全なアプローチ）
+            const skeletonRows = tbody.querySelectorAll('.skeleton-row');
+            skeletonRows.forEach(row => row.classList.add('fade-out'));
 
             setTimeout(() => {
                 // 実際のコンテンツを設定
                 tbody.innerHTML = actualHtml;
 
-                // フェードイン効果
-                tableContainer.classList.remove('skeleton-loading', 'fade-out');
-                tbody.classList.add('actual-content', 'fade-in');
+                // スケルトンクラスを削除
+                tableContainer.classList.remove('skeleton-loading');
+
+                // コンテンツクラスを追加してから、フェードイン効果を設定
+                tbody.classList.add('actual-content');
+
+                // 初期状態を明示的に設定（opacity: 0から開始）
+                tbody.style.opacity = '0';
+
+                // 次のフレームでフェードイン開始
+                requestAnimationFrame(() => {
+                    tbody.style.transition = 'opacity 0.3s ease-in';
+                    tbody.style.opacity = '1';
+
+                    // アニメーション完了後にインラインスタイルをクリーンアップ
+                    setTimeout(() => {
+                        tbody.style.opacity = '';
+                        tbody.style.transition = '';
+                    }, 300);
+                });
 
                 // フッターを表示
                 const footer = document.querySelector('.footer');
@@ -618,6 +636,8 @@ $js_config = json_encode([
                     if (typeof reinitializePreviewFeatures === 'function') {
                         reinitializePreviewFeatures();
                     }
+
+                    // 不要なクリーンアップ処理は削除（インラインスタイル制御のため）
                 }, 100);
             }, 200);
         }
@@ -705,9 +725,12 @@ $js_config = json_encode([
     </div>
 
     <script>
-        // ページ読み込み時にスケルトンを表示
+        // ページ読み込み時にスケルトンを表示（高速モードの場合は後で制御）
+        window.shouldShowSkeleton = true; // デフォルトは表示
         document.addEventListener('DOMContentLoaded', function() {
-            showSkeletonLoading();
+            if (window.shouldShowSkeleton) {
+                showSkeletonLoading();
+            }
         });
     </script>
 
@@ -811,17 +834,32 @@ $js_config = json_encode([
     $file_count = count($files);
     $sort_mode = $use_mixed_sort ? 'mixed' : 'separate';
 
+    // Fast rendering判定ロジック
+    $total_process_time = $perf_scandir_time + $perf_sort_time;
+    $fast_render_threshold_ms = 50; // 50ms以下なら高速モード
+    $fast_render_item_threshold = 100; // 100個以下も高速モード対象
+
+    // デバッグフラグ: スケルトンアニメーション強制実行 (URLパラメータやconfigで制御可能)
+    $force_skeleton_animation = isset($_GET['force_skeleton']) ||
+        (isset($conf['forceSkeletonAnimation']) && $conf['forceSkeletonAnimation']);
+
+    $fast_render_mode = !$force_skeleton_animation &&
+        ($total_process_time <= $fast_render_threshold_ms || $total_items <= $fast_render_item_threshold);
+
     writelog("DEBUG dir_list: " . sprintf(
-        "PERF dir_list: scandir=%.2fms sort=%.2fms mode=%s key=%s order=%s total=%d dirs=%d files=%d path=%s",
+        "PERF dir_list: scandir=%.2fms sort=%.2fms total=%.2fms mode=%s key=%s order=%s total=%d dirs=%d files=%d path=%s fast_render=%s force_skeleton=%s",
         $perf_scandir_time,
         $perf_sort_time,
+        $total_process_time,
         $sort_mode,
         $sort_by,
         $sort_order,
         $total_items,
         $dir_count,
         $file_count,
-        $request_path
+        $request_path,
+        $fast_render_mode ? 'true' : 'false',
+        $force_skeleton_animation ? 'true' : 'false'
     ), "dir_list");
 
     foreach ($sorted_items as $item) {
@@ -888,16 +926,95 @@ $js_config = json_encode([
         $tbody_content .= '</tr>';
     }
 
+    // パフォーマンス測定完了後、最終的なJavaScript設定を作成
+    $js_config = json_encode([
+        'cgiPath' => $cgiPath,
+        'hlsCgiPath' => $hlsCgiPath,
+        'bibiPath' => $bibiPath,
+        'publicDir' => $publicDir,
+        'themeDir' => '',
+        'currentPath' => $request_path,
+        'loginUser' => $_COOKIE['comistreamUser'] ?? '',
+        'hasSessionSortPrefs' => isset($_SESSION['dirSortPrefs']),
+        'currentSort' => $sort_by,
+        'currentOrder' => $sort_order,
+        'debugFlag' => $global_debug_flag,
+        'fastRenderMode' => $fast_render_mode,
+        'forceSkeletonAnimation' => $force_skeleton_animation,
+        'totalProcessTime' => round($total_process_time, 2), // デバッグ用に処理時間も送信
+        'totalItems' => $total_items // デバッグ用にアイテム数も送信
+    ]);
+
     // JSONエンコードして JavaScript に送信
     $tbody_content_json = json_encode($tbody_content);
     ?>
 
     <script>
-        // 処理完了後、スケルトンを実際のコンテンツに置換
-        setTimeout(function() {
-            const actualContent = <?php echo $tbody_content_json; ?>;
-            hideSkeletonLoading(actualContent);
-        }, 150); // 少し遅延させてスケルトン表示を確実にする
+        // 処理完了後の最終設定でcomistreamConfigを更新
+        const comistreamConfig = <?php echo $js_config; ?>;
+
+        // 高速レンダリングモードのログ出力（デバッグ用）
+        if (debugFlag) {
+            console.debug('Fast Render Mode:', comistreamConfig.fastRenderMode);
+            console.debug('Force Skeleton Animation:', comistreamConfig.forceSkeletonAnimation);
+            console.debug('Process Time:', comistreamConfig.totalProcessTime + 'ms');
+            console.debug('Total Items:', comistreamConfig.totalItems);
+        }
+
+        // 高速レンダリングモードの場合、スケルトンアニメーションをスキップ
+        if (comistreamConfig.fastRenderMode) {
+            // スケルトン表示をスキップ
+            window.shouldShowSkeleton = false;
+            debugLog('Fast render mode: skipping skeleton animation entirely');
+
+            // 即座にコンテンツを表示
+            setTimeout(function() {
+                const actualContent = <?php echo $tbody_content_json; ?>;
+                // スケルトンが表示されていない場合は直接コンテンツを設定
+                const tbody = document.querySelector('#table-tbody');
+                const tableContainer = document.getElementById('indexlist');
+
+                tbody.innerHTML = actualContent;
+
+                // transitionを無効化してからクラス操作（アニメーション競合回避）
+                tableContainer.style.transition = 'none';
+                tbody.style.transition = 'none';
+
+                tableContainer.classList.remove('skeleton-loading');
+                tbody.classList.add('actual-content');
+                tbody.style.opacity = '1'; // 即座に表示
+
+                // フッターを表示
+                const footer = document.querySelector('.footer');
+                if (footer) {
+                    footer.style.opacity = '1';
+                }
+
+                // 機能を再初期化
+                if (typeof reinitializeContentFeatures === 'function') {
+                    reinitializeContentFeatures();
+                }
+                if (typeof applyDirectoryCustomIcons === 'function') {
+                    applyDirectoryCustomIcons();
+                }
+                if (typeof reinitializePreviewFeatures === 'function') {
+                    reinitializePreviewFeatures();
+                }
+
+                // 次のフレームでtransitionを復活（クリーンアップ）
+                requestAnimationFrame(() => {
+                    tableContainer.style.transition = '';
+                    tbody.style.transition = '';
+                });
+            }, 0);
+        } else {
+            // 通常モード: 既存のアニメーション
+            debugLog('Normal render mode: showing skeleton animation');
+            setTimeout(function() {
+                const actualContent = <?php echo $tbody_content_json; ?>;
+                hideSkeletonLoading(actualContent);
+            }, 150); // 少し遅延させてスケルトン表示を確実にする
+        }
     </script>
 
     <div id="actual-content" style="display: none;">
