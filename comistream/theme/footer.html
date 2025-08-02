@@ -547,8 +547,9 @@ function toggleView(){
   if( stylesheet.href.match(/style\.css/)) {
     document.cookie = "viewmode=cover; path=/; max-age=31536000;";
     stylesheet.href = "/theme/style_cover.css?2025062212";
-    // Cover Viewに切り替えた時にディレクトリのカスタムアイコンとプレビュー機能を適用するルン！
+    // Cover Viewに切り替えた時に全機能を再初期化するルン！
     setTimeout(() => {
+      reinitializeContentFeatures();
       applyDirectoryCustomIcons();
       reinitializePreviewFeatures();
     }, 100);
@@ -557,8 +558,9 @@ function toggleView(){
     clearDirectoryCustomBackgrounds();
     document.cookie = "viewmode=list; path=/; max-age=31536000;";
     stylesheet.href = "/theme/style.css?2025062212";
-    // リストビューでも少し遅延してからカスタムアイコンを再適用
+    // リストビューでも全機能を再初期化
     setTimeout(() => {
+      reinitializeContentFeatures();
       applyDirectoryCustomIcons();
       // リストビューではプレビュー機能を無効化（イベントリスナーをクリア）
       clearPreviewEventListeners();
@@ -610,17 +612,41 @@ function clearPreviewEventListeners() {
   }
 }
 
+// コンテンツ初期化関数（Progressive HTML Rendering対応）
+function reinitializeContentFeatures() {
+  const colname = document.getElementsByClassName("indexcolname");
+  console.log('DEBUG reinitializeContentFeatures called, found', colname.length, 'elements');
+  
+  // 各要素にid属性とイベントハンドラーを設定（検索機能のため）
+  for (var i = 2; i < colname.length; i++) {
+    // お気に入りフラグにonclickイベントを追加する
+    if (colname[i].previousSibling && colname[i].previousSibling.onclick !== toggleFavorite) {
+      colname[i].previousSibling.onclick = toggleFavorite;
+    }
+    
+    var elm = colname[i].firstChild;
+    if (elm) {
+      if (elm.href && elm.href.match(/\/$/)) {
+        // ディレクトリの場合
+        colname[i].id = elm.textContent.replace(/\/$/, "");
+      } else {
+        // ファイルの場合
+        colname[i].id = elm.textContent;
+        // linkhookイベントを設定
+        if (elm.onclick !== linkhook) {
+          elm.onclick = linkhook;
+        }
+      }
+    }
+  }
+  
+  console.log('DEBUG Content features reinitialized for', colname.length - 2, 'items');
+}
+
 // プレビュー機能の再初期化（Progressive HTML Rendering対応）
 function reinitializePreviewFeatures() {
   // data-image属性はdir_list.phpで既に設定されているため、ここではイベントリスナーのみ設定
   console.log('DEBUG reinitializePreviewFeatures called');
-  
-  // デバッグ：data-image属性が設定されているか確認
-  const colname = document.getElementsByClassName("indexcolname");
-  for (let i = 2; i < Math.min(colname.length, 5); i++) { // 最初の数個だけチェック
-    const dataImage = colname[i].getAttribute('data-image');
-    console.log(`DEBUG data-image check [${i}]:`, dataImage, colname[i]);
-  }
   
   // マウスイベントリスナーを再設定（カバービューモードの場合のみ）
   const stylesheet = document.getElementById("stylesheet");

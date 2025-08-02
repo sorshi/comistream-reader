@@ -588,8 +588,13 @@ $js_config = json_encode([
                     footer.style.opacity = '1';
                 }
 
-                // コンテンツが置換された後、カスタムディレクトリアイコンとプレビュー機能を適用
+                // コンテンツが置換された後、すべての機能を再初期化
                 setTimeout(() => {
+                    // 検索機能のためのid属性とイベントハンドラーを設定
+                    if (typeof reinitializeContentFeatures === 'function') {
+                        reinitializeContentFeatures();
+                    }
+                    // カスタムディレクトリアイコンを適用
                     if (typeof applyDirectoryCustomIcons === 'function') {
                         applyDirectoryCustomIcons();
                     }
