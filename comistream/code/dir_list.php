@@ -326,10 +326,14 @@ if (isset($_GET['sort']) || isset($_GET['order'])) {
     $_SESSION['dirSortPrefs'] = $sort_prefs;
 }
 
+// デバッグログ表示
+// $debug_flag = json_encode(isset($global_debug_flag) ? $global_debug_flag : false);
+$global_debug_flag = isset($global_debug_flag) ? $global_debug_flag : false;
+
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
-    ? '/theme/style_cover.css?2025062212'
-    : '/theme/style.css?2025062212';
+    ? '/theme/style_cover.css?2025080200'
+    : '/theme/style.css?2025080200';
 
 header('Content-Type: text/html; charset=utf-8');
 
@@ -344,7 +348,8 @@ $js_config = json_encode([
     'loginUser' => $_COOKIE['comistreamUser'] ?? '',
     'hasSessionSortPrefs' => isset($_SESSION['dirSortPrefs']), // セッションにソート設定があるかどうか
     'currentSort' => $sort_by, // 現在のソート項目
-    'currentOrder' => $sort_order // 現在のソート順序
+    'currentOrder' => $sort_order, // 現在のソート順序
+    'debugFlag' => $global_debug_flag // デバッグフラグ
 ]);
 
 ?>
@@ -365,6 +370,17 @@ $js_config = json_encode([
         const themeDir = comistreamConfig.themeDir;
         const loginuser = comistreamConfig.loginUser;
         const hasSessionSortPrefs = comistreamConfig.hasSessionSortPrefs;
+        const debugFlag = comistreamConfig.debugFlag;
+        // PHPの設定に基づいてJavaScriptのデバッグフラグを設定
+        // window.DEBUG_ENABLED = $debug_flag;
+        (function() {
+            // 即時関数の定義と実行
+            window.debugLog = function(message) {
+                if (debugFlag) {
+                    console.debug(message);
+                }
+            };
+        })();
 
         // localStorage + Session 同期処理
         window.addEventListener('DOMContentLoaded', function() {
@@ -603,7 +619,7 @@ $js_config = json_encode([
                         reinitializePreviewFeatures();
                     }
                 }, 100);
-            }, 300);
+            }, 200);
         }
 
         function getCookie(name) {
@@ -881,7 +897,7 @@ $js_config = json_encode([
         setTimeout(function() {
             const actualContent = <?php echo $tbody_content_json; ?>;
             hideSkeletonLoading(actualContent);
-        }, 200); // 少し遅延させてスケルトン表示を確実にする
+        }, 150); // 少し遅延させてスケルトン表示を確実にする
     </script>
 
     <div id="actual-content" style="display: none;">

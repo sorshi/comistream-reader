@@ -114,7 +114,7 @@ function linkhook(e) {
         // mp4で圧縮モードrawの場合そのまま
         location.href = e.target.href;
       }else{
-        console.log("LOGINED loginuser:"+loginuser);
+        debugLog("LOGINED loginuser:"+loginuser);
         var openHref = hlsCgiPath + "?file=" + fileLink + "&mode=open";
         document.getElementById("history").innerHTML = "<a class=\"history_movie\" href="+location.origin+openHref+">"+e.target.innerText+"</a>"
         location.href = openHref;
@@ -173,7 +173,7 @@ function applySortChange() {
     sortOrder = 'desc';
     // selectボックスも更新
     document.getElementById('sortOrder').value = 'desc';
-    console.log('INFO: Switching from default name/asc to lastmod/desc');
+    debugLog('INFO: Switching from default name/asc to lastmod/desc');
   }
   
   // 更新日時・サイズから名前順に切り替える場合は昇順に自動変更
@@ -181,7 +181,7 @@ function applySortChange() {
     sortOrder = 'asc';
     // selectボックスも更新
     document.getElementById('sortOrder').value = 'asc';
-    console.log('INFO: Switching from ' + currentSort + '/' + currentOrder + ' to name/asc');
+    debugLog('INFO: Switching from ' + currentSort + '/' + currentOrder + ' to name/asc');
   }
   
   // 新しいURLを作成してページを遷移
@@ -230,7 +230,7 @@ function initializeSortControls() {
   const currentSort = comistreamConfig.currentSort || 'name';
   const currentOrder = comistreamConfig.currentOrder || 'asc';
   
-  console.log('DEBUG initializeSortControls called - currentSort:', currentSort, 'currentOrder:', currentOrder);
+  debugLog('DEBUG initializeSortControls called - currentSort:', currentSort, 'currentOrder:', currentOrder);
   
   // selectボックスに現在の値を設定
   const sortBySelect = document.getElementById('sortBy');
@@ -238,15 +238,15 @@ function initializeSortControls() {
   
   if (sortBySelect) {
     sortBySelect.value = currentSort;
-    console.log('DEBUG sortBySelect updated to:', sortBySelect.value);
+    debugLog('DEBUG sortBySelect updated to:', sortBySelect.value);
   } else {
-    console.log('DEBUG sortBySelect not found');
+    debugLog('DEBUG sortBySelect not found');
   }
   if (sortOrderSelect) {
     sortOrderSelect.value = currentOrder;
-    console.log('DEBUG sortOrderSelect updated to:', sortOrderSelect.value);
+    debugLog('DEBUG sortOrderSelect updated to:', sortOrderSelect.value);
   } else {
-    console.log('DEBUG sortOrderSelect not found');
+    debugLog('DEBUG sortOrderSelect not found');
   }
 }
 
@@ -554,7 +554,7 @@ function toggleView(){
   const stylesheet = document.getElementById("stylesheet");
   if( stylesheet.href.match(/style\.css/)) {
     document.cookie = "viewmode=cover; path=/; max-age=31536000;";
-    stylesheet.href = "/theme/style_cover.css?2025062212";
+    stylesheet.href = "/theme/style_cover.css?2025080200";
     // Cover Viewに切り替えた時に全機能を再初期化するルン！
     setTimeout(() => {
       reinitializeContentFeatures();
@@ -565,7 +565,7 @@ function toggleView(){
     // CoverViewからListViewに切り替える場合、ディレクトリのカスタム背景画像をクリア
     clearDirectoryCustomBackgrounds();
     document.cookie = "viewmode=list; path=/; max-age=31536000;";
-    stylesheet.href = "/theme/style.css?2025062212";
+    stylesheet.href = "/theme/style.css?2025080200";
     // リストビューでも全機能を再初期化
     setTimeout(() => {
       reinitializeContentFeatures();
@@ -623,7 +623,7 @@ function clearPreviewEventListeners() {
 // コンテンツ初期化関数（Progressive HTML Rendering対応）
 function reinitializeContentFeatures() {
   const colname = document.getElementsByClassName("indexcolname");
-  console.log('DEBUG reinitializeContentFeatures called, found', colname.length, 'elements');
+  debugLog('DEBUG reinitializeContentFeatures called, found', colname.length, 'elements');
   
   // 各要素にid属性とイベントハンドラーを設定（検索機能のため）
   for (var i = 2; i < colname.length; i++) {
@@ -651,21 +651,21 @@ function reinitializeContentFeatures() {
   // ソート設定の表示を更新
   initializeSortControls();
   
-  console.log('DEBUG Content features reinitialized for', colname.length - 2, 'items');
+  debugLog('DEBUG Content features reinitialized for', colname.length - 2, 'items');
 }
 
 // プレビュー機能の再初期化（Progressive HTML Rendering対応）
 function reinitializePreviewFeatures() {
   // data-image属性はdir_list.phpで既に設定されているため、ここではイベントリスナーのみ設定
-  console.log('DEBUG reinitializePreviewFeatures called');
+  debugLog('DEBUG reinitializePreviewFeatures called');
   
   // マウスイベントリスナーを再設定（カバービューモードの場合のみ）
   const stylesheet = document.getElementById("stylesheet");
   const isCoverView = stylesheet && stylesheet.href.match(/style_cover\.css/);
-  console.log('DEBUG isCoverView:', isCoverView, 'hasHover:', window.matchMedia("(any-hover:hover)").matches);
+  debugLog('DEBUG isCoverView:', isCoverView, 'hasHover:', window.matchMedia("(any-hover:hover)").matches);
   
   if(window.matchMedia("(any-hover:hover)").matches && isCoverView){
-    console.log('DEBUG Setting up mouse events for preview');
+    debugLog('DEBUG Setting up mouse events for preview');
     addMouseOverEvent();
     addMouseOutEvent();
   }
@@ -674,7 +674,7 @@ function reinitializePreviewFeatures() {
 // プレビュー画像表示
 function addMouseOverEvent(){
     const cover = document.getElementsByClassName("indexcolname");
-    console.log('DEBUG addMouseOverEvent called, found', cover.length, 'elements');
+    debugLog('DEBUG addMouseOverEvent called, found', cover.length, 'elements');
     
     for (let i = 0; i < cover.length; i++) {
       // 既存のイベントリスナーがある場合は削除
@@ -685,7 +685,7 @@ function addMouseOverEvent(){
       // デバッグ：data-image属性をチェック
       const dataImage = cover[i].getAttribute('data-image');
       if (i >= 2 && i < 5) { // 最初の数個だけログ出力
-        console.log(`DEBUG addMouseOverEvent [${i}]: data-image="${dataImage}"`);
+        debugLog(`DEBUG addMouseOverEvent [${i}]: data-image="${dataImage}"`);
       }
       
       // 新しいイベントハンドラーを作成
@@ -963,7 +963,7 @@ for (var i = 2; i < colname.length; i++ ) {
     
     // デバッグ用ログ（特殊文字を含むファイルの場合のみ）
     if (elm.textContent.match(/[#?&=%\\:@<>"'|* ]/) || (rawFilepath && rawFilepath.match(/[#?&=%\\:@<>"'|* ]/))) {
-      console.log('DEBUG cover image path:', {
+      debugLog('DEBUG cover image path:', {
         filename: elm.textContent,
         dataFilepath: dataFilepath,
         hrefFilepath: hrefFilepath,
