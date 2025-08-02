@@ -409,12 +409,24 @@ function login(){
 function applyDirectoryCustomIcons(){
   const colname = document.getElementsByClassName("indexcolname");
   const imgPath = location.origin+"/theme/covers/";
+  const stylesheet = document.getElementById("stylesheet");
+  const isCoverView = stylesheet && stylesheet.href.match(/style_cover\.css/);
   
   for (let i = 2; i < colname.length; i++) {
     const elm = colname[i].firstChild;
     
     if (elm && elm.href && elm.href.match(/\/$/)) {
       // ディレクトリの場合のみ処理
+      
+      // リストビューの場合は、まず通常アイコンが表示されるようにする
+      if (!isCoverView) {
+        const iconCell = colname[i].parentElement.querySelector('.indexcolicon img');
+        if (iconCell) {
+          iconCell.style.display = '';
+          iconCell.style.visibility = '';
+          iconCell.style.opacity = '';
+        }
+      }
       
       // data-filepath属性から正確なパスを取得（パーセントエンコーディング対応）
       let fullHref = elm.getAttribute('data-filepath') || elm.getAttribute('href');
@@ -499,11 +511,17 @@ function applyDirectoryCustomIcons(){
           // ディレクトリアイコンサイズは560x656であることが必須
           // なぜか404画像がstatus 200で返ってきてしまうのでディレクトリアイコンかの判定はサイズでやっている
           if (this.width === 560 && this.height === 656) {
-            currentLinkElement.style.backgroundImage = "url('" + currentDirCustomIconUrlToLoad + "')";
-            currentLinkElement.style.backgroundSize = "cover";
-            currentLinkElement.style.backgroundPosition = "center center";
-            currentLinkElement.style.backgroundRepeat = "no-repeat";
+            // カスタムアイコンが見つかった場合
+            if (isCoverView) {
+              // カバービューの場合は背景画像として設定
+              currentLinkElement.style.backgroundImage = "url('" + currentDirCustomIconUrlToLoad + "')";
+              currentLinkElement.style.backgroundSize = "cover";
+              currentLinkElement.style.backgroundPosition = "center center";
+              currentLinkElement.style.backgroundRepeat = "no-repeat";
+            }
+            // リストビューの場合はカスタムアイコンは適用しない（通常のフォルダアイコンを保持）
           } else {
+            // カスタムアイコンが無効な場合、背景画像をクリア
             currentLinkElement.style.removeProperty('background-image');
             currentLinkElement.style.removeProperty('background-size');
             currentLinkElement.style.removeProperty('background-position');
@@ -511,6 +529,7 @@ function applyDirectoryCustomIcons(){
           }
         };
         tempImgForDir.onerror = function() {
+          // カスタムアイコンが見つからない場合、背景画像をクリア
           currentLinkElement.style.removeProperty('background-image');
           currentLinkElement.style.removeProperty('background-size');
           currentLinkElement.style.removeProperty('background-position');
@@ -528,15 +547,22 @@ function toggleView(){
   if( stylesheet.href.match(/style\.css/)) {
     document.cookie = "viewmode=cover; path=/; max-age=31536000;";
     stylesheet.href = "/theme/style_cover.css?2025062212";
-    // Cover Viewに切り替えた時にディレクトリのカスタムアイコンを適用するルン！
-    setTimeout(applyDirectoryCustomIcons, 100);
+    // Cover Viewに切り替えた時にディレクトリのカスタムアイコンとプレビュー機能を適用するルン！
+    setTimeout(() => {
+      applyDirectoryCustomIcons();
+      reinitializePreviewFeatures();
+    }, 100);
   }else{
     // CoverViewからListViewに切り替える場合、ディレクトリのカスタム背景画像をクリア
     clearDirectoryCustomBackgrounds();
     document.cookie = "viewmode=list; path=/; max-age=31536000;";
     stylesheet.href = "/theme/style.css?2025062212";
     // リストビューでも少し遅延してからカスタムアイコンを再適用
-    setTimeout(applyDirectoryCustomIcons, 100);
+    setTimeout(() => {
+      applyDirectoryCustomIcons();
+      // リストビューではプレビュー機能を無効化（イベントリスナーをクリア）
+      clearPreviewEventListeners();
+    }, 100);
   }
 }
 
@@ -546,27 +572,94 @@ function clearDirectoryCustomBackgrounds(){
   for (let i = 0; i < colname.length; i++) {
     const elm = colname[i].firstChild;
     if (elm && elm.href && elm.href.match(/\/$/)) {
-      // ディレクトリの場合、カスタム背景画像スタイルをクリア
+      // ディレクトリの場合、カスタム背景画像スタイルを完全にクリア
       elm.style.removeProperty('background-image');
-      elm.style.removeProperty('background-size');
+      elm.style.removeProperty('background-size');  
       elm.style.removeProperty('background-position');
       elm.style.removeProperty('background-repeat');
+      
+      // 追加：インラインスタイルを完全にクリア
+      elm.removeAttribute('style');
     }
+    
+    // indexcoliconのimgタグも確実に表示されるようにする
+    const iconCell = colname[i].parentElement.querySelector('.indexcolicon img');
+    if (iconCell) {
+      iconCell.style.display = '';
+      iconCell.style.visibility = '';
+      iconCell.style.opacity = '';
+    }
+  }
+}
+
+// プレビューイベントリスナーをクリアする関数
+function clearPreviewEventListeners() {
+  const cover = document.getElementsByClassName("indexcolname");
+  for (let i = 0; i < cover.length; i++) {
+    // mouseoverイベントリスナーを削除
+    if (cover[i]._mouseoverHandler) {
+      cover[i].removeEventListener("mouseover", cover[i]._mouseoverHandler);
+      delete cover[i]._mouseoverHandler;
+    }
+    
+    // mouseoutイベントリスナーを削除
+    if (cover[i]._mouseoutHandler) {
+      cover[i].removeEventListener("mouseout", cover[i]._mouseoutHandler);
+      delete cover[i]._mouseoutHandler;
+    }
+  }
+}
+
+// プレビュー機能の再初期化（Progressive HTML Rendering対応）
+function reinitializePreviewFeatures() {
+  // data-image属性はdir_list.phpで既に設定されているため、ここではイベントリスナーのみ設定
+  console.log('DEBUG reinitializePreviewFeatures called');
+  
+  // デバッグ：data-image属性が設定されているか確認
+  const colname = document.getElementsByClassName("indexcolname");
+  for (let i = 2; i < Math.min(colname.length, 5); i++) { // 最初の数個だけチェック
+    const dataImage = colname[i].getAttribute('data-image');
+    console.log(`DEBUG data-image check [${i}]:`, dataImage, colname[i]);
+  }
+  
+  // マウスイベントリスナーを再設定（カバービューモードの場合のみ）
+  const stylesheet = document.getElementById("stylesheet");
+  const isCoverView = stylesheet && stylesheet.href.match(/style_cover\.css/);
+  console.log('DEBUG isCoverView:', isCoverView, 'hasHover:', window.matchMedia("(any-hover:hover)").matches);
+  
+  if(window.matchMedia("(any-hover:hover)").matches && isCoverView){
+    console.log('DEBUG Setting up mouse events for preview');
+    addMouseOverEvent();
+    addMouseOutEvent();
   }
 }
 
 // プレビュー画像表示
 function addMouseOverEvent(){
     const cover = document.getElementsByClassName("indexcolname");
+    console.log('DEBUG addMouseOverEvent called, found', cover.length, 'elements');
+    
     for (let i = 0; i < cover.length; i++) {
-      cover[i].addEventListener("mouseover", function (e) {
+      // 既存のイベントリスナーがある場合は削除
+      if (cover[i]._mouseoverHandler) {
+        cover[i].removeEventListener("mouseover", cover[i]._mouseoverHandler);
+      }
+      
+      // デバッグ：data-image属性をチェック
+      const dataImage = cover[i].getAttribute('data-image');
+      if (i >= 2 && i < 5) { // 最初の数個だけログ出力
+        console.log(`DEBUG addMouseOverEvent [${i}]: data-image="${dataImage}"`);
+      }
+      
+      // 新しいイベントハンドラーを作成
+      const mouseoverHandler = function (e) {
         // console.log(e.target);
         if( document.getElementById("stylesheet").href.match(/style\.css/)) {
             // console.log("not cover");
         }else{
           // カバービューの時のみ動作
           const imageSrc = e.currentTarget.dataset.image;
-          // console.log(imageSrc);
+          console.log('DEBUG hover preview - imageSrc:', imageSrc, 'target:', e.currentTarget);
           if((typeof imageSrc !== 'undefined' )&&(imageSrc.length > 0)){
             // 画像定義があれば（ディレクトリの場合は空）
             modalImage.src = imageSrc;
@@ -618,17 +711,33 @@ function addMouseOverEvent(){
               // console.log("no image");
             }
         }
-      });
+      };
+      
+      // イベントハンドラーを要素に関連付けて保存
+      cover[i]._mouseoverHandler = mouseoverHandler;
+      // イベントリスナーを登録
+      cover[i].addEventListener("mouseover", mouseoverHandler);
     }
 }
 function addMouseOutEvent(){
   const cover = document.getElementsByClassName("indexcolname");
-    for (let i = 0; i < cover.length; i++) {
-      cover[i].addEventListener("mouseout", function () {
-        modal.style.display = "none";
-        // console.log("mouseout");
-      });
+  for (let i = 0; i < cover.length; i++) {
+    // 既存のイベントリスナーがある場合は削除
+    if (cover[i]._mouseoutHandler) {
+      cover[i].removeEventListener("mouseout", cover[i]._mouseoutHandler);
     }
+    
+    // 新しいイベントハンドラーを作成
+    const mouseoutHandler = function () {
+      modal.style.display = "none";
+      // console.log("mouseout");
+    };
+    
+    // イベントハンドラーを要素に関連付けて保存
+    cover[i]._mouseoutHandler = mouseoutHandler;
+    // イベントリスナーを登録
+    cover[i].addEventListener("mouseout", mouseoutHandler);
+  }
 }
 function addModalMouseOutEvent(){
   const modal = document.getElementById("modal");
@@ -829,7 +938,12 @@ for (var i = 2; i < colname.length; i++ ) {
     const extensionLength = (extension.length* -1) -1;
     const imagePath = rawFilepath.startsWith('/') ? rawFilepath.substring(1) : rawFilepath;
     coverImg.src = imgPath + imagePath.slice(0, extensionLength)+".jpg";
-    colname[i].setAttribute('data-image', previewPath + imagePath.slice(0, extensionLength)+".webp");
+    
+    // data-image属性はdir_list.phpで既に設定されているが、Progressive HTML Renderingを使わない場合の互換性のため設定
+    if (!colname[i].getAttribute('data-image')) {
+      colname[i].setAttribute('data-image', previewPath + imagePath.slice(0, extensionLength)+".webp");
+    }
+    
     colname[i].appendChild(coverImg);
   }
 }

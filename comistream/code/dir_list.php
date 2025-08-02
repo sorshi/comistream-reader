@@ -445,25 +445,25 @@ $js_config = json_encode([
         // スケルトンローディング制御関数
         function showSkeletonLoading() {
             const viewmode = getCookie('viewmode') || 'list';
-            
+
             // スケルトン表示中はフッターを非表示
             const footer = document.querySelector('.footer');
             if (footer) {
                 footer.style.opacity = '0';
                 footer.style.transition = 'opacity 0.3s ease';
             }
-            
+
             if (viewmode === 'cover') {
                 showCoverSkeleton();
             } else {
                 showListSkeleton();
             }
         }
-        
+
         function showListSkeleton() {
             const tbody = document.querySelector('#table-tbody');
             tbody.innerHTML = '';
-            
+
             // スケルトン行を10個生成
             for (let i = 0; i < 10; i++) {
                 const row = document.createElement('tr');
@@ -485,11 +485,11 @@ $js_config = json_encode([
                 tbody.appendChild(row);
             }
         }
-        
+
         function showCoverSkeleton() {
             const tbody = document.querySelector('#table-tbody');
             tbody.innerHTML = '';
-            
+
             // カバー表示用のスケルトンを12個生成（実際のカバービューレイアウトに合わせる）
             for (let i = 0; i < 12; i++) {
                 const row = document.createElement('tr');
@@ -566,43 +566,47 @@ $js_config = json_encode([
                 tbody.appendChild(row);
             }
         }
-        
+
         function hideSkeletonLoading(actualHtml) {
             const tbody = document.querySelector('#table-tbody');
             const tableContainer = document.getElementById('indexlist');
-            
+
             // フェードアウト効果を開始
             tableContainer.classList.add('skeleton-loading', 'fade-out');
-            
+
             setTimeout(() => {
                 // 実際のコンテンツを設定
                 tbody.innerHTML = actualHtml;
-                
+
                 // フェードイン効果
                 tableContainer.classList.remove('skeleton-loading', 'fade-out');
                 tbody.classList.add('actual-content', 'fade-in');
-                
+
                 // フッターを表示
                 const footer = document.querySelector('.footer');
                 if (footer) {
                     footer.style.opacity = '1';
                 }
-                
-                // コンテンツが置換された後、カスタムディレクトリアイコンを適用
+
+                // コンテンツが置換された後、カスタムディレクトリアイコンとプレビュー機能を適用
                 setTimeout(() => {
                     if (typeof applyDirectoryCustomIcons === 'function') {
                         applyDirectoryCustomIcons();
                     }
+                    // プレビュー機能を再初期化
+                    if (typeof reinitializePreviewFeatures === 'function') {
+                        reinitializePreviewFeatures();
+                    }
                 }, 100);
             }, 300);
         }
-        
+
         function getCookie(name) {
             const value = `; ${document.cookie}`;
             const parts = value.split(`; ${name}=`);
             if (parts.length === 2) return parts.pop().split(';').shift();
         }
-        
+
         // Note: toggleView()関数はfooter.htmlで定義済み（既存処理との競合を回避）
     </script>
 </head>
@@ -615,20 +619,20 @@ $js_config = json_encode([
         // パンくずリストを設定
         window.addEventListener('DOMContentLoaded', function() {
             const breadcrumb = document.getElementById('breadcrumb');
-            
+
             if (breadcrumb) {
                 // 既存のfooter.html処理を参考にしたパンくずリスト生成
                 let pathAll = "/<a href=\"/\">TOP</a>";
                 let path = "";
                 const dirList = window.location.pathname.split("/");
-                
+
                 for (let i = 0; i < dirList.length; i++) {
                     if (dirList[i] !== "") {
                         path = path + "/" + dirList[i];
                         pathAll = pathAll + "/<a href='" + path + "'>" + decodeURIComponent(dirList[i]) + "</a>";
                     }
                 }
-                
+
                 breadcrumb.innerHTML = pathAll;
             }
         });
@@ -695,7 +699,7 @@ $js_config = json_encode([
     ob_start(); // 出力バッファを開始
 
     $tbody_content = '';
-    
+
     if ($physical_path !== $document_root) {
         $parent_path = dirname($request_path);
         if (DIRECTORY_SEPARATOR !== '/') $parent_path = str_replace(DIRECTORY_SEPARATOR, '/', $parent_path);
@@ -711,93 +715,93 @@ $js_config = json_encode([
         $tbody_content .= '</tr>';
     }
 
-            // Performance measurement: Start scandir
-            $perf_scandir_start = microtime(true);
+    // Performance measurement: Start scandir
+    $perf_scandir_start = microtime(true);
 
-            $items = scandir($physical_path, SCANDIR_SORT_NONE);
-            $dirs = [];
-            $files = [];
-            $all_items = [];
+    $items = scandir($physical_path, SCANDIR_SORT_NONE);
+    $dirs = [];
+    $files = [];
+    $all_items = [];
 
-            foreach ($items as $item) {
-                if ($item === '.' || $item === '..') continue;
-                // Skip hidden files (files starting with dot)
-                if (strpos($item, '.') === 0) continue;
-                $item_path = $physical_path . '/' . $item;
-                $is_dir = is_dir($item_path);
-                $stat = stat($item_path);
-                $entry = [
-                    'name' => $item,
-                    'is_dir' => $is_dir,
-                    'size' => $is_dir ? -1 : $stat['size'],
-                    'lastmod' => $stat['mtime']
-                ];
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') continue;
+        // Skip hidden files (files starting with dot)
+        if (strpos($item, '.') === 0) continue;
+        $item_path = $physical_path . '/' . $item;
+        $is_dir = is_dir($item_path);
+        $stat = stat($item_path);
+        $entry = [
+            'name' => $item,
+            'is_dir' => $is_dir,
+            'size' => $is_dir ? -1 : $stat['size'],
+            'lastmod' => $stat['mtime']
+        ];
 
-                // すべてのアイテムを配列に追加
-                $all_items[] = $entry;
+        // すべてのアイテムを配列に追加
+        $all_items[] = $entry;
 
-                // 従来の分割ソート用に分類も保持
-                if ($is_dir) $dirs[] = $entry;
-                else $files[] = $entry;
-            }
+        // 従来の分割ソート用に分類も保持
+        if ($is_dir) $dirs[] = $entry;
+        else $files[] = $entry;
+    }
 
-            // Performance measurement: End scandir
-            $perf_scandir_end = microtime(true);
-            $perf_scandir_time = ($perf_scandir_end - $perf_scandir_start) * 1000; // milliseconds
+    // Performance measurement: End scandir
+    $perf_scandir_end = microtime(true);
+    $perf_scandir_time = ($perf_scandir_end - $perf_scandir_start) * 1000; // milliseconds
 
-            // ソート設定：name順とlastmod順の場合は混在ソート、それ以外は分割ソート
-            // ハードコーディング設定：分割ソートを強制する場合は true に変更
-            $force_separate_sort = false;
-            $use_mixed_sort = (($sort_by === 'name' || $sort_by === 'lastmod') && !$force_separate_sort);
+    // ソート設定：name順とlastmod順の場合は混在ソート、それ以外は分割ソート
+    // ハードコーディング設定：分割ソートを強制する場合は true に変更
+    $force_separate_sort = false;
+    $use_mixed_sort = (($sort_by === 'name' || $sort_by === 'lastmod') && !$force_separate_sort);
 
-            // Performance measurement: Start sort
-            $perf_sort_start = microtime(true);
+    // Performance measurement: Start sort
+    $perf_sort_start = microtime(true);
 
-            if ($use_mixed_sort) {
-                // 混在ソート（MacのFinderライク）
-                $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
-                    $val_a = $a[$sort_by];
-                    $val_b = $b[$sort_by];
-                    $cmp = ($sort_by === 'name') ? strnatcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
-                    return ($sort_order === 'asc') ? $cmp : -$cmp;
-                };
-                usort($all_items, $sort_func);
-                $sorted_items = $all_items;
-            } else {
-                // 分割ソート（従来通り：ディレクトリが先、ファイルが後）
-                $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
-                    $val_a = $a[$sort_by];
-                    $val_b = $b[$sort_by];
-                    $cmp = ($sort_by === 'name') ? strnatcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
-                    return ($sort_order === 'asc') ? $cmp : -$cmp;
-                };
-                usort($dirs, $sort_func);
-                usort($files, $sort_func);
-                $sorted_items = array_merge($dirs, $files);
-            }
+    if ($use_mixed_sort) {
+        // 混在ソート（MacのFinderライク）
+        $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
+            $val_a = $a[$sort_by];
+            $val_b = $b[$sort_by];
+            $cmp = ($sort_by === 'name') ? strnatcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
+            return ($sort_order === 'asc') ? $cmp : -$cmp;
+        };
+        usort($all_items, $sort_func);
+        $sorted_items = $all_items;
+    } else {
+        // 分割ソート（従来通り：ディレクトリが先、ファイルが後）
+        $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
+            $val_a = $a[$sort_by];
+            $val_b = $b[$sort_by];
+            $cmp = ($sort_by === 'name') ? strnatcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
+            return ($sort_order === 'asc') ? $cmp : -$cmp;
+        };
+        usort($dirs, $sort_func);
+        usort($files, $sort_func);
+        $sorted_items = array_merge($dirs, $files);
+    }
 
-            // Performance measurement: End sort
-            $perf_sort_end = microtime(true);
-            $perf_sort_time = ($perf_sort_end - $perf_sort_start) * 1000; // milliseconds
+    // Performance measurement: End sort
+    $perf_sort_end = microtime(true);
+    $perf_sort_time = ($perf_sort_end - $perf_sort_start) * 1000; // milliseconds
 
-            // Performance log: Output performance data
-            $total_items = count($all_items);
-            $dir_count = count($dirs);
-            $file_count = count($files);
-            $sort_mode = $use_mixed_sort ? 'mixed' : 'separate';
+    // Performance log: Output performance data
+    $total_items = count($all_items);
+    $dir_count = count($dirs);
+    $file_count = count($files);
+    $sort_mode = $use_mixed_sort ? 'mixed' : 'separate';
 
-            writelog("DEBUG dir_list: " . sprintf(
-                "PERF dir_list: scandir=%.2fms sort=%.2fms mode=%s key=%s order=%s total=%d dirs=%d files=%d path=%s",
-                $perf_scandir_time,
-                $perf_sort_time,
-                $sort_mode,
-                $sort_by,
-                $sort_order,
-                $total_items,
-                $dir_count,
-                $file_count,
-                $request_path
-            ), "dir_list");
+    writelog("DEBUG dir_list: " . sprintf(
+        "PERF dir_list: scandir=%.2fms sort=%.2fms mode=%s key=%s order=%s total=%d dirs=%d files=%d path=%s",
+        $perf_scandir_time,
+        $perf_sort_time,
+        $sort_mode,
+        $sort_by,
+        $sort_order,
+        $total_items,
+        $dir_count,
+        $file_count,
+        $request_path
+    ), "dir_list");
 
     foreach ($sorted_items as $item) {
         $icon = get_icon($item['name'], $item['is_dir']);
@@ -831,15 +835,31 @@ $js_config = json_encode([
 
         // カバービューモードでファイルの場合は表紙画像を追加
         $indexcolname_content = '';
-        if ($viewmode === 'cover' && !$item['is_dir']) {
-            // カバービューモードでファイルの場合、/theme/covers/ 以下の.jpg画像を使用
-            // 拡張子を.jpgに変更
-            $cover_path = preg_replace('/\.[^.]+$/', '.jpg', $raw_filepath);
-            $cover_image_url = '/theme/covers' . $cover_path;
-            $indexcolname_content = '<img src="' . htmlspecialchars($cover_image_url) . '" alt="Cover" onerror="this.style.display=\'none\'">';
+        $data_image_attr = '';
+
+        if (!$item['is_dir']) {
+            // ファイルの場合、プレビュー画像のdata-image属性を設定
+            $preview_path = preg_replace('/\.[^.]+$/', '.webp', $raw_filepath);
+            $preview_image_url = '/theme/preview' . $preview_path;
+            $data_image_attr = ' data-image="' . htmlspecialchars($preview_image_url) . '"';
+
+            // デバッグ用ログ（最初の数個のファイルのみ）
+            static $debug_count = 0;
+            if ($debug_count < 3) {
+                writelog("DEBUG dir_list: preview data-image for '{$item['name']}': raw_filepath='$raw_filepath', preview_url='$preview_image_url'", "dir_list");
+                $debug_count++;
+            }
+
+            if ($viewmode === 'cover') {
+                // カバービューモードでファイルの場合、/theme/covers/ 以下の.jpg画像を使用
+                // 拡張子を.jpgに変更
+                $cover_path = preg_replace('/\.[^.]+$/', '.jpg', $raw_filepath);
+                $cover_image_url = '/theme/covers' . $cover_path;
+                $indexcolname_content = '<img src="' . htmlspecialchars($cover_image_url) . '" alt="Cover" onerror="this.style.display=\'none\'">';
+            }
         }
-        
-        $tbody_content .= '<td class="indexcolname">' . $indexcolname_content . '<a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"' .
+
+        $tbody_content .= '<td class="indexcolname"' . $data_image_attr . '>' . $indexcolname_content . '<a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"' .
             (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') .
             $onclick_attr . '>' . htmlspecialchars($item['name']) . '</a></td>';
         $tbody_content .= '<td class="indexcollastmod">' . date('Y-m-d H:i', $item['lastmod']) . '</td>';
