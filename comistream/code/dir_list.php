@@ -23,7 +23,7 @@ ini_set('log_errors', 1);
 
 // DB接続
 $dbh = null;
-if ($global_use_db_flag == 1) {
+if (isset($global_use_db_flag) && $global_use_db_flag == 1) {
     $db_path = __DIR__ . '/../data/db/comistream.sqlite';
     if (file_exists($db_path)) {
         $DSN = "sqlite:" . $db_path;
@@ -101,7 +101,6 @@ function get_icon_map()
         '.mov' => '/theme/icons/video.png',
         '.wmv' => '/theme/icons/video.png',
         '.webm' => '/theme/icons/video.png',
-        '.7z' => '/theme/icons/archive.png',
         '.bz2' => '/theme/icons/archive.png',
         '.cab' => '/theme/icons/archive.png',
         '.gz' => '/theme/icons/archive.png',
@@ -358,7 +357,7 @@ $js_config_temp = json_encode([
 
 <head>
     <meta charset="UTF-8">
-    <title>Index of <?php echo htmlspecialchars('/' . $request_path); ?></title>
+    <title>Index of <?php echo htmlspecialchars($request_path); ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <script>
         // Pass PHP config to Javascript (temporary config, will be updated after processing)
