@@ -1940,9 +1940,6 @@ function printHTML()
     $pageGenerator = "const pageGenerator = \"/cgi-bin/comistream.php\";";
     // }
 
-    // 書名をエスケープ
-    $bookNameEscaped = htmlspecialchars($bookName, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
-
     // JavaScript用に安全にエンコードした変数を準備
     $baseFileJson = json_encode($baseFile);
     $escapedFileJson = json_encode($escapedFile);
@@ -2092,7 +2089,7 @@ $contents_css
         <span class="clock-icon-button" id="clockToggleButton" onclick="toggleClock()"><i data-feather="clock"></i></span>
     </div>
     <div style="clear:both;">
-        <div class="bookName">$bookNameEscaped</div>
+        <div class="bookName">$bookName</div>
         <input id="slider" type="range" value="$maxPage" min="1" max="$maxPage" step="1" /><span id="value" class="value">1</span>
     </div>
     <hr>
@@ -2920,6 +2917,7 @@ function get_book_title($bookName)
     $onlyBookName = '';
     $bookName = trim($bookName);
     $bookName = preg_replace('/^\(.*?\) */', '', $bookName); // ファイル名先頭の (...) を削除
+    $bookName = htmlspecialchars($bookName, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8'); // タグエスケープ
     $onlyBookName = $bookName;
     $bookName = preg_replace('/\[(.*?)\] */', '<small class="bookName">$1</small> <br>', $bookName); // [ ] 内を取り出して文字サイズを小さく
     $onlyBookName = preg_replace('/\[(.*?)\] */', '', $onlyBookName); // [ ] 内削除
@@ -2931,10 +2929,11 @@ function get_book_title($bookName)
     $onlyBookName = preg_replace('/(.+)(\.[^.]+)$/', '$1', $onlyBookName); // 拡張子を削除
     $pageTitle = $bookName;
     $pageTitle = preg_replace('/<("[^"]*"|\'[^\']*\'|[^\'">])*>/', '', $pageTitle); // <title>用に書名部分を取り出し、タグ削除
-    $pageTitle = htmlspecialchars($pageTitle, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+    // $pageTitle = htmlspecialchars($pageTitle, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
     $bookName = preg_replace('/\[(.*?)\] */', '', $bookName); // [ ] を捨てる
 
     // タグ付き作者名・書名 タグなし作者名・書名 書名のみ
+    writelog("DEBUG get_book_title() bookName:$bookName pageTitle:$pageTitle onlyBookName:$onlyBookName");
     return [$bookName, $pageTitle, $onlyBookName];
 } //end function get_book_title
 
