@@ -659,7 +659,7 @@ function addMouseOverEvent(){
         }else{
           // カバービューの時のみ動作
           const imageSrc = e.currentTarget.dataset.image;
-          console.log('DEBUG hover preview - imageSrc:', imageSrc, 'target:', e.currentTarget);
+          // console.log('DEBUG hover preview - imageSrc:', imageSrc, 'target:', e.currentTarget);
           if((typeof imageSrc !== 'undefined' )&&(imageSrc.length > 0)){
             // 画像定義があれば（ディレクトリの場合は空）
             modalImage.src = imageSrc;
