@@ -2527,25 +2527,43 @@ function openZipRar()
     global $conf, $cacheDir, $cacheSize, $sharePath, $publicDir, $p7zip, $unzip, $isPreCache,
         $existDir, $openFile, $file, $coverFile, $view, $maxPage, $indexArray, $contents, $async;
 
-    // アーカイブ破損チェック
-    $archiveStatus = isArchiveCorrupted($p7zip, $cacheDir, $file);
-    if ($archiveStatus === 1) {
-        // 修復不可能な破損
-        writelog("ERROR openZipRar() archive is corrupted and not repairable.");
+    writelog("DEBUG openZipRar() cacheDir:$cacheDir file:$file");
+
+    // 7za l -slt でアーカイブ内容をリストし、同時に破損状態もチェック
+    // アーカイプが朝臣しているとrawindex取り出すときに2で終わってerror返す、ことが多い
+    // 7za tは850MBくらいのファイルでオープンするのに30秒くらい余計にかかるので廃止
+    $list_cmd = "LANG=ja_JP.UTF8 $p7zip l -slt \"$cacheDir/$file/file\"";
+    $list_output = [];
+    $list_return_code = -1;
+    exec($list_cmd . ' 2>&1', $list_output, $list_return_code);
+    $list_output_text = implode("\n", $list_output);
+
+    // リスト結果をrawindexに保存
+    file_put_contents("$cacheDir/$file/rawindex", $list_output_text);
+    // writelog("INFO openZipRar() rawindex saved:".$list_output_text);
+
+    // アーカイブの状態を記録（後でisArchiveCorrupted()が参照）
+    // $archive_status_data = [
+    //     'list_return_code' => $list_return_code,
+    //     'list_timestamp' => time(),
+    //     'has_errors' => $list_return_code !== 0 || strpos($list_output_text, 'ERROR') !== false || strpos($list_output_text, 'WARNINGS') !== false
+    // ];
+    // file_put_contents("$cacheDir/$file/archive_list_status", json_encode($archive_status_data));
+
+    if ($list_return_code !== 0) {
+        writelog("ERROR openZipRar() Archive listing failed with return code: $list_return_code");
+        writelog("ERROR openZipRar() 7-Zip output: " . $list_output_text);
+        // アーカイブが破損している可能性が高い
         errorExit('archive_corrupted', 'archive_corrupted_detail');
-    } elseif ($archiveStatus === 2) {
-        // 修復可能な破損 - 警告ログを出力して続行
-        writelog("WARNING openZipRar() archive is corrupted but repairable with recovery record. Continuing...");
     } else {
-        // 正常
-        writelog("DEBUG openZipRar() archive status is good.");
+        writelog("DEBUG openZipRar() Archive listing successful, return code: $list_return_code");
     }
 
-    writelog("DEBUG openZipRar() cacheDir:$cacheDir file:$file");
-    $shell_cmd = "LANG=ja_JP.UTF8 $p7zip l -slt \"$cacheDir/$file/file\" | tee $cacheDir/$file/rawindex | grep -Pi \"\\.(jpg|jpeg|png|webp|avif|bmp|gif)\" | grep -v \"^\\._\" | grep -v \"/\\._\" | sed \"s/Path = //\" | sort -V | head -n 1";
+    // 画像ファイルを抽出
+    $shell_cmd = "cat $cacheDir/$file/rawindex | grep \"Path = \" | grep -Pi \"\\.(jpg|jpeg|png|webp|avif|bmp|gif)\" | grep -v \"^\\._\" | grep -v \"/\\._\" | sed \"s/Path = //\" | sort -V | head -n 1";
     $firstFile = shell_exec($shell_cmd);
     $firstFile = rtrim($firstFile, "\n");
-    writelog("DEBUG openZipRar() firstFile:" . $firstFile . " executed:" . $shell_cmd);
+    writelog("DEBUG openZipRar() firstFile:" . $firstFile . " extracted from rawindex");
 
     $shell_cmd = "cat $cacheDir/$file/rawindex | grep \"Path = \" | grep -Pi \"\\.(zip|rar|cbz|cbr|7z|cb7|rar|cbr)$\" | head -n 1";
     $nestArchive = shell_exec($shell_cmd);
@@ -2692,164 +2710,6 @@ function openZipRar()
 
     return [$maxPage, $maxFilePage, $indexArray, $contents];
 } //end function openZipRar
-
-
-/**
- * 7-Zipを使用してアーカイブファイルが破損していないかをテストし、修復可能性も判定します
- * 
- * 指定されたアーカイブファイルに対して7-Zipのテストコマンド（7za t）を実行し、
- * 終了コードによってファイルの整合性を判定します。
- * RARファイルの場合、リカバリーレコードによる修復可能性も判定します。
- * 
- * @param string $p7zip 7-Zipの実行ファイルパス（例: "7za", "/usr/bin/7za"）
- * @param string $cacheDir キャッシュディレクトリのパス
- * @param string $file アーカイブファイルディレクトリ（b3sum hash）
- * @return int 0=正常, 1=修復不可能な破損, 2=修復可能な破損（リカバリーレコード有り）
- * 
- * @example
- * $p7zip = "/usr/bin/7za";
- * $cacheDir = "/home/user/comistream/data/cache";
- * $file = "fff41d19c192a84e8e068f75da61df1a34a884f365150ee926c3882d9d52c1b5";
- * $status = isArchiveCorrupted($p7zip, $cacheDir, $file);
- * if ($status === 0) {
- *     echo "アーカイブは正常です";
- * } elseif ($status === 2) {
- *     echo "破損していますが修復可能です";
- * } else {
- *     echo "修復不可能な破損です";
- * }
- * 
- * @see exec() 7-Zipコマンドの実行に使用
- * @see escapeshellarg() コマンドライン引数のエスケープに使用
- * @see writelog() デバッグ・エラーログの出力に使用
- * 
- * @since 20250802
- * @author Comistream Project
- */
-function isArchiveCorrupted($p7zip, $cacheDir, $file)
-{
-    $archivePath = escapeshellarg($cacheDir . '/' . $file . '/file');
-
-    // まず通常のテストを実行
-    $output = [];
-    $return_var = -1;
-    exec($p7zip . ' t ' . $archivePath . ' -y 2>&1', $output, $return_var);
-    $outputText = implode("\n", $output);
-
-    if ($return_var === 0) {
-        writelog("DEBUG isArchiveCorrupted() Archive file status is good. 7-Zip output:" . $outputText);
-        return 0; // 正常
-    }
-
-    // writelog("INFO isArchiveCorrupted() Initial test failed. Return code:" . $return_var . " Output:" . $outputText);
-
-    // rarのリカバリコードでアーカイブ修復出来るか試したが期待通り動かなかったので廃止
-
-    // // RARファイルかどうかを判定（ファイル拡張子またはヘッダーから）
-    // $isRar = false;
-    // if (preg_match('/Type\s*=\s*Rar/i', $outputText) || 
-    //     preg_match('/\.rar\s*$/i', $archivePath) ||
-    //     preg_match('/Archive.*\.rar/i', $outputText)) {
-    //     $isRar = true;
-    //     writelog("DEBUG isArchiveCorrupted() RAR file detected");
-    // }
-
-    // // RARファイルの場合、リカバリーレコードの存在や修復可能性をチェック
-    // if ($isRar) {
-    //     // 出力からリカバリー関連のメッセージをチェック
-    //     if (preg_match('/recovery|repair|fixed|recovered/i', $outputText)) {
-    //         writelog("INFO isArchiveCorrupted() RAR recovery record detected in output");
-
-    //         // 実際に展開を試行してみる（/dev/nullに出力してIO速度向上）
-    //         $extractOutput = [];
-    //         $extractReturnVar = -1;
-
-    //         // まず-soオプション（標準出力）でテストを試行
-    //         exec($p7zip . ' e ' . $archivePath . ' -so -y 2>&1 > /dev/null', $extractOutput, $extractReturnVar);
-    //         $extractOutputText = implode("\n", $extractOutput);
-
-    //         // -soで失敗した場合（複数ファイル等）、tmpfsディレクトリを使用
-    //         if ($extractReturnVar !== 0 && !preg_match('/everything\s+is\s+ok|no\s+errors/i', $extractOutputText)) {
-    //             writelog("DEBUG isArchiveCorrupted() -so option failed, trying with tmpfs directory");
-    //             $extractOutput = [];
-    //             $extractReturnVar = -1;
-
-    //             // テンポラリディレクトリは巨大ファイルでメモリやリソース食い尽くす攻撃対策で遅いけどcacheDirを使用
-    //             $tmpDirs = [$cacheDir . '/' . $file];
-    //             $tempDir = null;
-
-    //             foreach ($tmpDirs as $baseDir) {
-    //                 if (is_writable($baseDir)) {
-    //                     $tempDir = $baseDir . '/repair_test_' . getmypid() . '_' . time();
-    //                     if (mkdir($tempDir, 0755, true)) {
-    //                         break;
-    //                     }
-    //                     $tempDir = null;
-    //                 }
-    //             }
-
-    //             if ($tempDir) {
-    //                 exec($p7zip . ' e ' . $archivePath . ' -o' . escapeshellarg($tempDir) . ' -y 2>&1', $extractOutput, $extractReturnVar);
-    //                 $extractOutputText = implode("\n", $extractOutput);
-
-    //                 // テンポラリディレクトリをクリーンアップ
-    //                 exec('rm -rf ' . escapeshellarg($tempDir) . ' 2>/dev/null');
-    //             } else {
-    //                 writelog("ERROR isArchiveCorrupted() Cannot create temporary directory for extraction test");
-    //                 $extractReturnVar = -1;
-    //                 $extractOutputText = "Cannot create temporary directory";
-    //             }
-    //         }
-
-    //         writelog("DEBUG isArchiveCorrupted() Extract test result. Return code:" . $extractReturnVar . " Output:" . $extractOutputText);
-
-    //         // 展開が成功した、または部分的に成功した場合
-    //         // Return code 2でも部分的なエラーのみの場合は使用可能とする
-    //         if ($extractReturnVar === 0 || 
-    //             preg_match('/everything\s+is\s+ok|no\s+errors/i', $extractOutputText) ||
-    //             ($extractReturnVar === 2 && preg_match('/sub\s*items\s*errors/i', $extractOutputText))) {
-    //             writelog("INFO isArchiveCorrupted() RAR archive is usable (return code: $extractReturnVar)");
-    //             return 2; // 修復可能な破損
-    //         }
-
-    //         // リカバリーレコードで修復を試みたが失敗
-    //         if (preg_match('/recovery\s*record\s*(is\s*)?(corrupted|damaged|failed)/i', $extractOutputText)) {
-    //             writelog("ERROR isArchiveCorrupted() RAR recovery record is also corrupted");
-
-    //             // 画像開けないのでキャッシュ消し
-    //             // TODO deleteCacheDirAndReload()に統合
-    //             if (is_dir($cacheDir . '/' . $file )) {
-    //                 if (deleteDirectory($cacheDir . '/' . $file )) {
-    //                     writelog("DEBUG isArchiveCorrupted() delete dir $cacheDir/$file/");
-    //                 } else {
-    //                     writelog("ERROR isArchiveCorrupted() delete failed. $cacheDir/$file/");
-    //                 }
-    //                 // showReloadRequiredImg();
-    //             } else {
-    //                 writelog("ERROR isArchiveCorrupted() CANNOT DELETE DIR $cacheDir/$file ");
-    //             }
-
-    //             return 1; // 修復不可能
-    //         }
-    //     }
-    // }
-
-    // その他の破損（修復不可能）
-    writelog("ERROR isArchiveCorrupted() Archive is corrupted and not repairable. Return code:" . $return_var . " Output:" . $outputText);
-    // 画像開けないのでキャッシュ消し
-    // TODO deleteCacheDirAndReload()に統合
-    if (is_dir($cacheDir . '/' . $file)) {
-        if (deleteDirectory($cacheDir . '/' . $file)) {
-            writelog("DEBUG isArchiveCorrupted() delete dir $cacheDir/$file/");
-        } else {
-            writelog("ERROR isArchiveCorrupted() delete failed. $cacheDir/$file/");
-        }
-        // showReloadRequiredImg();
-    } else {
-        writelog("ERROR isArchiveCorrupted() CANNOT DELETE DIR $cacheDir/$file/");
-    }
-    return 1; // 修復不可能な破損
-} //end function isArchiveCorrupted
 
 
 ##### PDFのオープン ############################################################
