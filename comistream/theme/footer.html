@@ -253,35 +253,127 @@ function initializeSortControls() {
 function getBookmark() {
   // サーバからディレクトリ内の既読リストを取得
   var pathName = comistreamConfig.currentPath;
+  debugLog('DEBUG getBookmark called, pathName:', pathName);
+  
   var xmlHttp = new XMLHttpRequest();
-  xmlHttp.open("GET", cgiPath + "?mode=list&file="+pathName, false);
+  var requestUrl = cgiPath + "?mode=list&file="+pathName;
+  debugLog('DEBUG getBookmark request URL:', requestUrl);
+  
+  xmlHttp.open("GET", requestUrl, false);
   try{
     xmlHttp.send(null);
   }catch(e){
+    console.error('getBookmark XMLHttpRequest error:', e);
     alert(e);
+    return;
+  }
+
+  debugLog('DEBUG getBookmark response status:', xmlHttp.status);
+  debugLog('DEBUG getBookmark response text length:', xmlHttp.responseText.length);
+  if (xmlHttp.responseText) {
+    debugLog('DEBUG getBookmark response text (first 200 chars):', xmlHttp.responseText.substring(0, 200));
   }
 
   lines = xmlHttp.responseText.split(/\n/);
+  debugLog('DEBUG getBookmark found', lines.length, 'lines in response');
+  
+  var elementsFound = 0;
+  var elementsUpdated = 0;
+  
   for(j=0; j < lines.length; j++){
     line = lines[j].split("\t");
+    if (line.length < 2) continue; // 空行や不正なデータをスキップ
+    
     var elm = document.getElementById(line[0]);
+    debugLog('DEBUG getBookmark line', j, '- filename:', line[0], 'element found:', !!elm);
+    
+    // 要素が見つからない場合は、類似するIDがないか調査
+    if (!elm) {
+      debugLog('DEBUG Searching for similar elements for filename:', line[0]);
+      const allIndexColName = document.getElementsByClassName('indexcolname');
+      for (let searchIdx = 0; searchIdx < Math.min(allIndexColName.length, 10); searchIdx++) {
+        const searchElm = allIndexColName[searchIdx];
+        const searchText = searchElm.firstChild ? searchElm.firstChild.textContent : 'no text';
+        debugLog('DEBUG Element', searchIdx, '- id:', searchElm.id, 'text:', searchText);
+        if (searchText === line[0]) {
+          debugLog('DEBUG Found matching text but different ID! Setting correct ID...');
+          searchElm.setAttribute('id', line[0]);
+          searchElm.id = line[0];
+          elm = searchElm; // この要素を使用
+          break;
+        }
+      }
+    }
+    
     if( elm ){
+      elementsFound++;
+      debugLog('DEBUG Element structure check for:', line[0]);
+      
       // 既読リストとIDがマッチする場合、現在ページと最終ページを比較★
       if( Number(line[1]) >0 ){
         if( Number(line[1]) < Number(line[2]) ){
           // 読みかけ
-          elm.previousSibling.firstChild.firstChild.src = iconPath+"open.png";
+          debugLog('DEBUG Setting open icon for:', line[0]);
+          // <a>要素と<img>要素を確実に取得
+          var iconLinkElements = elm.previousSibling ? elm.previousSibling.getElementsByTagName('a') : [];
+          var iconImgElement = null;
+          
+          if (iconLinkElements.length > 0) {
+            var imgElements = iconLinkElements[0].getElementsByTagName('img');
+            if (imgElements.length > 0) {
+              iconImgElement = imgElements[0];
+            }
+          }
+          
+          if (iconImgElement) {
+            iconImgElement.src = iconPath+"open.png";
+            elementsUpdated++;
+            debugLog('Successfully set open icon for:', line[0]);
+          } else {
+            console.error('ERROR: Cannot find icon img element for:', line[0]);
+          }
         }else{
           // 読み終わった（最終ページ0に設定されている）
-          elm.previousSibling.firstChild.firstChild.src = iconPath+"done.png";
+          debugLog('DEBUG Setting done icon for:', line[0]);
+          // <a>要素と<img>要素を確実に取得
+          var iconLinkElements = elm.previousSibling ? elm.previousSibling.getElementsByTagName('a') : [];
+          var iconImgElement = null;
+          
+          if (iconLinkElements.length > 0) {
+            var imgElements = iconLinkElements[0].getElementsByTagName('img');
+            if (imgElements.length > 0) {
+              iconImgElement = imgElements[0];
+            }
+          }
+          
+          if (iconImgElement) {
+            iconImgElement.src = iconPath+"done.png";
+            elementsUpdated++;
+            debugLog('Successfully set done icon for:', line[0]);
+          } else {
+            console.error('ERROR: Cannot find icon img element for:', line[0]);
+          }
         }
       }
       if( line[3] ){
-        elm.previousSibling.style.backgroundPosition = "5px";
-        elm.previousSibling.style.backgroundImage = "url(\""+iconPath+"staron.png\")";
+        debugLog('DEBUG Setting favorite for:', line[0]);
+        if (elm.previousSibling) {
+          elm.previousSibling.style.backgroundPosition = "5px";
+          elm.previousSibling.style.backgroundImage = "url(\""+iconPath+"staron.png\")";
+          elementsUpdated++;
+          debugLog('Successfully set favorite for:', line[0]);
+        } else {
+          console.error('ERROR: Cannot set favorite - no previousSibling for:', line[0]);
+        }
       }
+    } else if (line[0] && line[0].trim()) {
+      // 要素が見つからない場合のデバッグ情報
+      debugLog('DEBUG Element not found for filename:', line[0], '- Available IDs:', 
+        Array.from(document.querySelectorAll('.indexcolname')).map(el => el.id).slice(0, 10));
     }
   }
+  
+  debugLog('DEBUG getBookmark completed - Elements found:', elementsFound, 'Elements updated:', elementsUpdated);
 }
 
 
@@ -323,15 +415,38 @@ function searchFavButton(){
 // 最後に開いたファイルの取得
 function getHistory(){
   var pathName = comistreamConfig.currentPath;
+  debugLog('DEBUG getHistory called, pathName:', pathName);
+  
   var xmlHttp = new XMLHttpRequest();
-  xmlHttp.open("GET", cgiPath + "?mode=history", false);
-  xmlHttp.send(null);
+  var requestUrl = cgiPath + "?mode=history";
+  debugLog('DEBUG getHistory request URL:', requestUrl);
+  
+  xmlHttp.open("GET", requestUrl, false);
+  try{
+    xmlHttp.send(null);
+  }catch(e){
+    console.error('getHistory XMLHttpRequest error:', e);
+    return;
+  }
+  
+  debugLog('DEBUG getHistory response status:', xmlHttp.status);
+  debugLog('DEBUG getHistory response text:', xmlHttp.responseText);
+  
+  var historyElement = document.getElementById("history");
+  debugLog('DEBUG getHistory history element found:', !!historyElement);
+  
   if( xmlHttp.responseText != "" ){
     bookName = xmlHttp.responseText;
   }else{
     bookName = "-";
   }
-  document.getElementById("history").innerHTML = bookName;
+  
+  if (historyElement) {
+    historyElement.innerHTML = bookName;
+    debugLog('DEBUG getHistory updated history element with:', bookName);
+  } else {
+    debugLog('DEBUG getHistory: history element not found');
+  }
 }
 
 
@@ -625,6 +740,27 @@ function reinitializeContentFeatures() {
   const colname = document.getElementsByClassName("indexcolname");
   debugLog('DEBUG reinitializeContentFeatures called, found', colname.length, 'elements');
   
+  // 要素の現在の状態をログ出力（デバッグモードのみ）
+  for (let k = 0; k < Math.min(colname.length, 3); k++) {
+    const elm = colname[k].firstChild;
+    debugLog('DEBUG reinitializeContentFeatures element', k, 'current id:', colname[k].id, 'textContent:', elm ? elm.textContent : 'no child');
+  }
+  
+  // 1行目は固定[0]をつける（Parent Directoryの場合）
+  if (colname.length > 1 && colname[1] && colname[1].firstChild) {
+    const firstElm = colname[1].firstChild;
+    if (firstElm.textContent && !firstElm.textContent.startsWith('[0]')) {
+      firstElm.textContent = "[0] " + firstElm.textContent;
+    }
+  }
+  
+  // 画像要素を作成（カバー画像設定用）
+  const imgPath = location.origin+"/theme/covers/";
+  const previewPath = location.origin+"/theme/preview/";
+  var img = document.createElement('img');
+  img.loading = "lazy";
+  img.className = "cover_to_preview";
+  
   // 各要素にid属性とイベントハンドラーを設定（検索機能のため）
   for (var i = 2; i < colname.length; i++) {
     // お気に入りフラグにonclickイベントを追加する
@@ -632,17 +768,73 @@ function reinitializeContentFeatures() {
       colname[i].previousSibling.onclick = toggleFavorite;
     }
     
-    var elm = colname[i].firstChild;
+    // <a>要素を正しく取得（<img>要素が先頭にある場合があるため）
+    var elm = null;
+    var linkElements = colname[i].getElementsByTagName('a');
+    if (linkElements.length > 0) {
+      elm = linkElements[0]; // 最初の<a>要素を取得
+    }
+    
+    debugLog('DEBUG reinitializeContentFeatures: Element', i, 'found <a> element:', !!elm);
+    
     if (elm) {
       if (elm.href && elm.href.match(/\/$/)) {
         // ディレクトリの場合
-        colname[i].id = elm.textContent.replace(/\/$/, "");
+        const cleanName = elm.textContent.replace(/\/$/, "");
+        colname[i].id = cleanName;
+        debugLog('DEBUG Directory ID set to:', cleanName);
+        // ディレクトリに[1]-[9]をつける（まだ追加されていない場合のみ）
+        if (i <= 10 && !elm.textContent.match(/^\[\d+\]/)) {
+          elm.textContent = "["+(i-1)+"] "+elm.textContent;
+        }
       } else {
         // ファイルの場合
-        colname[i].id = elm.textContent;
+        const fileName = elm.textContent;
+        debugLog('DEBUG reinitializeContentFeatures: Setting ID for file', i, 'filename:', fileName);
+        
+        // ID設定を確実に行う
+        colname[i].setAttribute('id', fileName);
+        colname[i].id = fileName;
+        
+        debugLog('DEBUG After ID setting - colname[i].id:', colname[i].id);
+        
         // linkhookイベントを設定
         if (elm.onclick !== linkhook) {
           elm.onclick = linkhook;
+        }
+        
+        // カバー画像を設定（まだ設定されていない場合のみ）
+        if (!colname[i].querySelector('.cover_to_preview')) {
+          var coverImg = img.cloneNode(false);
+          
+          // data-filepath属性から正確なファイルパスを取得（パーセントエンコーディング対応）
+          const dataFilepath = elm.getAttribute('data-filepath');
+          const hrefFilepath = elm.getAttribute('href');
+          let rawFilepath = dataFilepath || hrefFilepath;
+          
+          // パーセントエンコーディングをデコード
+          if (rawFilepath) {
+            try {
+              rawFilepath = decodeURIComponent(rawFilepath);
+            } catch (e) {
+              // デコードに失敗した場合はそのまま使用
+              console.warn('Failed to decode filepath for cover image:', rawFilepath, e);
+            }
+          }
+          
+          if (rawFilepath) {
+            const extension = rawFilepath.split(".").pop();
+            const extensionLength = (extension.length* -1) -1;
+            const imagePath = rawFilepath.startsWith('/') ? rawFilepath.substring(1) : rawFilepath;
+            coverImg.src = imgPath + imagePath.slice(0, extensionLength)+".jpg";
+            
+            // data-image属性はdir_list.phpで既に設定されているが、互換性のため設定
+            if (!colname[i].getAttribute('data-image')) {
+              colname[i].setAttribute('data-image', previewPath + imagePath.slice(0, extensionLength)+".webp");
+            }
+            
+            colname[i].appendChild(coverImg);
+          }
         }
       }
     }
@@ -651,7 +843,11 @@ function reinitializeContentFeatures() {
   // ソート設定の表示を更新
   initializeSortControls();
   
+  // 処理完了後の状態確認
   debugLog('DEBUG Content features reinitialized for', colname.length - 2, 'items');
+  for (let k = 0; k < Math.min(colname.length, 3); k++) {
+    debugLog('DEBUG reinitializeContentFeatures AFTER element', k, 'final id:', colname[k].id);
+  }
 }
 
 // プレビュー機能の再初期化（Progressive HTML Rendering対応）
@@ -812,10 +1008,17 @@ const previewPath = location.origin+"/theme/preview/";
 var img = document.createElement('img');
 img.loading = "lazy";
 img.className = "cover_to_preview";
-// 1行目は固定[0]をつける
-colname[1].firstChild.textContent = "[0] "+colname[1].firstChild.textContent;
 
-for (var i = 2; i < colname.length; i++ ) {
+// スケルトンローディング機能が無効な場合のみ初期化処理を実行
+// スケルトンローディング有効時はdir_list.phpから適切なタイミングで実行される
+if (!document.getElementById('skeleton-container')) {
+  // スケルトン機能が存在しない場合（従来の動作）
+  debugLog('No skeleton detected, executing initial content initialization');
+  
+  // 1行目は固定[0]をつける
+  colname[1].firstChild.textContent = "[0] "+colname[1].firstChild.textContent;
+
+  for (var i = 2; i < colname.length; i++ ) {
   // お気に入りフラグにonclickイベントを追加する
   colname[i].previousSibling.onclick = toggleFavorite;
   var elm = colname[i].firstChild;
@@ -983,14 +1186,25 @@ for (var i = 2; i < colname.length; i++ ) {
     
     colname[i].appendChild(coverImg);
   }
+  }
+  if(window.matchMedia("(any-hover:hover)").matches){
+    addMouseOverEvent();
+    addMouseOutEvent();
+  }
+} else {
+  debugLog('Skeleton loading detected, skipping initial content initialization');
 }
-if(window.matchMedia("(any-hover:hover)").matches){
-  addMouseOverEvent();
-  addMouseOutEvent();
+
+// スケルトンローディング機能が無効な場合のみ初期実行
+// スケルトンローディング有効時はdir_list.phpから適切なタイミングで実行される
+if (!document.getElementById('skeleton-container')) {
+  // スケルトン機能が存在しない場合（従来の動作）
+  setTimeout( getBookmark() );
+  setTimeout( getHistory() );
+} else {
+  debugLog('Skeleton loading detected, skipping initial getBookmark/getHistory calls');
 }
-setTimeout( getBookmark() );
 //});
-setTimeout( getHistory() );
 
 // ソート設定を初期化
 initializeSortControls();

@@ -635,6 +635,13 @@ $js_config_temp = json_encode([
                     if (typeof reinitializePreviewFeatures === 'function') {
                         reinitializePreviewFeatures();
                     }
+                    // 読書進捗とお気に入り機能を再初期化
+                    if (typeof getBookmark === 'function') {
+                        setTimeout(getBookmark, 0);
+                    }
+                    if (typeof getHistory === 'function') {
+                        setTimeout(getHistory, 0);
+                    }
 
                     // 不要なクリーンアップ処理は削除（インラインスタイル制御のため）
                 }, 100);
@@ -917,7 +924,9 @@ $js_config_temp = json_encode([
             }
         }
 
-        $tbody_content .= '<td class="indexcolname"' . $data_image_attr . '>' . $indexcolname_content . '<a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"' .
+        // td要素にもid属性を設定（getBookmark関数で使用される）
+        $td_id_attr = !$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '';
+        $tbody_content .= '<td class="indexcolname"' . $data_image_attr . $td_id_attr . '>' . $indexcolname_content . '<a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"' .
             (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') .
             $onclick_attr . '>' . htmlspecialchars($item['name']) . '</a></td>';
         $tbody_content .= '<td class="indexcollastmod">' . date('Y-m-d H:i', $item['lastmod']) . '</td>';
@@ -990,14 +999,65 @@ $js_config_temp = json_encode([
                 }
 
                 // 機能を再初期化
+                debugLog('DEBUG Fast render: Starting function initialization');
+
                 if (typeof reinitializeContentFeatures === 'function') {
-                    reinitializeContentFeatures();
+                    try {
+                        debugLog('DEBUG Fast render: Calling reinitializeContentFeatures');
+                        reinitializeContentFeatures();
+                        debugLog('DEBUG Fast render: reinitializeContentFeatures completed');
+                    } catch (e) {
+                        console.error('ERROR Fast render: reinitializeContentFeatures failed:', e);
+                    }
+                } else {
+                    console.error('ERROR Fast render: reinitializeContentFeatures is not a function');
                 }
+
                 if (typeof applyDirectoryCustomIcons === 'function') {
-                    applyDirectoryCustomIcons();
+                    try {
+                        debugLog('DEBUG Fast render: Calling applyDirectoryCustomIcons');
+                        applyDirectoryCustomIcons();
+                        debugLog('DEBUG Fast render: applyDirectoryCustomIcons completed');
+                    } catch (e) {
+                        console.error('ERROR Fast render: applyDirectoryCustomIcons failed:', e);
+                    }
+                } else {
+                    console.error('ERROR Fast render: applyDirectoryCustomIcons is not a function');
                 }
+
                 if (typeof reinitializePreviewFeatures === 'function') {
-                    reinitializePreviewFeatures();
+                    try {
+                        debugLog('DEBUG Fast render: Calling reinitializePreviewFeatures');
+                        reinitializePreviewFeatures();
+                        debugLog('DEBUG Fast render: reinitializePreviewFeatures completed');
+                    } catch (e) {
+                        console.error('ERROR Fast render: reinitializePreviewFeatures failed:', e);
+                    }
+                } else {
+                    console.error('ERROR Fast render: reinitializePreviewFeatures is not a function');
+                }
+
+                // 読書進捗とお気に入り機能を再初期化
+                if (typeof getBookmark === 'function') {
+                    try {
+                        debugLog('DEBUG Fast render: Calling getBookmark');
+                        setTimeout(getBookmark, 0);
+                    } catch (e) {
+                        console.error('ERROR Fast render: getBookmark failed:', e);
+                    }
+                } else {
+                    console.error('ERROR Fast render: getBookmark is not a function');
+                }
+
+                if (typeof getHistory === 'function') {
+                    try {
+                        debugLog('DEBUG Fast render: Calling getHistory');
+                        setTimeout(getHistory, 0);
+                    } catch (e) {
+                        console.error('ERROR Fast render: getHistory failed:', e);
+                    }
+                } else {
+                    console.error('ERROR Fast render: getHistory is not a function');
                 }
 
                 // 次のフレームでtransitionを復活（クリーンアップ）
