@@ -147,33 +147,56 @@ function writelog($messages, $processname = 'Comistream')
  * 
  * カスタマイズされたエラー画面を表示し、適切なHTTPステータスコードを設定して
  * スクリプトの実行を終了します。国際化対応しており、ユーザーの言語設定に
- * 応じてエラーメッセージを表示します。
+ * 応じて翻訳されたエラーメッセージを表示します。
  * 
- * @param string $title エラーページのタイトル
- * @param string $message エラーメッセージ本文
+ * @param string $titleKey エラーページのタイトルの翻訳キー
+ * @param string $messageKey エラーメッセージ本文の翻訳キー（省略時はtitleKeyと同じ）
  * @param bool $isError trueの場合404エラー、falseの場合は通常レスポンス（デフォルト: true）
+ * @param array $params 翻訳メッセージのパラメータ（sprintf形式、省略可）
  * @return void スクリプトはこの関数内で終了します（exit）
  * 
  * @example
  * // ファイル不存在エラー
- * errorExit("ファイルが見つかりません", "指定されたファイルは存在しないか削除された可能性があります。");
+ * errorExit('file_not_found', 'file_not_found_detail');
  * 
  * // 権限エラー
- * errorExit("アクセス拒否", "このファイルにアクセスする権限がありません。", true);
+ * errorExit('access_denied', 'permission_denied_detail', true);
  * 
  * // 単なる情報表示（エラーではない）
- * errorExit("処理完了", "データの更新が正常に完了しました。", false);
+ * errorExit('processing_complete', null, false);
  * 
  * // データベース接続エラー
- * errorExit("システムエラー", "データベースに接続できませんでした。管理者にお問い合わせください。");
+ * errorExit('system_error', 'database_connection_error');
+ * 
+ * // パラメータ付きメッセージ（将来の拡張用）
+ * errorExit('config_not_found', 'config_not_found', true, ['comistream.css']);
  * 
  * @since 1.0.0
  * @author Comistream Project
  */
-function errorExit($title, $message, $isError = true)
+function errorExit($titleKey, $messageKey = null, $isError = true, $params = [])
 {
     // I18nインスタンスを取得
     $i18n = I18n::getInstance();
+
+    // messageKeyが指定されていない場合はtitleKeyを使用
+    if ($messageKey === null) {
+        $messageKey = $titleKey;
+    }
+
+    // 翻訳された文字列を取得
+    $title = $i18n->get($titleKey, $titleKey);
+    $message = $i18n->get($messageKey, $messageKey);
+
+    // パラメータがある場合はsprintfで処理
+    if (!empty($params)) {
+        $title = sprintf($title, ...$params);
+        $message = sprintf($message, ...$params);
+    }
+
+    // HTMLエスケープ
+    $titleEscaped = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+    $messageEscaped = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
 
     // エラー出力して終了
     if ($isError) {
@@ -188,8 +211,8 @@ function errorExit($title, $message, $isError = true)
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>$title</title>
-    <script>alert("$message");window.history.back();</script>
+    <title>$titleEscaped</title>
+    <script>alert("$messageEscaped");window.history.back();</script>
 </head>
 <body></body>
 </html>
@@ -268,10 +291,10 @@ function coverUpdate()
             writelog("ERROR coverUpdate() preview not found:$previewFile");
         }
 
-        errorExit("Cover deleted.", "表紙画像とプレビュー画像を削除しました。", false);
+        errorExit('cover_deleted', null, false);
     } else {
         writelog("INFO coverUpdate() guest user or no file: $user $file");
-        errorExit("Cover update failed.", "権限が足りないかファイルが指定されていません。");
+        errorExit('cover_update_failed');
     }
 } //end function coverUpdate
 
@@ -849,7 +872,7 @@ function outputPage($isFileout = false)
             writelog("DEBUG outputPage() AVIF and Low memory mode detected ,NOT trimming mode page:$page");
         } else {
             // サーバー側で左右余白トリミング
-            // TODO 左右余白トリミングはlibvipsで行う
+            // TODO 左右余白トリミングはlibvipsで行う ← 重すぎてメリットなかったんで廃止
             $crop_half_cmd = " | $convert " . '- -strip -crop 99%x99%+0+0 -fuzz 20% -trim +repage - ';
             writelog("DEBUG outputPage() trimming mode page:$page position:$position_int crop_split_view_parts:$crop_split_view_parts");
         }
@@ -883,7 +906,7 @@ function outputPage($isFileout = false)
             } else {
                 // ファイルサイズ検証
                 // 定数定義
-                define('MAX_FILE_SIZE_BYTES', 25 * 1024 * 1024); // 25MB
+                define('MAX_FILE_SIZE_BYTES', 20 * 1024 * 1024); // 20MB
                 // 1. 7zaのリストコマンドでファイル情報を取得
                 // -slt: 詳細なリスト形式で出力
                 // -p: パスワード指定
@@ -919,12 +942,12 @@ function outputPage($isFileout = false)
                 // 3. ファイルサイズが上限を超えていないかチェック
                 if ($unpackedSize > MAX_FILE_SIZE_BYTES) {
                     // エラー処理: ファイルサイズが大きすぎます。
-                    header("HTTP/1.1 413 Payload Too Large");
-                    showReloadRequiredImg(2);
-                    writelog("ERROR outputPage() The image file size (" . round($unpackedSize / 1024 / 1024) . "MB) exceeds the 25MB limit.");
+                    header("HTTP/1.1 413 Content Too Large");
+                    showReloadRequiredImg(3);
+                    writelog("ERROR outputPage() The image file size (" . round($unpackedSize / 1024 / 1024) . "MB) exceeds the " . round(MAX_FILE_SIZE_BYTES / 1024 / 1024) . "MB limit.");
                     exit;
                 } else {
-                    writelog("DEBUG outputPage() The image file size (" . round($unpackedSize / 1024) . "KB) is within the 25MB limit.");
+                    writelog("DEBUG outputPage() The image file size (" . round($unpackedSize / 1024) . "KB) is within the " . round(MAX_FILE_SIZE_BYTES / 1024 / 1024) . "MB limit.");
                 }
 
                 $pageInput = "LANG=ja_JP.UTF8 $p7zip e -so \"$cacheDir/$file/file\" \"$pagefile\"";
@@ -1079,10 +1102,16 @@ function outputPage($isFileout = false)
                 writelog("ERROR Archive image cannot extract image. Delete cache and reload.$file");
                 deleteCacheDirAndReload();
             } else {
-                header($output_mime);
-                header("Cache-Control: private, max-age=86400");
-                echo $pageImg;
-                writelog("DEBUG outputPage() filesize:" . strlen($pageImg));
+                // ファイルサイズチェック追加
+                if (isImageSizeOverLimitAndErrorOutout($pageImg)) {
+                    writelog("ERROR outputPage() Image size over limit.");
+                    exit(1);
+                } else {
+                    header($output_mime);
+                    header("Cache-Control: private, max-age=86400");
+                    echo $pageImg;
+                    writelog("DEBUG outputPage() filesize:" . strlen($pageImg));
+                }
             }
         }
     } else {
@@ -1106,6 +1135,11 @@ function outputPage($isFileout = false)
                     writelog("DEBUG outputPage() vips input cmd:" . $inputCmd);
                     $imageBinary = shell_exec($inputCmd);
 
+                    // ファイルサイズチェック追加
+                    if (isImageSizeOverLimitAndErrorOutout($imageBinary)) {
+                        writelog("ERROR outputPage() Image size over limit.");
+                        exit(1);
+                    }
                     if (strlen($imageBinary) > 0) {
                         // バイナリから画像を読み込み
                         $image = \Jcupitt\Vips\Image::newFromBuffer($imageBinary);
@@ -1237,8 +1271,8 @@ function deleteCacheDirAndReload()
     global $cacheDir, $file;
 
     // 画像開けないのでキャッシュ消してリロードが必要
-    if (is_dir("$cacheDir/$file")) {
-        if (deleteDirectory("$cacheDir/$file")) {
+    if (is_dir($cacheDir . '/' . $file)) {
+        if (deleteDirectory($cacheDir . '/' . $file)) {
             writelog("DEBUG deleteCacheDirAndReload() delete dir $cacheDir/$file/");
         } else {
             writelog("ERROR deleteCacheDirAndReload() delete failed. $cacheDir/$file/");
@@ -1249,6 +1283,64 @@ function deleteCacheDirAndReload()
     }
 } //end function deleteCacheDirAndReload
 
+
+/**
+ * 画像データが最大サイズ制限を超えているかと破損をチェックし、超過時にエラー処理を実行します
+ * 
+ * VIPSライブラリを使用して画像バッファからサイズ情報を取得し、
+ * 幅8000px・高さ8000pxの制限を超えているかどうかを判定します。
+ * 制限を超えている場合や画像処理でエラーが発生した場合は、
+ * HTTPステータス413またはエラー画像を表示してtrueを返します。
+ * 
+ * @param string $pageImg 画像データのバイナリ
+ * @return bool 画像サイズが制限を超えているかエラーが発生した場合はtrue、正常な場合はfalse
+ * 
+ * @throws \Jcupitt\Vips\Exception VIPS処理でエラーが発生した場合（内部でキャッチして処理）
+ * 
+ * @example
+ * $imageData = file_get_contents('large_image.jpg');
+ * if (isImageSizeOverLimitAndErrorOutout($imageData)) {
+ *     // エラー処理は関数内で実行済み
+ *     exit();
+ * }
+ * 
+ * @see showReloadRequiredImg() エラー画像の表示に使用
+ * @see writelog() エラーログの出力に使用
+ * 
+ * @since 20250802
+ * @author Comistream Project
+ */
+function isImageSizeOverLimitAndErrorOutout($pageImg)
+{
+    // 最大イメージサイズ
+    define("MAX_WIDTH", 8000);
+    define("MAX_HEIGHT", 8000);
+    if (isVipsAvailable()) {
+        try {
+            $image = \Jcupitt\Vips\Image::newFromBuffer($pageImg);
+
+            if ($image->width > MAX_WIDTH || $image->height > MAX_HEIGHT) {
+                // エラー処理: 解像度が大きすぎます。
+                writelog("NOTICE isImageSizeOverLimitAndErrorOutout() image size is too large: " . $image->width . "x" . $image->height);
+                header("HTTP/1.1 413 Content Too Large");
+                // 画像表示 // ページサイズが大きすぎる
+                showReloadRequiredImg(3);
+                return true;
+            } else {
+                return false;
+            }
+        } catch (\Jcupitt\Vips\Exception $e) {
+            // VipsExceptionがスローされた場合は、破損している可能性が高い
+            // 例外メッセージをログに出力しておくとデバッグに役立ちます
+            writelog("ERROR isImageSizeOverLimitAndErrorOutout() vips processing failed,may be broken image: " . $e->getMessage());
+            showReloadRequiredImg(2);
+            return true;
+        }
+    } else {
+        writelog("CRITICAL isImageSizeOverLimitAndErrorOutout() vips is not available");
+        return false;
+    }
+} //end function isImageSizeOverLimitAndErrorOutout
 
 /**
  * libvipsライブラリが利用可能かどうかを判定します
@@ -1380,7 +1472,7 @@ function isVipsAvailable($fullLog = false)
                 }
             }
 
-            writelog("INFO isVipsAvailable() VIPS extension: $vipsExtVersion, libvips: $libvipsVersion, php-vips: $phpVipsVersion");
+            writelog("DEBUG isVipsAvailable() VIPS extension: $vipsExtVersion, libvips: $libvipsVersion, php-vips: $phpVipsVersion");
         } catch (\Exception $e) {
             writelog("WARN isVipsAvailable() version detection failed: " . $e->getMessage());
         }
@@ -1892,7 +1984,7 @@ function printHTML()
         writelog("DEBUG CSS file exist.");
     } else {
         writelog("ERROR CSS not found:" . __DIR__);
-        errorExit($i18n->get('config_not_found'), $i18n->get('config_not_found') . ": comistream.css");
+        errorExit('config_not_found', 'config_not_found');
     }
 
     // JavaScriptファイルの読み込み
@@ -1901,7 +1993,7 @@ function printHTML()
         writelog("DEBUG JS file exist.");
     } else {
         writelog("ERROR JS not found:" . __DIR__);
-        errorExit($i18n->get('config_not_found'), $i18n->get('config_not_found') . ": comistream.js");
+        errorExit('config_not_found', 'config_not_found');
     }
 
     // 動作モード設定
@@ -2227,7 +2319,7 @@ function openPage()
     // リード可能パーミッションかテストする
     if (!is_readable($openFile)) {
         writelog("ERROR openPage() file is not readable permission: " . $openFile);
-        errorExit("FILE IS NOT READABLE", "ファイルが読めません。パーミッションを確認してください。");
+        errorExit('file_not_readable', 'file_not_readable_detail');
     }
 
     // 表紙画像のパスを作成
@@ -2246,7 +2338,7 @@ function openPage()
     $fileHash = trim($fileHash);
     if (empty($fileHash)) {
         writelog("ERROR openPage() md5 hash failed." . $openFile);
-        errorExit("FILE PROCESS FAILED", "ファイルが処理できません。内部エラーです。ファイル名を修正すると解決する場合があります。");
+        errorExit('file_processing_failed', 'file_processing_failed_detail');
     } else {
         writelog("DEBUG openPage() fileHash:" . $fileHash);
         $file = $fileHash; // $fileはここでhashに上書き
@@ -2267,7 +2359,7 @@ function openPage()
 
         // キャッシュ領域初期化
         if (!chkAndMakeDir($cacheDir . '/' . $file)) {
-            errorExit("ERROR:mkdir cache dir failed.", "キャッシュディレクトリ作成に失敗しました。サーバー側パーミッションを確認してください。");
+            errorExit('mkdir_failed', 'cache_dir_creation_failed');
         }
         if (!is_link("$cacheDir/$file/file")) {
             if (file_exists("$cacheDir/$file/file")) {
@@ -2278,7 +2370,7 @@ function openPage()
                 $linkCreated = symlink($openFile, "$cacheDir/$file/file");
                 if (!$linkCreated) {
                     writelog("ERROR: シンボリックリンクの作成に失敗しました。:" . $openFile . ": $cacheDir/$file/file");
-                    errorExit("Cannot create sym link.", "シンボリックリンクの作成に失敗しました。サーバー側パーミッションを確認してください。");
+                    errorExit('symlink_failed', 'symlink_failed_detail');
                 }
             }
         }
@@ -2295,7 +2387,7 @@ function openPage()
         openPdf();
     } else {
         writelog("openPage() invalid file type: $openFile");
-        errorExit("Invalid file type", "未対応ファイルです");
+        errorExit('invalid_file_type');
     }
     writelog("DEBUG openPage() \$file:" . $file);
 
@@ -2435,6 +2527,20 @@ function openZipRar()
     global $conf, $cacheDir, $cacheSize, $sharePath, $publicDir, $p7zip, $unzip, $isPreCache,
         $existDir, $openFile, $file, $coverFile, $view, $maxPage, $indexArray, $contents, $async;
 
+    // アーカイブ破損チェック
+    $archiveStatus = isArchiveCorrupted($p7zip, $cacheDir, $file);
+    if ($archiveStatus === 1) {
+        // 修復不可能な破損
+        writelog("ERROR openZipRar() archive is corrupted and not repairable.");
+        errorExit('archive_corrupted', 'archive_corrupted_detail');
+    } elseif ($archiveStatus === 2) {
+        // 修復可能な破損 - 警告ログを出力して続行
+        writelog("WARNING openZipRar() archive is corrupted but repairable with recovery record. Continuing...");
+    } else {
+        // 正常
+        writelog("DEBUG openZipRar() archive status is good.");
+    }
+
     writelog("DEBUG openZipRar() cacheDir:$cacheDir file:$file");
     $shell_cmd = "LANG=ja_JP.UTF8 $p7zip l -slt \"$cacheDir/$file/file\" | tee $cacheDir/$file/rawindex | grep -Pi \"\\.(jpg|jpeg|png|webp|avif|bmp|gif)\" | grep -v \"^\\._\" | grep -v \"/\\._\" | sed \"s/Path = //\" | sort -V | head -n 1";
     $firstFile = shell_exec($shell_cmd);
@@ -2457,7 +2563,7 @@ function openZipRar()
             } else {
                 // 展開中なので待たせる
                 writelog("INFO openZipRar() nested archive extracting,exit.");
-                errorExit("Archive is being expanded", "アーカイブの展開中です。しばらく待ってもう一度ファイルを開いてください。", false);
+                errorExit('archive_expanding', 'archive_expanding_detail', false);
                 exit(0);
             }
         } else {
@@ -2484,7 +2590,7 @@ function openZipRar()
                 $cacheDir = $conf["cacheDir"] . '/make_picture';
                 $bookOpenCacheDir = $cacheDir . '/' . $file;
                 if (!chkAndMakeDir($bookOpenCacheDir)) {
-                    errorExit('ディレクトリ作成に失敗しました', 'ディレクトリ作成に失敗しました。' . $bookOpenCacheDir . "のパーミッションを確認してください。");
+                    errorExit('mkdir_failed', 'mkdir_failed_detail');
                 }
                 // $result = shell_exec("LANG=ja_JP.UTF8 bash " . $conf["comistream_tool_dir"] . "/code/nestedExtracter.sh \"$openFile\" $cacheDir/$file");
                 $result = shell_exec($command_list);
@@ -2552,7 +2658,7 @@ function openZipRar()
             writelog("DEBUG openZipRar() checkFile NOT exist, cp932 retry");
             $dirname = dirname($coverFile);
             if (!chkAndMakeDir($dirname)) {
-                errorExit('ディレクトリ作成に失敗しました', 'ディレクトリ作成に失敗しました。' . $dirname . "のパーミッションを確認してください。");
+                errorExit('mkdir_failed', 'mkdir_failed_detail');
             }
             touch("$cacheDir/$file/cp932");
             $maxPage = shell_exec("LANG=ja_JP.UTF8 $unzip -Z -1 -O cp932 \"$cacheDir/$file/file\" | grep -Pi \"\\.(jpg|jpeg|png|webp|avif|bmp|gif)\" | grep -v \"^\\._\" | grep -v \"/\\._\" | sort -V | tee -a $cacheDir/$file/index | wc -l");
@@ -2572,7 +2678,7 @@ function openZipRar()
         deleteDirectory($cachePath);
         clean_shm_dir();
         writelog("ERROR openZipRar() target:" . $target);
-        errorExit("Archive open failed", $target . " アーカイブファイルの展開に失敗しました。非対応形式やファイルが異常などのケースが考えられます。");
+        errorExit('archive_open_failed', 'archive_open_failed_detail');
     }
     // 分割表示モード用ページ番号
     if ($view === 'split') {
@@ -2586,6 +2692,164 @@ function openZipRar()
 
     return [$maxPage, $maxFilePage, $indexArray, $contents];
 } //end function openZipRar
+
+
+/**
+ * 7-Zipを使用してアーカイブファイルが破損していないかをテストし、修復可能性も判定します
+ * 
+ * 指定されたアーカイブファイルに対して7-Zipのテストコマンド（7za t）を実行し、
+ * 終了コードによってファイルの整合性を判定します。
+ * RARファイルの場合、リカバリーレコードによる修復可能性も判定します。
+ * 
+ * @param string $p7zip 7-Zipの実行ファイルパス（例: "7za", "/usr/bin/7za"）
+ * @param string $cacheDir キャッシュディレクトリのパス
+ * @param string $file アーカイブファイルディレクトリ（b3sum hash）
+ * @return int 0=正常, 1=修復不可能な破損, 2=修復可能な破損（リカバリーレコード有り）
+ * 
+ * @example
+ * $p7zip = "/usr/bin/7za";
+ * $cacheDir = "/home/user/comistream/data/cache";
+ * $file = "fff41d19c192a84e8e068f75da61df1a34a884f365150ee926c3882d9d52c1b5";
+ * $status = isArchiveCorrupted($p7zip, $cacheDir, $file);
+ * if ($status === 0) {
+ *     echo "アーカイブは正常です";
+ * } elseif ($status === 2) {
+ *     echo "破損していますが修復可能です";
+ * } else {
+ *     echo "修復不可能な破損です";
+ * }
+ * 
+ * @see exec() 7-Zipコマンドの実行に使用
+ * @see escapeshellarg() コマンドライン引数のエスケープに使用
+ * @see writelog() デバッグ・エラーログの出力に使用
+ * 
+ * @since 20250802
+ * @author Comistream Project
+ */
+function isArchiveCorrupted($p7zip, $cacheDir, $file)
+{
+    $archivePath = escapeshellarg($cacheDir . '/' . $file . '/file');
+
+    // まず通常のテストを実行
+    $output = [];
+    $return_var = -1;
+    exec($p7zip . ' t ' . $archivePath . ' -y 2>&1', $output, $return_var);
+    $outputText = implode("\n", $output);
+
+    if ($return_var === 0) {
+        writelog("DEBUG isArchiveCorrupted() Archive file status is good. 7-Zip output:" . $outputText);
+        return 0; // 正常
+    }
+
+    // writelog("INFO isArchiveCorrupted() Initial test failed. Return code:" . $return_var . " Output:" . $outputText);
+
+    // rarのリカバリコードでアーカイブ修復出来るか試したが期待通り動かなかったので廃止
+
+    // // RARファイルかどうかを判定（ファイル拡張子またはヘッダーから）
+    // $isRar = false;
+    // if (preg_match('/Type\s*=\s*Rar/i', $outputText) || 
+    //     preg_match('/\.rar\s*$/i', $archivePath) ||
+    //     preg_match('/Archive.*\.rar/i', $outputText)) {
+    //     $isRar = true;
+    //     writelog("DEBUG isArchiveCorrupted() RAR file detected");
+    // }
+
+    // // RARファイルの場合、リカバリーレコードの存在や修復可能性をチェック
+    // if ($isRar) {
+    //     // 出力からリカバリー関連のメッセージをチェック
+    //     if (preg_match('/recovery|repair|fixed|recovered/i', $outputText)) {
+    //         writelog("INFO isArchiveCorrupted() RAR recovery record detected in output");
+
+    //         // 実際に展開を試行してみる（/dev/nullに出力してIO速度向上）
+    //         $extractOutput = [];
+    //         $extractReturnVar = -1;
+
+    //         // まず-soオプション（標準出力）でテストを試行
+    //         exec($p7zip . ' e ' . $archivePath . ' -so -y 2>&1 > /dev/null', $extractOutput, $extractReturnVar);
+    //         $extractOutputText = implode("\n", $extractOutput);
+
+    //         // -soで失敗した場合（複数ファイル等）、tmpfsディレクトリを使用
+    //         if ($extractReturnVar !== 0 && !preg_match('/everything\s+is\s+ok|no\s+errors/i', $extractOutputText)) {
+    //             writelog("DEBUG isArchiveCorrupted() -so option failed, trying with tmpfs directory");
+    //             $extractOutput = [];
+    //             $extractReturnVar = -1;
+
+    //             // テンポラリディレクトリは巨大ファイルでメモリやリソース食い尽くす攻撃対策で遅いけどcacheDirを使用
+    //             $tmpDirs = [$cacheDir . '/' . $file];
+    //             $tempDir = null;
+
+    //             foreach ($tmpDirs as $baseDir) {
+    //                 if (is_writable($baseDir)) {
+    //                     $tempDir = $baseDir . '/repair_test_' . getmypid() . '_' . time();
+    //                     if (mkdir($tempDir, 0755, true)) {
+    //                         break;
+    //                     }
+    //                     $tempDir = null;
+    //                 }
+    //             }
+
+    //             if ($tempDir) {
+    //                 exec($p7zip . ' e ' . $archivePath . ' -o' . escapeshellarg($tempDir) . ' -y 2>&1', $extractOutput, $extractReturnVar);
+    //                 $extractOutputText = implode("\n", $extractOutput);
+
+    //                 // テンポラリディレクトリをクリーンアップ
+    //                 exec('rm -rf ' . escapeshellarg($tempDir) . ' 2>/dev/null');
+    //             } else {
+    //                 writelog("ERROR isArchiveCorrupted() Cannot create temporary directory for extraction test");
+    //                 $extractReturnVar = -1;
+    //                 $extractOutputText = "Cannot create temporary directory";
+    //             }
+    //         }
+
+    //         writelog("DEBUG isArchiveCorrupted() Extract test result. Return code:" . $extractReturnVar . " Output:" . $extractOutputText);
+
+    //         // 展開が成功した、または部分的に成功した場合
+    //         // Return code 2でも部分的なエラーのみの場合は使用可能とする
+    //         if ($extractReturnVar === 0 || 
+    //             preg_match('/everything\s+is\s+ok|no\s+errors/i', $extractOutputText) ||
+    //             ($extractReturnVar === 2 && preg_match('/sub\s*items\s*errors/i', $extractOutputText))) {
+    //             writelog("INFO isArchiveCorrupted() RAR archive is usable (return code: $extractReturnVar)");
+    //             return 2; // 修復可能な破損
+    //         }
+
+    //         // リカバリーレコードで修復を試みたが失敗
+    //         if (preg_match('/recovery\s*record\s*(is\s*)?(corrupted|damaged|failed)/i', $extractOutputText)) {
+    //             writelog("ERROR isArchiveCorrupted() RAR recovery record is also corrupted");
+
+    //             // 画像開けないのでキャッシュ消し
+    //             // TODO deleteCacheDirAndReload()に統合
+    //             if (is_dir($cacheDir . '/' . $file )) {
+    //                 if (deleteDirectory($cacheDir . '/' . $file )) {
+    //                     writelog("DEBUG isArchiveCorrupted() delete dir $cacheDir/$file/");
+    //                 } else {
+    //                     writelog("ERROR isArchiveCorrupted() delete failed. $cacheDir/$file/");
+    //                 }
+    //                 // showReloadRequiredImg();
+    //             } else {
+    //                 writelog("ERROR isArchiveCorrupted() CANNOT DELETE DIR $cacheDir/$file ");
+    //             }
+
+    //             return 1; // 修復不可能
+    //         }
+    //     }
+    // }
+
+    // その他の破損（修復不可能）
+    writelog("ERROR isArchiveCorrupted() Archive is corrupted and not repairable. Return code:" . $return_var . " Output:" . $outputText);
+    // 画像開けないのでキャッシュ消し
+    // TODO deleteCacheDirAndReload()に統合
+    if (is_dir($cacheDir . '/' . $file)) {
+        if (deleteDirectory($cacheDir . '/' . $file)) {
+            writelog("DEBUG isArchiveCorrupted() delete dir $cacheDir/$file/");
+        } else {
+            writelog("ERROR isArchiveCorrupted() delete failed. $cacheDir/$file/");
+        }
+        // showReloadRequiredImg();
+    } else {
+        writelog("ERROR isArchiveCorrupted() CANNOT DELETE DIR $cacheDir/$file/");
+    }
+    return 1; // 修復不可能な破損
+} //end function isArchiveCorrupted
 
 
 ##### PDFのオープン ############################################################
@@ -2834,12 +3098,12 @@ function makeCover($coverProcessFile, $coverFile, $previewFile)
     $coverDir = $conf["comistream_tool_dir"] . '/data/theme/covers';
 
     if (!chkAndMakeDir($coverDir)) {
-        errorExit('ディレクトリ作成に失敗しました', 'ディレクトリ作成に失敗しました。' . $coverDir . "のパーミッションを確認してください。");
+        errorExit('mkdir_failed', 'mkdir_failed_detail');
     }
     $previewDir = $conf["comistream_tool_dir"] . '/data/theme/preview';
 
     if (!chkAndMakeDir($previewDir)) {
-        errorExit('ディレクトリ作成に失敗しました', 'ディレクトリ作成に失敗しました。' . $previewDir . "のパーミッションを確認してください。");
+        errorExit('mkdir_failed', 'mkdir_failed_detail');
     }
     // 表紙ファイル出力
     if (!file_exists($coverFile)) {
@@ -4047,7 +4311,7 @@ function handleInitialSetup($postData)
 
     if (!chkAndMakeDir($dbDir)) {
         writelog('ERROR mkdir failed. Check permissions;' . $dbDir);
-        errorExit("mkdir failed", "ディレクトリ作成に失敗しました。パーミッションエラーです。" . $dbDir . "にWebServerが書き込み出来るか確認してください。");
+        errorExit('mkdir_failed', 'webserver_write_permission');
         exit(1);
     }
 
@@ -4063,7 +4327,7 @@ function handleInitialSetup($postData)
         // DDLファイルの存在確認
         $ddlFilePath = __DIR__ . '/../rsrc/sql/make-comistream-db-ddl.sql';
         if (!file_exists($ddlFilePath)) {
-            errorExit("not found", "初期設定中にエラーが発生しました:必要なファイルが見つかりません。再インストールしてください。");
+            errorExit('not_found_files', 'reinstall_required');
         }
         $ddlContent = file_get_contents($ddlFilePath);
 
@@ -4138,7 +4402,7 @@ function handleInitialSetup($postData)
             $db->rollBack();
             // $db->close();
         }
-        errorExit("config invalid", "初期設定中にエラーが発生しました: " . $e->getMessage());
+        errorExit('invalid_config', 'system_error');
     }
 } //end function handleInitialSetup
 
@@ -4469,7 +4733,7 @@ function sql_query($dbh, $query, $errmessage, $paramarray = null)
             htmlspecialchars($query);
         writelog("ERROR sql_query() SQL EXCEPTION:$msg");
         $dbh = null;
-        errorExit("DB実行エラーです", "DB実行エラーが発生しました");
+        errorExit('database_execution_error');
     }
 } //end func sql_query
 
@@ -4775,7 +5039,7 @@ function printPdfViewerHTML()
     $pdfPath = readlink("$cacheDir/$file/file");
     if ($pdfPath === false) {
         writelog("ERROR printPdfViewerHTML() Cannot read symlink: $cacheDir/$file/file");
-        errorExit("PDF File Error", "PDFファイルの読み込みに失敗しました。");
+        errorExit('pdf_file_error');
     }
 
     // 相対パスに変換（セキュリティのため）
