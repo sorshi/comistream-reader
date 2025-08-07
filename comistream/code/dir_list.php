@@ -16,6 +16,7 @@
 require_once __DIR__ . '/comistream_lib.php';
 
 // Script configuration
+ini_set('zlib.output_compression', '8');
 ini_set('output_buffering', 'On');
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
@@ -271,11 +272,13 @@ if ($physical_path === false || strpos($physical_path, $document_root) !== 0) {
     exit;
 }
 
+// 404モードフラグの設定
+$is_404_mode = false;
 if (!is_dir($physical_path)) {
     http_response_code(404);
-    writelog("ERROR dir_list: Not found attempt: " . $request_path);
-    echo "404 Not Found";
-    exit;
+    writelog("ERROR dir_list: Not found attempt: " . $request_path . " - showing empty directory layout", "dir_list");
+    $is_404_mode = true;
+    // exitしない - 空のディレクトリとして表示を継続
 }
 
 // セッション開始
@@ -768,32 +771,37 @@ $js_config_temp = json_encode([
     // Performance measurement: Start scandir
     $perf_scandir_start = microtime(true);
 
-    $items = scandir($physical_path, SCANDIR_SORT_NONE);
     $dirs = [];
     $files = [];
     $all_items = [];
 
-    foreach ($items as $item) {
-        if ($item === '.' || $item === '..') continue;
-        // Skip hidden files (files starting with dot)
-        if (strpos($item, '.') === 0) continue;
-        $item_path = $physical_path . '/' . $item;
-        $is_dir = is_dir($item_path);
-        $stat = stat($item_path);
-        $entry = [
-            'name' => $item,
-            'is_dir' => $is_dir,
-            'size' => $is_dir ? -1 : $stat['size'],
-            'lastmod' => $stat['mtime']
-        ];
+    if (!$is_404_mode) {
+        // 通常モード: ディレクトリをスキャン
+        $items = scandir($physical_path, SCANDIR_SORT_NONE);
 
-        // すべてのアイテムを配列に追加
-        $all_items[] = $entry;
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') continue;
+            // Skip hidden files (files starting with dot)
+            if (strpos($item, '.') === 0) continue;
+            $item_path = $physical_path . '/' . $item;
+            $is_dir = is_dir($item_path);
+            $stat = stat($item_path);
+            $entry = [
+                'name' => $item,
+                'is_dir' => $is_dir,
+                'size' => $is_dir ? -1 : $stat['size'],
+                'lastmod' => $stat['mtime']
+            ];
 
-        // 従来の分割ソート用に分類も保持
-        if ($is_dir) $dirs[] = $entry;
-        else $files[] = $entry;
+            // すべてのアイテムを配列に追加
+            $all_items[] = $entry;
+
+            // 従来の分割ソート用に分類も保持
+            if ($is_dir) $dirs[] = $entry;
+            else $files[] = $entry;
+        }
     }
+    // 404モードの場合は配列は空のまま（空のディレクトリとして表示）
 
     // Performance measurement: End scandir
     $perf_scandir_end = microtime(true);
@@ -853,7 +861,7 @@ $js_config_temp = json_encode([
         ($total_process_time <= $fast_render_threshold_ms || $total_items <= $fast_render_item_threshold);
 
     writelog("DEBUG dir_list: " . sprintf(
-        "PERF dir_list: scandir=%.2fms sort=%.2fms total=%.2fms mode=%s key=%s order=%s total=%d dirs=%d files=%d path=%s fast_render=%s force_skeleton=%s",
+        "PERF dir_list: scandir=%.2fms sort=%.2fms total=%.2fms mode=%s key=%s order=%s total=%d dirs=%d files=%d path=%s fast_render=%s force_skeleton=%s 404_mode=%s",
         $perf_scandir_time,
         $perf_sort_time,
         $total_process_time,
@@ -865,7 +873,8 @@ $js_config_temp = json_encode([
         $file_count,
         $request_path,
         $fast_render_mode ? 'true' : 'false',
-        $force_skeleton_animation ? 'true' : 'false'
+        $force_skeleton_animation ? 'true' : 'false',
+        $is_404_mode ? 'true' : 'false'
     ), "dir_list");
 
     foreach ($sorted_items as $item) {
