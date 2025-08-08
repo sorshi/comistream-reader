@@ -638,7 +638,7 @@ $js_config_temp = json_encode([
                     if (typeof reinitializePreviewFeatures === 'function') {
                         reinitializePreviewFeatures();
                     }
-                    // 読書進捗とお気に入り機能を再初期化
+                    // 読書進捗とお気に入り機能を再初期化（inlineで出力されるため即座に利用可能）
                     if (typeof getBookmark === 'function') {
                         setTimeout(getBookmark, 0);
                     }
@@ -663,7 +663,98 @@ $js_config_temp = json_encode([
 
 <body>
 
-    <?php readfile(__DIR__ . '/../theme/header.html'); ?>
+    <!-- Header content integrated from header.html -->
+    <div class="menu">
+      <div class="viewmode" onclick="javascript:toggleView();"></div>
+      <div id="rawMode" class="raw" onclick="javascript:toggleRaw();"></div>
+      <div id="languageIcon" class="language" onclick="javascript:switchLanguageMenu();"></div>
+      <div id="loginIcon" class="guest" onclick="javascript:login();"></div>
+      <div class="history"><span id="history" style="white-space: nowrap;">-</span></div>
+    </div>
+
+    <div id="filemenu" class="filemenu" style="position:absolute; width:80%; left:10%; padding:10px; display: none; background-color:rgba(0,0,0,0.5); border-radius:5px;">
+      <form id="fileope">
+        <input id="newname" type="text" name="newname" value="" style="width:99%;">
+        <input id="orgname" type="hidden" name="orgname" value="">
+        <input id="fileLink" type="hidden" name="file" value="">
+        <input type="button" name="cancel" value="キャンセル" style="float:right;" onclick="document.getElementById('filemenu').style.display='none';">
+        <input type="submit" name="update" value="更新" style="float:right;">
+      </form>
+    </div>
+
+    <div id="bookdetail" class="filemenu" style="position:absolute; width:80%; left:10%; padding:10px; display: none; background-color:rgba(18, 126, 143, 0.5); border-radius:5px;">
+      <form id="openbookdetail">
+        <input id="fileA" type="text" name="fileA" value="" style="width:99%;">
+        <input id="fileB" type="hidden" name="fileB" value="">
+        <input id="detailFileLink" type="hidden" name="file" value="">
+        <input type="button" name="cancel" value="キャンセル" style="float:right;" onclick="document.getElementById('bookdetail').style.display='none';">
+        <input type="submit" name="detail" value="詳細" style="float:right;">
+      </form>
+    </div>
+
+    <div id="languageMenu" class="filemenu" style="position:absolute; width:auto; padding:10px; display: none; background-color:rgba(0,0,0,0.7); border-radius:5px; z-index: 1100;">
+      <div id="languageOptions">
+        <!-- 言語オプションがここに動的に追加されます -->
+      </div>
+    </div>
+
+    <!-- 多言語対応スクリプト読み込み -->
+    <script src="/theme/js/i18n.js" defer></script>
+
+    <script>
+    // Cookie取得
+    for(var keyValues of document.cookie.split(";") ){
+      keyValue = keyValues.split("=");
+      if( keyValue[0].match(/comistreamUser/) ){
+        // ユーザ名設定
+        document.getElementById("loginIcon").className = "login";
+      }else if( keyValue[0].match(/rawMode/) ){
+        // 圧縮有無設定
+        document.getElementById("rawMode").className = keyValue[1];
+      }
+    }
+    // -->
+    </script>
+
+    <div id="modal" style="display: none">
+      <div id="modal-content">
+        <img id="modal-image" src="" alt="プレビュー画像" width="800" height="600" />
+      </div>
+    </div>
+
+    <div class="wrapper">
+    <!-- we open the `wrapper` element here, but close it in the footer section -->
+
+    <div>
+      <span class="breadcrumb" id="breadcrumb">/</span>
+      <div class="search-controls">
+        <div id="favbutton" class="favbutton" onclick="javascript:searchFavButton()"></div>
+        <form name="searchform" action="javascript:search()">
+          <input class="textbox" type="search" name="textbox" results="10" placeholder="ファイル名を検索">
+        </form>
+        <div id="sortToggle" class="sort-toggle" onclick="javascript:toggleSortPanel()"></div>
+        
+        <!-- ソート設定パネル（収納式） -->
+        <div class="sort-panel" id="sortPanel">
+          <div class="sort-panel-inner">
+            <span class="sort-label" id="sortLabel">ソート:</span>
+            <label for="sortBy" class="visually-hidden">ソート項目</label>
+            <select id="sortBy" class="sort-select" onchange="applySortChange()">
+              <option value="name">名前</option>
+              <option value="lastmod">更新日時</option>
+              <option value="size">サイズ</option>
+            </select>
+            <label for="sortOrder" class="visually-hidden">ソート順序</label>
+            <select id="sortOrder" class="sort-select" onchange="applySortChange()">
+              <option value="asc">昇順</option>
+              <option value="desc">降順</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <br>
 
     <script>
         // パンくずリストを設定
@@ -1046,7 +1137,7 @@ $js_config_temp = json_encode([
                     console.error('ERROR Fast render: reinitializePreviewFeatures is not a function');
                 }
 
-                // 読書進捗とお気に入り機能を再初期化
+                // 読書進捗とお気に入り機能を再初期化（inlineで出力されるため即座に利用可能）
                 if (typeof getBookmark === 'function') {
                     try {
                         debugLog('DEBUG Fast render: Calling getBookmark');
@@ -1088,7 +1179,18 @@ $js_config_temp = json_encode([
     <div id="actual-content" style="display: none;">
     </div>
 
-    <?php readfile(__DIR__ . '/../theme/footer.html'); ?>
+    </div><!--/.wrapper-->
+
+    <!-- Directory listing JavaScript functions (inlined to avoid iOS PWA cache issues) -->
+    <script>
+    <?php readfile(__DIR__ . '/dir_list.js'); ?>
+    </script>
+
+    <!-- Footer content integrated from footer.html -->
+    <div class="footer">
+      Comistream - Nihondo 2025<br>
+    </div>
+    <!--/.footer-->
 
 </body>
 
