@@ -906,7 +906,9 @@ function outputPage($isFileout = false)
             } else {
                 // ファイルサイズ検証
                 // 定数定義
-                define('MAX_FILE_SIZE_BYTES', 20 * 1024 * 1024); // 20MB
+                if (!defined('MAX_FILE_SIZE_BYTES')) {
+                    define('MAX_FILE_SIZE_BYTES', 20 * 1024 * 1024); // 20MB
+                }
                 // 1. 7zaのリストコマンドでファイル情報を取得
                 // -slt: 詳細なリスト形式で出力
                 // -p: パスワード指定

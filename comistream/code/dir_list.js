@@ -108,8 +108,8 @@ function linkhook(e) {
     return false;
   }
 
-  // 通常のファイルアクセス処理
-  location.href = cgiPath+"?file="+fileLink;
+  // 通常のファイルアクセス処理（リーダー起動: mode=open を付与）
+  location.href = cgiPath+"?mode=open&file="+fileLink;
   return false;
 }
 
