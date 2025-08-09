@@ -644,6 +644,9 @@ function getBookmarkList()
         $file = str_replace('+', '%2B', $file);
         $file = urldecode($file);
 
+        header("Content-type: application/json");
+        $json = [];
+
         if ($global_use_db_flag == 1) {
             writelog("DEBUG getBookmarkList() $bookmarkDir:$user:$file with DB");
             $file = rtrim($file, '/');
@@ -657,24 +660,47 @@ function getBookmarkList()
             }
 
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                // writelog("DEBUG getBookmarkList() DB LINE:" . print_r($row, true));
-                $fav = $row['favorite'] == 1 ? "\t*" : '';
-                // 既読は最終ページが0に設定されている仕様
+                $isFavorite = $row['favorite'] == 1;
                 if ($row['has_read'] === 1) {
-                    // 既読なのにcurrent_pageが0になっているのは1ページにする
-                    $currentPage = $row['current_page'] == 0 ? 1 : $row['current_page'];
-                    $outputLine = "{$row['base_file']}\t$currentPage\t0{$fav}";
+                    $currentPage = ($row['current_page'] == 0) ? 1 : (int)$row['current_page'];
+                    $maxPage = 0;
                 } else {
-                    $outputLine = "{$row['base_file']}\t{$row['current_page']}\t{$row['max_page']}{$fav}";
+                    $currentPage = (int)$row['current_page'];
+                    $maxPage = (int)$row['max_page'];
                 }
-                echo $outputLine . "\n";
-                writelog("DEBUG getBookmarkList() " . str_replace("\t", ",", $outputLine) . " with DB");
+                $json[] = [
+                    'baseFile' => $row['base_file'],
+                    'currentPage' => $currentPage,
+                    'maxPage' => $maxPage,
+                    'favorite' => (bool)$isFavorite,
+                ];
             }
+            echo json_encode($json);
+            writelog("DEBUG getBookmarkList() " . json_encode($json) . " with DB");
         } else {
-            echo file_get_contents("$bookmarkDir/$user/$file/bookmark");
+            $bookmarkPath = "$bookmarkDir/$user/$file/bookmark";
+            if (file_exists($bookmarkPath)) {
+                $lines = @file($bookmarkPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                if ($lines !== false) {
+                    foreach ($lines as $line) {
+                        $parts = explode("\t", $line);
+                        if (count($parts) >= 3) {
+                            $json[] = [
+                                'baseFile' => $parts[0],
+                                'currentPage' => (int)$parts[1],
+                                'maxPage' => (int)$parts[2],
+                                'favorite' => (isset($parts[3]) && trim($parts[3]) === '*'),
+                            ];
+                        }
+                    }
+                }
+            }
+            // echo json_encode($json);
+            echo compressResponse(json_encode($json));
         }
     } else {
-        // writelog("DEBUG getBookmarkList() guest user,not send");
+        header("Content-type: application/json");
+        echo json_encode([]);
     }
     exit(0);
 } //end function writelog
@@ -1953,7 +1979,7 @@ function compressResponse($content)
             if (function_exists('zstd_compress')) {
                 writelog("DEBUG compressResponse() USING zstd encode");
                 header('Content-Encoding: zstd');
-                return zstd_compress($content);
+                return call_user_func('zstd_compress', $content);
             } else {
                 // ここに来ることはないはずだけど念のため
                 writelog("INFO compressResponse() zstd fallback");

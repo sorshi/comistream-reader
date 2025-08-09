@@ -280,35 +280,42 @@ function getBookmark() {
 
   debugLog('DEBUG getBookmark response status:', xmlHttp.status);
   debugLog('DEBUG getBookmark response text length:', xmlHttp.responseText.length);
-  if (xmlHttp.responseText) {
-    debugLog('DEBUG getBookmark response text (first 200 chars):', xmlHttp.responseText.substring(0, 200));
+  var listData = [];
+  try {
+    listData = JSON.parse(xmlHttp.responseText || '[]');
+  } catch(parseErr) {
+    console.error('getBookmark JSON parse error:', parseErr, 'body:', xmlHttp.responseText.substring(0, 200));
+    return;
   }
-
-  lines = xmlHttp.responseText.split(/\n/);
-  debugLog('DEBUG getBookmark found', lines.length, 'lines in response');
+  debugLog('DEBUG getBookmark parsed items:', Array.isArray(listData) ? listData.length : -1);
   
   var elementsFound = 0;
   var elementsUpdated = 0;
   
-  for(j=0; j < lines.length; j++){
-    line = lines[j].split("\t");
-    if (line.length < 2) continue; // 空行や不正なデータをスキップ
+  for (var j = 0; j < listData.length; j++){
+    var item = listData[j];
+    if (!item || !item.baseFile) continue;
     
-    var elm = document.getElementById(line[0]);
-    debugLog('DEBUG getBookmark line', j, '- filename:', line[0], 'element found:', !!elm);
+    var fileName = item.baseFile;
+    var currentPage = Number(item.currentPage || 0);
+    var maxPage = Number(item.maxPage || 0);
+    var isFavorite = !!item.favorite;
+
+    var elm = document.getElementById(fileName);
+    debugLog('DEBUG getBookmark item', j, '- filename:', fileName, 'element found:', !!elm);
     
     // 要素が見つからない場合は、類似するIDがないか調査
     if (!elm) {
-      debugLog('DEBUG Searching for similar elements for filename:', line[0]);
+      debugLog('DEBUG Searching for similar elements for filename:', fileName);
       const allIndexColName = document.getElementsByClassName('indexcolname');
       for (let searchIdx = 0; searchIdx < Math.min(allIndexColName.length, 10); searchIdx++) {
         const searchElm = allIndexColName[searchIdx];
         const searchText = searchElm.firstChild ? searchElm.firstChild.textContent : 'no text';
         debugLog('DEBUG Element', searchIdx, '- id:', searchElm.id, 'text:', searchText);
-        if (searchText === line[0]) {
+        if (searchText === fileName) {
           debugLog('DEBUG Found matching text but different ID! Setting correct ID...');
-          searchElm.setAttribute('id', line[0]);
-          searchElm.id = line[0];
+          searchElm.setAttribute('id', fileName);
+          searchElm.id = fileName;
           elm = searchElm; // この要素を使用
           break;
         }
@@ -317,13 +324,13 @@ function getBookmark() {
     
     if( elm ){
       elementsFound++;
-      debugLog('DEBUG Element structure check for:', line[0]);
+      debugLog('DEBUG Element structure check for:', fileName);
       
       // 既読リストとIDがマッチする場合、現在ページと最終ページを比較★
-      if( Number(line[1]) >0 ){
-        if( Number(line[1]) < Number(line[2]) ){
+      if (currentPage > 0){
+        if (currentPage < maxPage){
           // 読みかけ
-          debugLog('DEBUG Setting open icon for:', line[0]);
+          debugLog('DEBUG Setting open icon for:', fileName);
           // <a>要素と<img>要素を確実に取得
           var iconLinkElements = elm.previousSibling ? elm.previousSibling.getElementsByTagName('a') : [];
           var iconImgElement = null;
@@ -338,13 +345,13 @@ function getBookmark() {
           if (iconImgElement) {
             iconImgElement.src = iconPath+"open.png";
             elementsUpdated++;
-            debugLog('Successfully set open icon for:', line[0]);
+            debugLog('Successfully set open icon for:', fileName);
           } else {
-            console.error('ERROR: Cannot find icon img element for:', line[0]);
+            console.error('ERROR: Cannot find icon img element for:', fileName);
           }
         }else{
           // 読み終わった（最終ページ0に設定されている）
-          debugLog('DEBUG Setting done icon for:', line[0]);
+          debugLog('DEBUG Setting done icon for:', fileName);
           // <a>要素と<img>要素を確実に取得
           var iconLinkElements = elm.previousSibling ? elm.previousSibling.getElementsByTagName('a') : [];
           var iconImgElement = null;
@@ -359,26 +366,26 @@ function getBookmark() {
           if (iconImgElement) {
             iconImgElement.src = iconPath+"done.png";
             elementsUpdated++;
-            debugLog('Successfully set done icon for:', line[0]);
+            debugLog('Successfully set done icon for:', fileName);
           } else {
-            console.error('ERROR: Cannot find icon img element for:', line[0]);
+            console.error('ERROR: Cannot find icon img element for:', fileName);
           }
         }
       }
-      if( line[3] ){
-        debugLog('DEBUG Setting favorite for:', line[0]);
+      if (isFavorite){
+        debugLog('DEBUG Setting favorite for:', fileName);
         if (elm.previousSibling) {
           elm.previousSibling.style.backgroundPosition = "5px";
           elm.previousSibling.style.backgroundImage = "url(\""+iconPath+"staron.png\")";
           elementsUpdated++;
-          debugLog('Successfully set favorite for:', line[0]);
+          debugLog('Successfully set favorite for:', fileName);
         } else {
-          console.error('ERROR: Cannot set favorite - no previousSibling for:', line[0]);
+          console.error('ERROR: Cannot set favorite - no previousSibling for:', fileName);
         }
       }
-    } else if (line[0] && line[0].trim()) {
+    } else if (fileName && fileName.trim()) {
       // 要素が見つからない場合のデバッグ情報
-      debugLog('DEBUG Element not found for filename:', line[0], '- Available IDs:', 
+      debugLog('DEBUG Element not found for filename:', fileName, '- Available IDs:', 
         Array.from(document.querySelectorAll('.indexcolname')).map(el => el.id).slice(0, 10));
     }
   }
