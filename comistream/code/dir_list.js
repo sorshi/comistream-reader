@@ -108,8 +108,44 @@ function linkhook(e) {
     return false;
   }
 
-  // 通常のファイルアクセス処理（リーダー起動: mode=open を付与）
-  location.href = cgiPath+"?mode=open&file="+fileLink;
+  // ファイル種別に応じた処理を追加
+  if( e.target.href.match(/\.(m2t|ts|iso|mp4|m4v|avi|mkv|wmv|mpg|m2p|webm)$/i ) ){
+    // 動画ファイルの場合
+    if ( loginuser == "" || loginuser == null || loginuser == "guest"){
+      // 未ログインやゲストはHLS不許可
+      location.href = e.target.href;
+    }else{
+      if( e.target.href.match(/\.mp4$/i) && document.getElementById("rawMode").classList.contains('raw') ){
+        // mp4で圧縮モードrawの場合そのまま
+        location.href = e.target.href;
+      }else{
+        debugLog("LOGINED loginuser:"+loginuser);
+        var openHref = hlsCgiPath + "?file=" + fileLink + "&mode=open";
+        document.getElementById("history").innerHTML = "<a class=\"history_movie\" href="+location.origin+openHref+">"+e.target.innerText+"</a>"
+        location.href = openHref;
+      }
+    }
+  }else if( e.target.href.match(/\.(zip|cbz|rar|cbr|7z|cb7|pdf)$/i ) ){
+    // 書籍アーカイブの場合
+    e.target.parentNode.parentNode.firstChild.firstChild.firstChild.src = iconPath+"open.png";
+    var openHref = cgiPath + "?file=" + fileLink + "&mode=open";
+    if( document.getElementById("rawMode").classList.contains('raw') ){
+      // 圧縮モードrawの場合
+      // openHref = openHref + "&size=FULL";
+    }
+    document.getElementById("history").innerHTML = "<a class=\"history_book\" href="+location.origin+openHref+">"+e.target.innerText+"</a>"
+    location.href = openHref;
+  }else if( e.target.href.match(/\.epub$/i ) ){
+    // ePubの場合
+    e.target.parentNode.parentNode.firstChild.firstChild.firstChild.src = iconPath+"open.png";
+    var openHref = bibiPath + "?book=" + publicDir + "/" + fileLink;
+    document.getElementById("history").innerHTML = "<a class=\"history_book\" href="+location.origin+openHref+">"+e.target.innerText+"</a>"
+    location.href = openHref;
+  }else{
+    // それ以外はそのまま
+    // 通常のファイルアクセス処理（リーダー起動: mode=open を付与）
+    location.href = cgiPath+"?mode=open&file="+fileLink;
+  }
   return false;
 }
 

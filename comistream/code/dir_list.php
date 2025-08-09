@@ -261,25 +261,48 @@ $request_path = '/' . ltrim($request_path, '/');
 
 writelog("INFO dir_list: Sanitized path: " . $request_path, "dir_list");
 
-// 5. 物理パスを取得
-$physical_path = realpath($document_root . $request_path);
+// 5. 物理パス検証とHTTPステータス整理
+// - 存在しないディレクトリ: 404
+// - DocumentRoot範囲外（指定不可能なはず）: 404
+// - 読み取り不可ディレクトリ: 403
 
-// Security check: ensure path is within doc root and exists
-if ($physical_path === false || strpos($physical_path, $document_root) !== 0) {
+// 404モードフラグの初期化（エラー時に空ディレクトリ表示へ）
+$is_404_mode = false;
+
+$document_root_real = realpath($document_root) ?: $document_root;
+$joined_path = $document_root . $request_path; // サニタイズ済みのため単純連結でOK
+$parent_realpath = realpath(dirname($joined_path));
+
+if ($parent_realpath === false || strpos($parent_realpath, $document_root_real) !== 0) {
+    // 親ディレクトリ自体が解決不能、またはDocumentRoot外
+    http_response_code(404);
+    writelog("ERROR dir_list: Out-of-docroot or invalid parent path: " . $request_path . " -> parent=" . ($parent_realpath ?: 'false'), "dir_list");
+    $is_404_mode = true;
+    $physical_path = null;
+} elseif (!file_exists($joined_path)) {
+    // 対象が存在しない
+    http_response_code(404);
+    writelog("ERROR dir_list: Not found: " . $request_path . " - showing empty directory layout", "dir_list");
+    $is_404_mode = true;
+    $physical_path = null;
+} elseif (!is_dir($joined_path)) {
+    // ディレクトリ以外
+    http_response_code(404);
+    writelog("ERROR dir_list: Not a directory attempt: " . $request_path . " - showing empty directory layout", "dir_list");
+    $is_404_mode = true;
+    $physical_path = null;
+} elseif (!is_readable($joined_path) || !is_executable($joined_path)) {
+    // ディレクトリだが読み込み不可（または実行権限なしで走査不可）
     http_response_code(403);
-    writelog("ERROR dir_list: Forbidden access attempt: " . $request_path . " -> " . ($physical_path ?: 'false'), "dir_list");
+    writelog("ERROR dir_list: Directory not readable or not traversable: " . $request_path . " -> " . $joined_path, "dir_list");
     echo "403 Forbidden";
     exit;
+} else {
+    // ここまで来ればディレクトリとして妥当
+    $physical_path = realpath($joined_path) ?: $joined_path;
 }
 
-// 404モードフラグの設定
-$is_404_mode = false;
-if (!is_dir($physical_path)) {
-    http_response_code(404);
-    writelog("ERROR dir_list: Not found attempt: " . $request_path . " - showing empty directory layout", "dir_list");
-    $is_404_mode = true;
-    // exitしない - 空のディレクトリとして表示を継続
-}
+// 以降、$is_404_mode が true の場合は空ディレクトリとして表示を継続
 
 // セッション開始
 session_start();
