@@ -166,6 +166,14 @@ function openMusicPlayer() {
         return strnatcmp($a['name'], $b['name']);
     });
 
+    // ソート後にcurrentIndexを再計算（起動ファイルがズレる不具合の修正）
+    foreach ($musicFiles as $idx => $mf) {
+        if ($mf['name'] === $baseFile) {
+            $currentIndex = $idx;
+            break;
+        }
+    }
+
     // JavaScriptファイルの読み込み
     if (file_exists($conf["comistream_tool_dir"] . '/code/music_player.js')) {
         $contents_js = file_get_contents($conf["comistream_tool_dir"] . '/code/music_player.js');
@@ -322,83 +330,18 @@ function openMusicPlayer() {
             color: #333;
         }
         
-        /* カスタムアイコン用のスタイル */
-        .icon-play::before {
-            content: '';
-            width: 0;
-            height: 0;
-            border-style: solid;
-            border-width: 8px 0 8px 14px;
-            border-color: transparent transparent transparent currentColor;
-            margin-left: 2px;
-        }
-        
-        .icon-pause::before {
-            content: '';
-            width: 12px;
-            height: 16px;
-            border-left: 4px solid currentColor;
-            border-right: 4px solid currentColor;
-            background: transparent;
-        }
-        
-        .icon-prev::before,
-        .icon-next::before {
-            content: '';
-            width: 0;
-            height: 0;
-            border-style: solid;
-            position: relative;
-        }
-        
-        .icon-prev::before {
-            border-width: 6px 10px 6px 0;
-            border-color: transparent currentColor transparent transparent;
-        }
-        
-        .icon-prev::after {
-            content: '';
-            position: absolute;
-            left: -2px;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 2px;
-            height: 12px;
-            background: currentColor;
-        }
-        
-        .icon-next::before {
-            border-width: 6px 0 6px 10px;
-            border-color: transparent transparent transparent currentColor;
-        }
-        
-        .icon-next::after {
-            content: '';
-            position: absolute;
-            right: -2px;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 2px;
-            height: 12px;
-            background: currentColor;
-        }
-        
-        .icon-shuffle::before {
-            content: '⟲';
-            font-size: 16px;
-            transform: scaleX(-1);
-            display: inline-block;
-        }
-        
-        .icon-repeat::before {
-            content: '↻';
-            font-size: 16px;
-        }
-        
-        .icon-repeat-one::before {
-            content: '①';
-            font-size: 14px;
-            font-weight: bold;
+        /* アイコンはISO/IEC 10646準拠のUnicode記号を使用 */
+        .icon-play::before { content: '▶'; }
+        .icon-pause::before { content: '⏸'; }
+        .icon-prev::before { content: '⏮'; }
+        .icon-next::before { content: '⏭'; }
+        .icon-shuffle::before { content: '🔀'; }
+        .icon-repeat::before { content: '🔁'; }
+        .icon-repeat-one::before { content: '🔂'; }
+        .icon-download::before { content: '⤓'; }
+        .control-btn::before {
+            font-size: 18px;
+            line-height: 1;
         }
         
         .shuffle-active {
@@ -492,6 +435,30 @@ function openMusicPlayer() {
             background: rgba(255, 255, 255, 0.3);
         }
 
+        /* デスクトップ向けカスタムツールチップ */
+        @media (hover: hover) and (pointer: fine) {
+            .control-btn[data-tooltip] {
+                position: relative;
+            }
+            .control-btn[data-tooltip]:hover::after {
+                content: attr(data-tooltip);
+                position: absolute;
+                bottom: 110%;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0,0,0,0.75);
+                color: #fff;
+                padding: 6px 8px;
+                border-radius: 6px;
+                white-space: nowrap;
+                font-size: 12px;
+                pointer-events: none;
+            }
+            .control-btn[data-tooltip]:hover::before {
+                filter: drop-shadow(0 0 2px rgba(0,0,0,0.3));
+            }
+        }
+
         .hidden {
             display: none;
         }
@@ -547,11 +514,12 @@ function openMusicPlayer() {
         </div>
         
         <div class="controls">
-            <button class="control-btn icon-prev" id="prevBtn" title="前の曲"></button>
-            <button class="control-btn play-pause-btn icon-play" id="playPauseBtn" title="再生/一時停止"></button>
-            <button class="control-btn icon-next" id="nextBtn" title="次の曲"></button>
-            <button class="control-btn icon-shuffle" id="shuffleBtn" title="シャッフル"></button>
-            <button class="control-btn icon-repeat" id="repeatBtn" title="リピート"></button>
+            <button class="control-btn icon-prev" id="prevBtn" title="前の曲" data-tooltip="前の曲"></button>
+            <button class="control-btn play-pause-btn icon-play" id="playPauseBtn" title="再生" data-tooltip="再生"></button>
+            <button class="control-btn icon-next" id="nextBtn" title="次の曲" data-tooltip="次の曲"></button>
+            <button class="control-btn icon-shuffle" id="shuffleBtn" title="シャッフル: OFF" data-tooltip="シャッフル: OFF"></button>
+            <button class="control-btn icon-repeat" id="repeatBtn" title="リピート: OFF" data-tooltip="リピート: OFF"></button>
+            <a class="control-btn icon-download" id="downloadBtn" title="ダウンロード" data-tooltip="ダウンロード" href="#" download></a>
         </div>
         
         <div class="volume-container">
@@ -570,7 +538,7 @@ function openMusicPlayer() {
     </div>
     
     <!-- iOS 18 Safari バックグラウンド再生対応のオーディオ要素 -->
-    <audio id="audioPlayer" preload="auto" crossorigin="anonymous"></audio>
+    <audio id="audioPlayer" preload="auto" crossorigin="anonymous" playsinline webkit-playsinline x-webkit-airplay="allow"></audio>
 
     <script>
         // PHP から JavaScript へのデータ渡し

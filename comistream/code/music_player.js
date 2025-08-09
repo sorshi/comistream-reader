@@ -79,6 +79,8 @@ class MusicPlayer {
         this.createPlaylistBtn = document.getElementById('createPlaylistBtn');
         this.addToPlaylistBtn = document.getElementById('addToPlaylistBtn');
         this.playlistContainer = document.getElementById('playlistContainer');
+        // ダウンロード
+        this.downloadBtn = document.getElementById('downloadBtn');
     }
 
     initEventListeners() {
@@ -190,12 +192,8 @@ class MusicPlayer {
         // iOS Safari でのオーディオセッション設定
         this.audioPlayer.addEventListener('canplay', () => {
             // オーディオコンテキストの状態を確認・再開
-            if (window.AudioContext || window.webkitAudioContext) {
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                if (audioContext.state === 'suspended') {
-                    audioContext.resume().catch(console.error);
-                }
-            }
+            // iOS Safari では WebAudio 経由のノード接続を避け、media element のまま再生
+            // ここでは AudioContext の作成・接続を行わない
         });
 
         // iOS でのバックグラウンド継続のための工夫
@@ -215,6 +213,8 @@ class MusicPlayer {
         this.audioPlayer.addEventListener('loadstart', () => {
             // プリロードを設定して途切れを防ぐ
             this.audioPlayer.preload = 'auto';
+            this.audioPlayer.setAttribute('playsinline', '');
+            this.audioPlayer.setAttribute('webkit-playsinline', '');
         });
     }
 
@@ -222,40 +222,16 @@ class MusicPlayer {
         // ハードウェアボリューム変化の検出を試行
         // 注意: セキュリティ上の制限により多くのブラウザで制限されています
         try {
-            // Web Audio API を使用してボリューム変化を検出
-            if (window.AudioContext || window.webkitAudioContext) {
-                const AudioContext = window.AudioContext || window.webkitAudioContext;
-                
-                // ユーザージェスチャー後に初期化
-                const initAudioContext = () => {
-                    try {
-                        const audioContext = new AudioContext();
-                        const source = audioContext.createMediaElementSource(this.audioPlayer);
-                        const gainNode = audioContext.createGain();
-                        
-                        source.connect(gainNode);
-                        gainNode.connect(audioContext.destination);
-                        
-                        // ボリューム変化の監視（間接的）
-                        this.audioPlayer.addEventListener('volumechange', () => {
-                            if (!this.volumeDragging) {
-                                // ユーザーがスライダーを操作していない時のみ更新
-                                const newVolume = this.audioPlayer.volume;
-                                this.volumeSlider.value = newVolume * 100;
-                                this.volume = newVolume;
-                                console.log('Hardware volume detected:', newVolume);
-                            }
-                        });
-                        
-                        console.log('Hardware volume sync initialized');
-                    } catch (error) {
-                        console.log('Hardware volume sync not available:', error);
-                    }
-                };
-                
-                // ユーザージェスチャー後に初期化
-                document.addEventListener('click', initAudioContext, { once: true });
-            }
+            // iOS の制限を考慮し、AudioContext を常設しない
+            // ボリュームの同期は media element の volumechange で対応
+            this.audioPlayer.addEventListener('volumechange', () => {
+                if (!this.volumeDragging) {
+                    const newVolume = this.audioPlayer.volume;
+                    this.volumeSlider.value = newVolume * 100;
+                    this.volume = newVolume;
+                    console.log('Volume changed:', newVolume);
+                }
+            });
         } catch (error) {
             console.log('Hardware volume sync not supported:', error);
         }
@@ -268,7 +244,13 @@ class MusicPlayer {
         if (!currentTrack) return;
         
         // オーディオソースを設定
-        this.audioPlayer.src = this.baseDir + currentTrack.path;
+        const audioUrl = this.baseDir + currentTrack.path;
+        this.audioPlayer.src = audioUrl;
+        // ダウンロードリンク更新
+        if (this.downloadBtn) {
+            this.downloadBtn.href = audioUrl;
+            this.downloadBtn.setAttribute('download', currentTrack.name || 'audio');
+        }
         
         // トラック情報を更新
         this.updateTrackInfo(currentTrack);
@@ -296,6 +278,27 @@ class MusicPlayer {
         }
         
         // Media Session metadata を更新
+        if ('mediaSession' in navigator) {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: this.trackTitle.textContent,
+                artist: this.trackArtist.textContent,
+                album: 'Comistream Player',
+                artwork: [
+                    { src: '/theme/icons/audio.png', sizes: '96x96', type: 'image/png' },
+                ]
+            });
+        }
+    }
+
+    applyMetadataToUI(metadata) {
+        if (!metadata) return;
+        const { title, artist } = metadata;
+        if (artist && typeof artist === 'string') {
+            this.trackArtist.textContent = artist;
+        }
+        if (title && typeof title === 'string') {
+            this.trackTitle.textContent = title;
+        }
         if ('mediaSession' in navigator) {
             navigator.mediaSession.metadata = new MediaMetadata({
                 title: this.trackTitle.textContent,
@@ -340,18 +343,30 @@ class MusicPlayer {
         this.isPlaying = true;
         this.playPauseBtn.className = 'control-btn play-pause-btn icon-pause';
         this.playPauseBtn.title = '一時停止';
+        this.playPauseBtn.dataset.tooltip = '一時停止';
         
         // バックグラウンド再生のためのWakeLock API (対応ブラウザのみ)
         this.requestWakeLock();
+
+        // Media Session の状態を更新
+        if ('mediaSession' in navigator) {
+            try { navigator.mediaSession.playbackState = 'playing'; } catch (_) {}
+        }
     }
 
     onPause() {
         this.isPlaying = false;
         this.playPauseBtn.className = 'control-btn play-pause-btn icon-play';
         this.playPauseBtn.title = '再生';
+        this.playPauseBtn.dataset.tooltip = '再生';
         
         // WakeLockを解除
         this.releaseWakeLock();
+
+        // Media Session の状態を更新
+        if ('mediaSession' in navigator) {
+            try { navigator.mediaSession.playbackState = 'paused'; } catch (_) {}
+        }
     }
 
     async requestWakeLock() {
@@ -442,9 +457,11 @@ class MusicPlayer {
         if (this.isShuffled) {
             this.shuffleBtn.classList.add('shuffle-active');
             this.shuffleBtn.title = 'シャッフル: ON';
+            this.shuffleBtn.dataset.tooltip = 'シャッフル: ON';
         } else {
             this.shuffleBtn.classList.remove('shuffle-active');
             this.shuffleBtn.title = 'シャッフル: OFF';
+            this.shuffleBtn.dataset.tooltip = 'シャッフル: OFF';
         }
         console.log('Shuffle mode:', this.isShuffled);
     }
@@ -459,14 +476,17 @@ class MusicPlayer {
             case 0: // none
                 this.repeatBtn.classList.add('icon-repeat');
                 this.repeatBtn.title = 'リピート: OFF';
+                this.repeatBtn.dataset.tooltip = 'リピート: OFF';
                 break;
             case 1: // all
                 this.repeatBtn.classList.add('icon-repeat', 'repeat-active');
                 this.repeatBtn.title = 'リピート: 全曲';
+                this.repeatBtn.dataset.tooltip = 'リピート: 全曲';
                 break;
             case 2: // one
                 this.repeatBtn.classList.add('icon-repeat-one', 'repeat-active');
                 this.repeatBtn.title = 'リピート: 1曲';
+                this.repeatBtn.dataset.tooltip = 'リピート: 1曲';
                 break;
         }
         
@@ -504,6 +524,12 @@ class MusicPlayer {
                 
                 // メモリリーク防止のため古いURLを解放
                 setTimeout(() => URL.revokeObjectURL(url), 5000);
+            }
+
+            // メタデータ抽出（ID3やVorbis等）
+            const metadata = await this.extractMetadata(arrayBuffer, track.name);
+            if (metadata && (metadata.title || metadata.artist)) {
+                this.applyMetadataToUI(metadata);
             }
         } catch (error) {
             console.log('Cover art extraction failed:', error);
@@ -613,7 +639,7 @@ class MusicPlayer {
                 
                 // 画像データを抽出
                 const imageDataSize = frameSize - (dataOffset - (offset + 10));
-                const imageData = new Uint8Array(arrayBuffer, dataOffset, imageDataSize);
+                const imageData = new Uint8Array(dataView.buffer, dataOffset, imageDataSize);
                 
                 return {
                     data: imageData,
@@ -653,7 +679,7 @@ class MusicPlayer {
             
             if (atomType === 'covr') {
                 // カバーアートアトムを発見
-                const imageData = new Uint8Array(arrayBuffer, offset + 16, atomSize - 16);
+                const imageData = new Uint8Array(dataView.buffer, offset + 16, atomSize - 16);
                 
                 // ファイル形式を判定
                 let format = 'image/jpeg';
@@ -729,6 +755,202 @@ class MusicPlayer {
             if (isLast) break;
         }
         
+        return null;
+    }
+
+    async extractMetadata(arrayBuffer, filename) {
+        try {
+            const dataView = new DataView(arrayBuffer);
+            const ext = filename.toLowerCase().split('.').pop();
+            if (ext === 'mp3') {
+                return this.extractMP3Metadata(dataView);
+            }
+            if (ext === 'flac') {
+                return this.extractFLACMetadata(dataView);
+            }
+            if (ext === 'm4a' || ext === 'mp4') {
+                return this.extractM4AMetadata(dataView);
+            }
+        } catch (e) {
+            console.log('Metadata extraction error:', e);
+        }
+        return null;
+    }
+
+    extractMP3Metadata(dataView) {
+        if (dataView.getUint8(0) !== 0x49 || dataView.getUint8(1) !== 0x44 || dataView.getUint8(2) !== 0x33) {
+            return null;
+        }
+        const version = dataView.getUint8(3);
+        const flags = dataView.getUint8(5);
+        let tagSize = 0;
+        for (let i = 6; i < 10; i++) {
+            tagSize = (tagSize << 7) + (dataView.getUint8(i) & 0x7f);
+        }
+        let offset = 10;
+        if (flags & 0x40) {
+            const extHeaderSize = dataView.getUint32(offset);
+            offset += extHeaderSize;
+        }
+        let title = '';
+        let artist = '';
+        while (offset + 10 <= tagSize + 10) {
+            const id0 = dataView.getUint8(offset);
+            const id1 = dataView.getUint8(offset + 1);
+            const id2 = dataView.getUint8(offset + 2);
+            const id3 = dataView.getUint8(offset + 3);
+            if (id0 === 0 && id1 === 0 && id2 === 0 && id3 === 0) break;
+            const frameId = String.fromCharCode(id0, id1, id2, id3);
+            let frameSize;
+            if (version >= 4) {
+                frameSize = 0;
+                for (let i = 0; i < 4; i++) {
+                    frameSize = (frameSize << 7) + (dataView.getUint8(offset + 4 + i) & 0x7f);
+                }
+            } else {
+                frameSize = dataView.getUint32(offset + 4);
+            }
+            const dataOffset = offset + 10;
+            if (frameSize <= 0 || dataOffset + frameSize > dataView.byteLength) break;
+            if (frameId === 'TIT2' || frameId === 'TPE1') {
+                const encoding = dataView.getUint8(dataOffset);
+                const textBytes = new Uint8Array(dataView.buffer, dataOffset + 1, frameSize - 1);
+                const text = this.decodeID3Text(textBytes, encoding);
+                if (frameId === 'TIT2') title = text;
+                if (frameId === 'TPE1') artist = text;
+            }
+            offset += 10 + frameSize;
+            if (title && artist) break;
+        }
+        if (title || artist) return { title, artist };
+        return null;
+    }
+
+    decodeID3Text(bytes, encoding) {
+        try {
+            if (encoding === 0) {
+                // ISO-8859-1
+                return new TextDecoder('iso-8859-1').decode(bytes).replace(/\u0000+$/, '');
+            }
+            if (encoding === 1) {
+                // UTF-16 with BOM
+                return new TextDecoder('utf-16').decode(bytes).replace(/\u0000+$/, '');
+            }
+            if (encoding === 2) {
+                // UTF-16BE without BOM
+                return new TextDecoder('utf-16be').decode(bytes).replace(/\u0000+$/, '');
+            }
+            if (encoding === 3) {
+                // UTF-8
+                return new TextDecoder('utf-8').decode(bytes).replace(/\u0000+$/, '');
+            }
+        } catch (_) {}
+        return '';
+    }
+
+    extractFLACMetadata(dataView) {
+        if (String.fromCharCode(dataView.getUint8(0), dataView.getUint8(1), dataView.getUint8(2), dataView.getUint8(3)) !== 'fLaC') {
+            return null;
+        }
+        let offset = 4;
+        let title = '';
+        let artist = '';
+        while (offset < dataView.byteLength) {
+            const blockHeader = dataView.getUint32(offset);
+            const isLast = (blockHeader & 0x80000000) !== 0;
+            const blockType = (blockHeader >> 24) & 0x7f;
+            const blockSize = blockHeader & 0xffffff;
+            offset += 4;
+            if (blockType === 4) { // VORBIS_COMMENT
+                let p = offset;
+                if (p + 4 > dataView.byteLength) break;
+                const vendorLen = dataView.getUint32(p, true); p += 4 + vendorLen;
+                if (p + 4 > dataView.byteLength) break;
+                const userCount = dataView.getUint32(p, true); p += 4;
+                for (let i = 0; i < userCount; i++) {
+                    if (p + 4 > dataView.byteLength) break;
+                    const len = dataView.getUint32(p, true); p += 4;
+                    const bytes = new Uint8Array(dataView.buffer, p, len);
+                    p += len;
+                    const kv = new TextDecoder('utf-8').decode(bytes);
+                    const eq = kv.indexOf('=');
+                    if (eq > 0) {
+                        const key = kv.slice(0, eq).toUpperCase();
+                        const val = kv.slice(eq + 1);
+                        if (key === 'TITLE') title = val;
+                        if (key === 'ARTIST') artist = val;
+                    }
+                }
+                if (title || artist) return { title, artist };
+            }
+            offset += blockSize;
+            if (isLast) break;
+        }
+        return null;
+    }
+
+    extractM4AMetadata(dataView) {
+        // 非常に簡易的なmp4 ilst/©nam/©ART解析
+        let offset = 0;
+        let title = '';
+        let artist = '';
+        const len = dataView.byteLength;
+        const readAtom = (start) => {
+            if (start + 8 > len) return null;
+            const size = dataView.getUint32(start);
+            const type = String.fromCharCode(
+                dataView.getUint8(start + 4),
+                dataView.getUint8(start + 5),
+                dataView.getUint8(start + 6),
+                dataView.getUint8(start + 7)
+            );
+            return { size, type };
+        };
+        const readTextFromDataAtom = (pos, totalSize) => {
+            // data atom: 4(size) 4('data') 4(version/flags) 4(type set) 4(locale) then payload
+            let p = pos + 8; // after header
+            if (p + 8 > len) return '';
+            p += 8; // skip version/flags and type set
+            if (p + 4 > len) return '';
+            p += 4; // skip locale
+            const payloadSize = totalSize - (p - pos);
+            if (payloadSize <= 0) return '';
+            const bytes = new Uint8Array(dataView.buffer, p, payloadSize);
+            try { return new TextDecoder('utf-8').decode(bytes).replace(/\u0000+$/, ''); } catch { return ''; }
+        };
+        while (offset + 8 <= len) {
+            const atom = readAtom(offset);
+            if (!atom || atom.size <= 0) break;
+            if (atom.type === 'moov' || atom.type === 'udta' || atom.type === 'meta' || atom.type === 'ilst') {
+                // dive into container atoms
+                let inner = offset + 8;
+                if (atom.type === 'meta') inner += 4; // skip meta header
+                const end = offset + atom.size;
+                while (inner + 8 <= end) {
+                    const sub = readAtom(inner);
+                    if (!sub || sub.size <= 0) break;
+                    if (sub.type === '©nam' || sub.type === '©ART' || sub.type === 'aART') {
+                        // look for data atom inside
+                        let p = inner + 8;
+                        const subEnd = inner + sub.size;
+                        while (p + 8 <= subEnd) {
+                            const dataAtom = readAtom(p);
+                            if (!dataAtom || dataAtom.size <= 0) break;
+                            if (dataAtom.type === 'data') {
+                                const text = readTextFromDataAtom(p, dataAtom.size);
+                                if (sub.type === '©nam') title = text;
+                                else artist = text;
+                                break;
+                            }
+                            p += dataAtom.size;
+                        }
+                    }
+                    inner += sub.size;
+                }
+            }
+            offset += atom.size;
+        }
+        if (title || artist) return { title, artist };
         return null;
     }
 
