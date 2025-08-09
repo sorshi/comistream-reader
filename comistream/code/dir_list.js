@@ -691,41 +691,109 @@ function showPreview(imageSrc, element) {
   };
 }
 
-// カスタムディレクトリアイコン適用
+// カスタムディレクトリアイコン適用（カバービュー時に /theme/covers/<path>/index.webp を背景に設定）
 function applyDirectoryCustomIcons() {
   debugLog("DEBUG applyDirectoryCustomIcons called");
 
-  const directories = document.querySelectorAll('.indexcolname a[href$="/"]');
+  const imgBasePath = location.origin + "/theme/covers/";
+  const stylesheet = document.getElementById("stylesheet");
+  const isCoverView = stylesheet && /style_cover\.css/.test(stylesheet.href || "");
 
-  directories.forEach(function (dirLink) {
-    const dirName = dirLink.textContent || dirLink.innerText;
-    const iconCell = dirLink.closest("tr").querySelector(".indexcolicon");
+  const dirAnchors = document.querySelectorAll('.indexcolname a[href$="/"]');
 
-    if (!iconCell) return;
+  dirAnchors.forEach(function (anchor) {
+    // リストビューでは通常のフォルダアイコンを表示（背景はクリア）
+    if (!isCoverView) {
+      anchor.style.removeProperty("background-image");
+      anchor.style.removeProperty("background-size");
+      anchor.style.removeProperty("background-position");
+      anchor.style.removeProperty("background-repeat");
+      const iconImg = anchor.closest("tr")?.querySelector(".indexcolicon img");
+      if (iconImg) {
+        iconImg.style.display = "";
+        iconImg.style.visibility = "";
+        iconImg.style.opacity = "";
+      }
+      return;
+    }
 
-    // カスタムアイコンのマッピング
-    const customIcons = {
-      covers: "/theme/icons/coverview.png",
-      preview: "/theme/icons/image.png",
-      data: "/theme/icons/folder-page.png",
-      config: "/theme/icons/setting.png",
-      backup: "/theme/icons/archive.png",
-      temp: "/theme/icons/folder-page.png",
-    };
-
-    const customIcon = customIcons[dirName.toLowerCase()];
-    if (customIcon) {
-      const imgElement = iconCell.querySelector("img");
-      if (imgElement) {
-        imgElement.src = customIcon;
-        debugLog(
-          "DEBUG Applied custom icon for directory:",
-          dirName,
-          "->",
-          customIcon
-        );
+    // data-filepath優先で正確なパスを取得
+    let fullHref = anchor.getAttribute("data-filepath") || anchor.getAttribute("href") || "";
+    if (fullHref) {
+      try {
+        fullHref = decodeURIComponent(fullHref);
+      } catch (_) {
+        // 失敗したらそのまま使う
       }
     }
+
+    // publicDir 基準で相対パスを抽出
+    let pathAfterPublicDir = "";
+    const publicDirWithSlash = (typeof publicDir !== "undefined" ? publicDir : "") + "/";
+    if (publicDir && fullHref.includes(publicDirWithSlash)) {
+      pathAfterPublicDir = fullHref.substring(fullHref.indexOf(publicDirWithSlash) + publicDirWithSlash.length);
+    } else {
+      try {
+        if (fullHref.startsWith("http://") || fullHref.startsWith("https://")) {
+          const urlObj = new URL(fullHref);
+          pathAfterPublicDir = urlObj.pathname;
+        } else {
+          pathAfterPublicDir = fullHref;
+        }
+        if (pathAfterPublicDir.startsWith("/")) pathAfterPublicDir = pathAfterPublicDir.substring(1);
+      } catch (_) {
+        pathAfterPublicDir = fullHref.replace(location.origin, "");
+        if (pathAfterPublicDir.startsWith("/")) pathAfterPublicDir = pathAfterPublicDir.substring(1);
+        if (publicDir && pathAfterPublicDir.startsWith(publicDirWithSlash)) {
+          pathAfterPublicDir = pathAfterPublicDir.substring(publicDirWithSlash.length);
+        }
+      }
+    }
+
+    // 末尾に/を保証
+    if (!pathAfterPublicDir.endsWith("/")) pathAfterPublicDir += "/";
+
+    // ディレクトリ各パートを安全にエンコード（' も %27 へ）
+    const parts = pathAfterPublicDir.split("/");
+    let encodedParts = parts
+      .slice(0, -1)
+      .map(function (part) {
+        let decoded = part;
+        try {
+          decoded = decodeURIComponent(part);
+        } catch (_) {}
+        return encodeURIComponent(decoded).replace(/'/g, "%27");
+      });
+    let relativeDirPath = encodedParts.join("/");
+    if (pathAfterPublicDir.endsWith("/") && parts.length > 1) relativeDirPath += "/";
+
+    const dirCustomIconUrl = imgBasePath + relativeDirPath + "index.webp";
+
+    // 画像を事前ロードして有効性チェック（サイズ 560x656）
+    (function (linkEl, url) {
+      const tmp = new Image();
+      tmp.onload = function () {
+        if (this.width === 560 && this.height === 656) {
+          // カバービュー時のみ背景として適用
+          linkEl.style.backgroundImage = "url('" + url + "')";
+          linkEl.style.backgroundSize = "cover";
+          linkEl.style.backgroundPosition = "center center";
+          linkEl.style.backgroundRepeat = "no-repeat";
+        } else {
+          linkEl.style.removeProperty("background-image");
+          linkEl.style.removeProperty("background-size");
+          linkEl.style.removeProperty("background-position");
+          linkEl.style.removeProperty("background-repeat");
+        }
+      };
+      tmp.onerror = function () {
+        linkEl.style.removeProperty("background-image");
+        linkEl.style.removeProperty("background-size");
+        linkEl.style.removeProperty("background-position");
+        linkEl.style.removeProperty("background-repeat");
+      };
+      tmp.src = url;
+    })(anchor, dirCustomIconUrl);
   });
 }
 
