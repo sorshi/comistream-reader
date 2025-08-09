@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - カスタムディレクトリアイコン表示機能搭載。まだ自動作成処理は動作有効にしてない。（BETA）
 - ページサイズが大きい際にはリーダーオープン時に通知を表示
 - 文書PDFを開くときにLoading画面を新設。再度開く時には目次データ取得をキャッシュから行うように。またページ出力にレンダリングが高速なmutoolを採用（それでも文書PDFは重い）
+- ディレクトリリスティングのスケルトンスクリーン追加
+- アーカイブ破損検出によるエラー表示
+- 破損画像での破損画像表示
+- ファイルサイズ20MBを以上や辺のピクセル数8000以上の巨大画像でのエラー処理によるエラー処理
+- ディレクトリリスティングでカバービューモードでもソートオーダー設定可能に
 
 ### 変更
 - unrar path設定項目を削除
@@ -30,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfileの/etc/mime.typesのflacのMIMEをaudio/x-flacからaudio/flacに変更、htaccessも更新
 - pdfファイルを開くときに総ページ数取得にpdfinfoコマンドを利用するように
 - ページサイズが1MBを超える画像は先読み枚数を1.5倍に増やした
+- ディレクトリリスティングをApache mod_rewriteからdir_list.phpに変更
+- 画像縮小をImageMagickからLibvipsに変更
+- ディレクトリリスティングで404の場合からのディレクトリ表示をとした
+- 文書PDFの表示速度向上
 
 ### 修正
 - Dockerfileにunrar追加
