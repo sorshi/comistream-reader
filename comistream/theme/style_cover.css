@@ -204,13 +204,38 @@ input[type="search"]::-webkit-search-cancel-button {
 /* table */
 table {
   display: block;
-  text-align: center;
+  text-align: left;
   width: 100%;
   margin-top: 10px;
   border-collapse: collapse;
   font-size: 0.9em;
   table-layout: fixed;
 }
+
+/* Flexify the table itself so rows can wrap nicely; we'll flatten tbody */
+#indexlist {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;    /* left-align within dynamic side gutters */
+  align-content: flex-start;
+  width: 100%;
+  padding-left: var(--cover-side-gutter, 0px);
+  padding-right: var(--cover-side-gutter, 0px);
+}
+
+/* Flatten tbody so its children (tr) participate directly in the flex layout */
+#indexlist > tbody {
+  display: contents;
+}
+
+/* no ghost; side gutters are computed by JS for perfect balance */
+
+/*
+  Cover view layout:
+  - Center rows so left/right outer margins look equal
+  - Make ONLY the last row left-aligned by giving the last item a flexible right margin
+*/
+/* tbody is flattened above; no flex needed here */
 /* table row */
 tr {
   display: inline-block;

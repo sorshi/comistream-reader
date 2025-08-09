@@ -25,6 +25,107 @@ COPY /comistream-tools/ffmpeg /usr/local/bin/
 COPY /comistream-tools/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.xz /tmp/
 COPY /comistream-tools/comistream.tar.gz /tmp/comistream.tar.gz
 # システムの更新と必要なパッケージのインストール
+
+# for vips build
+
+# sudo dnf config-manager --set-enabled crb
+# sudo dnf clean all
+# sudo dnf install \
+#     libheif-devel \
+#     libaom-devel \
+#     libtiff-devel \
+#     librsvg2-devel \
+#     lcms2-devel \
+#     libexif-devel \
+#     libjxl-devel \
+#     fftw-devel \
+#     openjpeg2-devel \
+#     pango-devel \
+#     libarchive-devel
+
+#  WebPライブラリ類なども
+
+# tar xf libvips-x.y.z.tar.gz
+# cd libvips-x.y.z
+# Mesonを再実行して設定を確認
+# meson setup build --prefix /usr/local/
+# cd build
+# meson compile
+# meson test
+# meson install
+# sudo ldconfig
+
+# ------------------------------------------------------------
+
+# # ベースイメージとしてAlmaLinux 10を指定
+# FROM almalinux:10
+
+# # 引数でlibvipsのバージョンを指定可能にする
+# ARG VIPS_VERSION=8.17.1
+
+# # 環境変数を設定
+# ENV VIPS_HOME=/usr/local
+# ENV PATH=$VIPS_HOME/bin:$PATH
+# ENV PKG_CONFIG_PATH=$VIPS_HOME/lib/pkgconfig
+# ENV LD_LIBRARY_PATH=$VIPS_HOME/lib
+
+# # ビルドに必要な依存関係をまとめてインストール
+# RUN dnf install -y epel-release && \
+#     dnf config-manager --set-enabled crb && \
+#     dnf update -y && \
+#     # ビルドツール群
+#     dnf install -y \
+#         gcc \
+#         gcc-c++ \
+#         make \
+#         wget \
+#         tar \
+#         pkgconfig \
+#         meson \
+#         ninja-build \
+#         cmake \
+#     # libvipsの依存ライブラリ群
+#     && dnf install -y \
+#         glib2-devel \
+#         zlib-devel \
+#         libjpeg-turbo-devel \
+#         libpng-devel \
+#         libwebp-devel \
+#         giflib-devel \
+#         libheif-devel \
+#         libaom-devel \
+#         libtiff-devel \
+#         openjpeg2-devel \
+#         librsvg2-devel \
+#         libjxl-devel \
+#         lcms2-devel \
+#         libexif-devel \
+#         pango-devel \
+#         fftw-devel \
+#         libarchive-devel \
+#     && dnf clean all
+
+# # libvipsのソースコードをダウンロード、展開、ビルド、インストール
+# RUN cd /tmp && \
+#     wget https://github.com/libvips/libvips/releases/download/v${VIPS_VERSION}/vips-${VIPS_VERSION}.tar.gz && \
+#     tar xf vips-${VIPS_VERSION}.tar.gz && \
+#     cd vips-${VIPS_VERSION} && \
+#     meson setup build --prefix=${VIPS_HOME} --buildtype=release && \
+#     ninja -C build && \
+#     ninja -C build install && \
+#     # システムが新しいライブラリを認識できるようにする
+#     ldconfig && \
+#     # 不要になったソースコードや一時ファイルを削除してイメージサイズを削減
+#     cd / && \
+#     rm -rf /tmp/vips-${VIPS_VERSION} /tmp/vips-${VIPS_VERSION}.tar.gz
+
+# # vipsが正しくインストールされたか確認
+# RUN vips --version
+
+# # デフォルトのコマンドを設定（コンテナ起動時に実行される）
+# CMD [ "vips" ]
+
+
 RUN dnf update -y &&  \
     dnf install -y tar httpd php sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release php-intl && \
     dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig unrar fd-find mupdf-devel && \

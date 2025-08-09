@@ -40,7 +40,7 @@ if (databaseExists()) {
     die();
   }
 } else {
-  errorExit("config invalid", "設定内容が異常です。");
+  errorExit('invalid_config');
 }
 
 // 設定ファイル読み込み
@@ -76,13 +76,13 @@ switch ($liveStreamMode) {
   case 1:
     if ($user == 'guest') {
       writelog("INFO Guest user is not allowed to use LiveStream", $writelog_process_name);
-      errorExit("Guest user is not allowed to use LiveStream", "サーバー設定でゲストユーザーはLiveStream機能を利用できません。ファイルをダウンロードするか直接再生してください。");
+      errorExit('guest_not_allowed', 'guest_not_allowed_detail');
     }
     break;
   case 2:
     if (!$_SESSION['is_admin']) {
       writelog("INFO Only admin user is allowed to use LiveStream", $writelog_process_name);
-      errorExit("Only admin user is allowed to use LiveStream", "サーバー設定で管理者以外はLiveStream機能を利用できません。ファイルをダウンロードするか直接再生してください。管理者の場合はログインしてください。");
+      errorExit('admin_only', 'admin_only_detail');
     }
     break;
   default:
@@ -161,7 +161,7 @@ if ($mode == 'stop') {
     writelog("DEBUG JS file exist.", $writelog_process_name);
   } else {
     writelog("ERROR JS not found:" . __DIR__, $writelog_process_name);
-    errorExit("config not found", "livestream.jsファイルがみつかりません。");
+    errorExit('livestream_config_not_found');
   }
 
   // ベースhtml出力

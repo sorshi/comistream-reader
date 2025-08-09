@@ -1,0 +1,170 @@
+/* スケルトンローディングアニメーション */
+.skeleton-loading {
+  opacity: 1;
+  transition: opacity 0.5s ease-out;
+}
+
+.skeleton-loading.fade-out {
+  opacity: 0;
+}
+
+/* フェードアウト単体の場合（skeleton-loadingと組み合わせない場合） */
+.fade-out {
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+}
+
+.skeleton-row {
+  border-bottom: 1px solid #edf1f5;
+  height: 40px;
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-cell {
+  display: table-cell;
+  vertical-align: middle;
+  position: relative;
+  background: #f8f9fa;
+  overflow: hidden;
+}
+
+.skeleton-cell::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.7),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+.skeleton-icon {
+  width: 54px;
+  padding: 8px;
+}
+
+.skeleton-name {
+  padding: 8px;
+  text-align: left;
+}
+
+.skeleton-lastmod {
+  width: 14em;
+  padding: 8px;
+  text-align: right;
+}
+
+.skeleton-size {
+  width: 5em;
+  padding: 8px;
+  text-align: right;
+}
+
+.skeleton-placeholder {
+  height: 20px;
+  background: #e9ecef;
+  border-radius: 4px;
+  margin: 4px 0;
+}
+
+.skeleton-icon .skeleton-placeholder {
+  width: 20px;
+  height: 20px;
+  margin: 0 auto;
+}
+
+.skeleton-name .skeleton-placeholder {
+  width: 60%;
+  min-width: 100px;
+}
+
+.skeleton-lastmod .skeleton-placeholder {
+  width: 80%;
+  margin-left: auto;
+}
+
+.skeleton-size .skeleton-placeholder {
+  width: 40px;
+  margin-left: auto;
+}
+
+@keyframes shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* 実際のコンテンツの初期状態（シンプルアプローチ） */
+.actual-content {
+  transition: opacity 0.3s ease-in;
+}
+
+.actual-content.fade-in {
+  opacity: 1;
+}
+
+/* スケルトンローディング中のフッター制御 */
+/* フッターはデフォルト表示。スケルトン表示中のみ非表示にする */
+.footer {
+  transition: opacity 0.3s ease;
+}
+
+/* :has を使って、ラッパ内にスケルトン中のテーブルがある間だけ隣接のフッターを隠す */
+.wrapper:has(#indexlist.skeleton-loading) ~ .footer {
+  opacity: 0;
+}
+
+/* カバー表示モード用のスケルトン */
+.skeleton-cover {
+  display: inline-block;
+  position: relative;
+  width: 150px;
+  height: 310px;
+  margin: 3px;
+  background: #f8f9fa;
+  overflow: hidden;
+}
+
+.skeleton-cover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.7),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+.skeleton-cover-image {
+  width: 150px;
+  height: 226px;
+  background: #e9ecef;
+  margin-bottom: 8px;
+}
+
+.skeleton-cover-text {
+  height: 16px;
+  background: #e9ecef;
+  margin: 4px 8px;
+  border-radius: 4px;
+}
+
+.skeleton-cover-text.short {
+  width: 60%;
+}

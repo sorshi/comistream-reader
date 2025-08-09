@@ -15,7 +15,9 @@
   DirectoryIndex index.php index.html
 
   # Do not rewrite for special aliased paths.
-  RewriteRule ^(cgi-bin/|theme/|bibi/) - [L]
+  # Exclude covers and preview from theme protection
+  RewriteRule ^(cgi-bin/|bibi/) - [L]
+  RewriteRule ^theme/(?!covers/|preview/) - [L]
 
   # Do not rewrite if the request is for an existing file.
   RewriteCond %{REQUEST_FILENAME} -f
@@ -23,21 +25,41 @@
 
   # For directories, rewrite to the listing script ONLY if an index file does not exist.
   # Force rewrite for all directories that don't have index files
+  # Security: Only respect index files in the document root, ignore all subdirectory index files
   RewriteCond %{REQUEST_FILENAME} -d
-  RewriteCond %{REQUEST_FILENAME}/index.php !-f
-  RewriteCond %{REQUEST_FILENAME}/index.html !-f
+  RewriteCond %{REQUEST_URI} !^/$
   RewriteCond %{THE_REQUEST} \s/+(.+?)[\s?] [NC]
   RewriteRule ^ /cgi-bin/dir_list.php?path=%1 [L,QSA,E=no-gzip:1]
-  
-  # Emergency fallback: Force rewrite for 3+ level directories
-  RewriteCond %{REQUEST_URI} ^/[^/]+/[^/]+/[^/]+/
+
+  # ----------------------------------------------------------------------
+  # 1. 書影パス (/theme/covers/) と プレビューパス (/theme/preview/) でファイルが存在しない場合
+  # ----------------------------------------------------------------------
+  # Missing cover/preview images - respond with 404 (body will be set via ErrorDocument)
   RewriteCond %{REQUEST_FILENAME} !-f
-  RewriteCond %{THE_REQUEST} \s/+(.+?)[\s?] [NC]
-  RewriteRule ^ /cgi-bin/dir_list.php?path=%1 [L,QSA,E=no-gzip:1]
+  RewriteRule ^theme/(covers|preview)/ - [L,R=404]
+
+  # ----------------------------------------------------------------------
+  # 2. 上記以外で、ファイルもディレクトリも存在しない場合
+  # ----------------------------------------------------------------------
+  # ここで初めて dir_list.php に渡すルールを適用する
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.*)$ /cgi-bin/dir_list.php?path=$1 [L,QSA]
+
+  # ----------------------------------------------------------------------
+  # グローバルなErrorDocument設定は不要になるか、汎用的なものを指定
+  # ErrorDocument 404 /theme/icons/now-printing.gif # ← この行は不要になる
+  # ----------------------------------------------------------------------
+
 </IfModule>
 
+# Scoped ErrorDocument for covers/preview 404s only
+<If "%{REQUEST_URI} =~ m#^/theme/(covers|preview)/#">
+  ErrorDocument 404 /theme/icons/now-printing.gif
+</If>
+
 # General settings
-ErrorDocument 404 /theme/icons/now-printing.gif
+# ErrorDocument 404 /theme/icons/now-printing.gif
 FileETag None
 
 <IfModule mod_headers.c>

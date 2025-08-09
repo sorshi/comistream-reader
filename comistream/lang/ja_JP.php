@@ -30,6 +30,58 @@ return [
     'config_not_found' => '設定が見つかりません',
     'file_not_found' => 'ファイルが見つかりません',
     'invalid_config' => '設定内容が異常です',
+    
+    // システム関連エラー
+    'invalid_arguments' => '引数が正しくありません',
+    'database_execution_error' => 'DB実行エラーが発生しました',
+    'system_error' => 'システムエラー',
+    'not_found_files' => '必要なファイルが見つかりません',
+    
+    // ファイル・アクセス関連エラー
+    'file_not_readable' => 'ファイルが読めません',
+    'file_processing_failed' => 'ファイルが処理できません',
+    'invalid_file_type' => '未対応ファイルです',
+    'pdf_file_error' => 'PDFファイルの読み込みに失敗しました',
+    'access_denied' => 'アクセス拒否',
+    
+    // ディレクトリ・権限関連エラー
+    'mkdir_failed' => 'ディレクトリ作成に失敗しました',
+    'permission_error' => 'パーミッションエラーです',
+    'symlink_failed' => 'シンボリックリンクの作成に失敗しました',
+    
+    // アーカイブ関連エラー
+    'archive_corrupted' => 'アーカイブファイルが破損しています',
+    'archive_expanding' => 'アーカイブの展開中です',
+    'archive_open_failed' => 'アーカイブファイルの展開に失敗しました',
+    
+    // ライブストリーム関連エラー
+    'guest_not_allowed' => 'ゲストユーザーはLiveStream機能を利用できません',
+    'admin_only' => '管理者以外はLiveStream機能を利用できません',
+    'livestream_config_not_found' => 'livestream.jsファイルがみつかりません',
+    
+    // 成功・完了メッセージ
+    'cover_deleted' => '表紙画像とプレビュー画像を削除しました',
+    'cover_update_failed' => '権限が足りないかファイルが指定されていません',
+    'processing_complete' => '処理が正常に完了しました',
+    
+    // 詳細エラーメッセージ
+    'file_not_found_detail' => '指定されたファイルは存在しないか削除された可能性があります',
+    'permission_denied_detail' => 'このファイルにアクセスする権限がありません',
+    'invalid_arguments_detail' => '?mode=open&file=[file/to/path.zip] のようにファイル情報を渡してください',
+    'file_not_readable_detail' => 'パーミッションを確認してください',
+    'file_processing_failed_detail' => '内部エラーです。ファイル名を修正すると解決する場合があります',
+    'mkdir_failed_detail' => 'パーミッションを確認してください',
+    'symlink_failed_detail' => 'サーバー側パーミッションを確認してください',
+    'archive_corrupted_detail' => 'アーカイブが破損しています。利用することが出来ません。ファイルを確認してください',
+    'archive_expanding_detail' => 'しばらく待ってもう一度ファイルを開いてください',
+    'archive_open_failed_detail' => '非対応形式やファイルが異常などのケースが考えられます',
+    'guest_not_allowed_detail' => 'サーバー設定でゲストユーザーはLiveStream機能を利用できません。ファイルをダウンロードするか直接再生してください',
+    'admin_only_detail' => 'サーバー設定で管理者以外はLiveStream機能を利用できません。ファイルをダウンロードするか直接再生してください。管理者の場合はログインしてください',
+    'database_connection_error' => 'データベースに接続できませんでした。管理者にお問い合わせください',
+    'cache_dir_creation_failed' => 'キャッシュディレクトリ作成に失敗しました。サーバー側パーミッションを確認してください',
+    'webserver_write_permission' => 'WebServerが書き込み出来るか確認してください',
+    'reinstall_required' => '再インストールしてください',
+    'upload_dir_creation_failed' => 'アップロード用ディレクトリを作成できませんでした',
 
     // その他のUI要素
     'loading' => '読み込み中',

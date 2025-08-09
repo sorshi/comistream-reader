@@ -62,11 +62,11 @@ if ($global_use_db_flag == 1) {
                 exit;
             }
             // 本来ならここに来ないはず
-            errorExit("config invalid", "設定内容が異常です。");
+            errorExit('invalid_config');
         }
     }
 } else {
-    errorExit("config invalid", "設定内容が異常です。");
+    errorExit('invalid_config');
 }
 
 // 設定ファイル読み込み
@@ -320,5 +320,5 @@ if ($mode === 'delete' && !empty($orgname)) {
     system_config($dbh);
 } else {
     // エラー出力して終了
-    errorExit('Invalid arguments', '引数が正しくありません。?mode=open&file=[file/to/path.zip] のようにファイル情報を渡してください。');
+    errorExit('invalid_arguments', 'invalid_arguments_detail');
 }
