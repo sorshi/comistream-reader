@@ -233,14 +233,33 @@ function toggleSortPanel() {
 
 // ソート設定適用
 function applySortChange() {
-  const sortBy = document.getElementById('sortBy').value;
-  const sortOrder = document.getElementById('sortOrder').value;
-  
-  const currentPath = window.location.pathname;
+  const sortBySelect = document.getElementById('sortBy');
+  const sortOrderSelect = document.getElementById('sortOrder');
+  if (!sortBySelect || !sortOrderSelect) return;
+
+  const selectedSortBy = sortBySelect.value;
+  let selectedSortOrder = sortOrderSelect.value;
+
+  const currentSort = (typeof comistreamConfig !== 'undefined' && comistreamConfig.currentSort) ? comistreamConfig.currentSort : 'name';
+  const currentOrder = (typeof comistreamConfig !== 'undefined' && comistreamConfig.currentOrder) ? comistreamConfig.currentOrder : 'asc';
+
+  // Name/asc から Last modified に切り替えたときは自動で desc を初期選択
+  if (currentSort === 'name' && currentOrder === 'asc' && selectedSortBy === 'lastmod') {
+    selectedSortOrder = 'desc';
+    sortOrderSelect.value = 'desc';
+    debugLog('INFO: Switching from default name/asc to lastmod/desc');
+  }
+
+  // lastmod/size から name に戻すときは asc を初期選択
+  if ((currentSort === 'lastmod' || currentSort === 'size') && selectedSortBy === 'name') {
+    selectedSortOrder = 'asc';
+    sortOrderSelect.value = 'asc';
+    debugLog('INFO: Switching from ' + currentSort + '/' + currentOrder + ' to name/asc');
+  }
+
   const url = new URL(window.location);
-  url.searchParams.set('sort', sortBy);
-  url.searchParams.set('order', sortOrder);
-  
+  url.searchParams.set('sort', selectedSortBy);
+  url.searchParams.set('order', selectedSortOrder);
   window.location.href = url.toString();
 }
 
