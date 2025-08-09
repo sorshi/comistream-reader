@@ -219,10 +219,15 @@ function login() {
 // ソートパネル切り替え
 function toggleSortPanel() {
   const panel = document.getElementById('sortPanel');
-  if (panel.style.display === 'none' || panel.style.display === '') {
-    panel.style.display = 'block';
-  } else {
-    panel.style.display = 'none';
+  const toggle = document.getElementById('sortToggle');
+  if (!panel) return;
+
+  // CSSアニメーション（.show）で開閉し、displayの直接操作はしない
+  panel.classList.toggle('show');
+
+  // トグルボタンの見た目（回転など）を同期
+  if (toggle) {
+    toggle.classList.toggle('active');
   }
 }
 
