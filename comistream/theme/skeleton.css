@@ -114,9 +114,14 @@
 }
 
 /* スケルトンローディング中のフッター制御 */
+/* フッターはデフォルト表示。スケルトン表示中のみ非表示にする */
 .footer {
-  opacity: 0;
   transition: opacity 0.3s ease;
+}
+
+/* :has を使って、ラッパ内にスケルトン中のテーブルがある間だけ隣接のフッターを隠す */
+.wrapper:has(#indexlist.skeleton-loading) ~ .footer {
+  opacity: 0;
 }
 
 /* カバー表示モード用のスケルトン */

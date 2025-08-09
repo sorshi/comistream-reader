@@ -572,6 +572,9 @@ function reinitializePreviewFeatures() {
   });
   
   debugLog('DEBUG Preview features reinitialized for', previewElements.length, 'elements');
+
+  // カバービューの左右ガターを再計算
+  try { updateCoverSideGutter(); } catch (e) { console.error('updateCoverSideGutter failed:', e); }
 }
 
 // プレビューイベントリスナーをクリアする関数
@@ -742,6 +745,7 @@ function initializeDirectoryListing() {
     setupLongPressHandler();
     reinitializeContentFeatures();
     reinitializePreviewFeatures();
+    try { updateCoverSideGutter(); } catch(e){}
     
     // カスタムディレクトリアイコンの適用（遅延実行）
     setTimeout(applyDirectoryCustomIcons, 500);
@@ -754,4 +758,28 @@ function initializeDirectoryListing() {
 document.addEventListener('DOMContentLoaded', function() {
   debugLog('DEBUG DOMContentLoaded event fired');
   initializeDirectoryListing();
+  try { updateCoverSideGutter(); } catch(e){}
+});
+
+// カバービューの左右ガター（外側余白）を計算してCSS変数に反映
+function updateCoverSideGutter() {
+  const stylesheet = document.getElementById('stylesheet');
+  const isCoverView = stylesheet && /style_cover\.css/.test(stylesheet.href || '');
+  const tableContainer = document.getElementById('indexlist');
+  if (!tableContainer) return;
+  if (!isCoverView) { tableContainer.style.removeProperty('--cover-side-gutter'); return; }
+
+  const slotWidth = 150 + 3 + 3; // card width + horizontal margins
+  const containerWidth = tableContainer.clientWidth;
+  if (!containerWidth) return;
+  const columns = Math.max(1, Math.floor(containerWidth / slotWidth));
+  const leftover = containerWidth - (columns * slotWidth);
+  const gutter = Math.max(0, Math.floor(leftover / 2));
+  tableContainer.style.setProperty('--cover-side-gutter', gutter + 'px');
+}
+
+let _coverGutterResizeTimer = null;
+window.addEventListener('resize', function(){
+  if (_coverGutterResizeTimer) clearTimeout(_coverGutterResizeTimer);
+  _coverGutterResizeTimer = setTimeout(updateCoverSideGutter, 100);
 });
