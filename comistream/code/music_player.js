@@ -499,37 +499,37 @@ class MusicPlayer {
             this.albumArt.style.backgroundImage = '';
             this.albumArt.textContent = '🎵';
             
-            // ID3タグからカバーアートを読み取る
-            const audioUrl = this.baseDir + track.path;
-            const response = await fetch(audioUrl);
-            
-            if (!response.ok) {
-                console.log('Failed to fetch audio file for cover art extraction');
-                return;
-            }
-            
-            const arrayBuffer = await response.arrayBuffer();
-            const coverArt = await this.extractCoverArt(arrayBuffer, track.name);
-            
-            if (coverArt) {
-                const blob = new Blob([coverArt.data], { type: coverArt.format });
-                const url = URL.createObjectURL(blob);
-                
-                this.albumArt.style.backgroundImage = `url(${url})`;
-                this.albumArt.style.backgroundSize = 'cover';
-                this.albumArt.style.backgroundPosition = 'center';
-                this.albumArt.textContent = '';
-                
-                console.log('Cover art loaded for:', track.name);
-                
-                // メモリリーク防止のため古いURLを解放
-                setTimeout(() => URL.revokeObjectURL(url), 5000);
+            // サーバ側エンドポイントから取得
+            const coverUrl = `/cgi-bin/music_player.php?mode=get_cover_art&file=${encodeURIComponent(track.path)}`;
+            const metaUrl = `/cgi-bin/music_player.php?mode=get_metadata&file=${encodeURIComponent(track.path)}`;
+
+            // カバーアート
+            try {
+                const coverResp = await fetch(coverUrl, { cache: 'force-cache' });
+                if (coverResp.ok && coverResp.status !== 204) {
+                    const blob = await coverResp.blob();
+                    const url = URL.createObjectURL(blob);
+                    this.albumArt.style.backgroundImage = `url(${url})`;
+                    this.albumArt.style.backgroundSize = 'cover';
+                    this.albumArt.style.backgroundPosition = 'center';
+                    this.albumArt.textContent = '';
+                    setTimeout(() => URL.revokeObjectURL(url), 5000);
+                }
+            } catch (e) {
+                console.log('Cover fetch failed:', e);
             }
 
-            // メタデータ抽出（ID3やVorbis等）
-            const metadata = await this.extractMetadata(arrayBuffer, track.name);
-            if (metadata && (metadata.title || metadata.artist)) {
-                this.applyMetadataToUI(metadata);
+            // メタデータ
+            try {
+                const metaResp = await fetch(metaUrl, { headers: { 'Accept': 'application/json' }, cache: 'force-cache' });
+                if (metaResp.ok) {
+                    const metaJson = await metaResp.json();
+                    if (metaJson && metaJson.success) {
+                        this.applyMetadataToUI({ title: metaJson.title, artist: metaJson.artist });
+                    }
+                }
+            } catch (e) {
+                console.log('Metadata fetch failed:', e);
             }
         } catch (error) {
             console.log('Cover art extraction failed:', error);
@@ -537,226 +537,10 @@ class MusicPlayer {
         }
     }
 
-    async extractCoverArt(arrayBuffer, filename) {
-        try {
-            const dataView = new DataView(arrayBuffer);
-            const fileExtension = filename.toLowerCase().split('.').pop();
-            
-            // MP3ファイルの場合
-            if (fileExtension === 'mp3') {
-                return this.extractMP3CoverArt(dataView);
-            }
-            
-            // M4A/MP4ファイルの場合
-            if (['m4a', 'mp4'].includes(fileExtension)) {
-                return this.extractM4ACoverArt(dataView);
-            }
-            
-            // FLACファイルの場合
-            if (fileExtension === 'flac') {
-                return this.extractFLACCoverArt(dataView);
-            }
-            
-            console.log('Unsupported audio format for cover art:', fileExtension);
-            return null;
-        } catch (error) {
-            console.log('Cover art extraction error:', error);
-            return null;
-        }
-    }
+    // クライアントでのカバー抽出は使用しない
+    async extractCoverArt() { return null; }
 
-    extractMP3CoverArt(dataView) {
-        // ID3v2ヘッダーをチェック
-        if (dataView.getUint8(0) !== 0x49 || dataView.getUint8(1) !== 0x44 || dataView.getUint8(2) !== 0x33) {
-            return null; // ID3v2ヘッダーが見つからない
-        }
-        
-        const version = dataView.getUint8(3);
-        const flags = dataView.getUint8(5);
-        
-        // タグサイズを取得（synchsafe integer）
-        let tagSize = 0;
-        for (let i = 6; i < 10; i++) {
-            tagSize = (tagSize << 7) + (dataView.getUint8(i) & 0x7f);
-        }
-        
-        let offset = 10;
-        
-        // 拡張ヘッダーがある場合はスキップ
-        if (flags & 0x40) {
-            const extHeaderSize = dataView.getUint32(offset);
-            offset += extHeaderSize;
-        }
-        
-        // フレームを探索
-        while (offset < tagSize + 10) {
-            if (offset + 10 >= dataView.byteLength) break;
-            
-            // フレームヘッダーを読み取り
-            const frameId = String.fromCharCode(
-                dataView.getUint8(offset),
-                dataView.getUint8(offset + 1),
-                dataView.getUint8(offset + 2),
-                dataView.getUint8(offset + 3)
-            );
-            
-            if (frameId === 'APIC' || frameId === 'PIC\0') {
-                // APICフレーム（画像）を発見
-                let frameSize;
-                if (version >= 4) {
-                    // ID3v2.4: synchsafe integer
-                    frameSize = 0;
-                    for (let i = 0; i < 4; i++) {
-                        frameSize = (frameSize << 7) + (dataView.getUint8(offset + 4 + i) & 0x7f);
-                    }
-                } else {
-                    // ID3v2.3以前: 普通の32bit integer
-                    frameSize = dataView.getUint32(offset + 4);
-                }
-                
-                const frameFlags = dataView.getUint16(offset + 8);
-                let dataOffset = offset + 10;
-                
-                // テキストエンコーディングをスキップ
-                dataOffset++;
-                
-                // MIMEタイプを読み取り
-                let mimeType = '';
-                while (dataOffset < offset + 10 + frameSize && dataView.getUint8(dataOffset) !== 0) {
-                    mimeType += String.fromCharCode(dataView.getUint8(dataOffset));
-                    dataOffset++;
-                }
-                dataOffset++; // null terminatorをスキップ
-                
-                // ピクチャータイプをスキップ
-                dataOffset++;
-                
-                // 説明をスキップ
-                while (dataOffset < offset + 10 + frameSize && dataView.getUint8(dataOffset) !== 0) {
-                    dataOffset++;
-                }
-                dataOffset++; // null terminatorをスキップ
-                
-                // 画像データを抽出
-                const imageDataSize = frameSize - (dataOffset - (offset + 10));
-                const imageData = new Uint8Array(dataView.buffer, dataOffset, imageDataSize);
-                
-                return {
-                    data: imageData,
-                    format: mimeType || 'image/jpeg'
-                };
-            }
-            
-            // 次のフレームへ
-            let frameSize;
-            if (version >= 4) {
-                frameSize = 0;
-                for (let i = 0; i < 4; i++) {
-                    frameSize = (frameSize << 7) + (dataView.getUint8(offset + 4 + i) & 0x7f);
-                }
-            } else {
-                frameSize = dataView.getUint32(offset + 4);
-            }
-            
-            offset += 10 + frameSize;
-        }
-        
-        return null;
-    }
-
-    extractM4ACoverArt(dataView) {
-        // MP4/M4Aファイルのcovrアトムを探す
-        let offset = 0;
-        
-        while (offset < dataView.byteLength - 8) {
-            const atomSize = dataView.getUint32(offset);
-            const atomType = String.fromCharCode(
-                dataView.getUint8(offset + 4),
-                dataView.getUint8(offset + 5),
-                dataView.getUint8(offset + 6),
-                dataView.getUint8(offset + 7)
-            );
-            
-            if (atomType === 'covr') {
-                // カバーアートアトムを発見
-                const imageData = new Uint8Array(dataView.buffer, offset + 16, atomSize - 16);
-                
-                // ファイル形式を判定
-                let format = 'image/jpeg';
-                if (imageData[0] === 0x89 && imageData[1] === 0x50) {
-                    format = 'image/png';
-                }
-                
-                return {
-                    data: imageData,
-                    format: format
-                };
-            }
-            
-            offset += atomSize;
-            if (atomSize === 0) break; // 無限ループ防止
-        }
-        
-        return null;
-    }
-
-    extractFLACCoverArt(dataView) {
-        // FLACのメタデータブロックをチェック
-        if (String.fromCharCode(dataView.getUint8(0), dataView.getUint8(1), dataView.getUint8(2), dataView.getUint8(3)) !== 'fLaC') {
-            return null;
-        }
-        
-        let offset = 4;
-        
-        while (offset < dataView.byteLength) {
-            const blockHeader = dataView.getUint32(offset);
-            const isLast = (blockHeader & 0x80000000) !== 0;
-            const blockType = (blockHeader >> 24) & 0x7f;
-            const blockSize = blockHeader & 0xffffff;
-            
-            if (blockType === 6) { // PICTURE block
-                offset += 4;
-                
-                // ピクチャータイプをスキップ（4バイト）
-                offset += 4;
-                
-                // MIMEタイプの長さを取得
-                const mimeLength = dataView.getUint32(offset);
-                offset += 4;
-                
-                // MIMEタイプを読み取り
-                let mimeType = '';
-                for (let i = 0; i < mimeLength; i++) {
-                    mimeType += String.fromCharCode(dataView.getUint8(offset + i));
-                }
-                offset += mimeLength;
-                
-                // 説明の長さを取得してスキップ
-                const descLength = dataView.getUint32(offset);
-                offset += 4 + descLength;
-                
-                // 画像の幅・高さ・色深度・色数をスキップ（16バイト）
-                offset += 16;
-                
-                // 画像データサイズを取得
-                const imageSize = dataView.getUint32(offset);
-                offset += 4;
-                
-                // 画像データを抽出
-                const imageData = new Uint8Array(dataView.buffer, offset, imageSize);
-                
-                return {
-                    data: imageData,
-                    format: mimeType
-                };
-            }
-            
-            offset += 4 + blockSize;
-            if (isLast) break;
-        }
-        
-        return null;
-    }
+    // 旧クライアント抽出は無効化
 
     async extractMetadata(arrayBuffer, filename) {
         try {

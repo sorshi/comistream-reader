@@ -79,6 +79,12 @@ if ($mode == 'open' && $file != '') {
 } elseif ($mode == 'delete_playlist') {
     // プレイリスト削除
     deletePlaylist();
+} elseif ($mode == 'get_metadata') {
+    // 音声メタデータ取得（タイトル/アーティスト）
+    getMetadata();
+} elseif ($mode == 'get_cover_art') {
+    // カバーアート取得
+    getCoverArt();
 } else {
     errorExit("invalid mode", "無効なモードです。");
 }
@@ -696,6 +702,344 @@ function deletePlaylist() {
         echo json_encode(['success' => false, 'error' => 'データベースエラー']);
         writelog("ERROR deletePlaylist() DB error: " . $e->getMessage(), $writelog_process_name);
     }
+}
+
+/**
+ * メタデータ取得（タイトル/アーティスト）
+ */
+function getMetadata() {
+    global $conf, $audioFormats, $writelog_process_name;
+    $file = isset($_REQUEST['file']) ? $_REQUEST['file'] : '';
+    $file = str_replace('..', '', $file);
+    $path = $conf['sharePath'] . '/' . ltrim($file, '/');
+
+    header('Content-Type: application/json; charset=UTF-8');
+    header('Cache-Control: private, max-age=600');
+
+    if (!file_exists($path)) {
+        echo json_encode(['success' => false, 'error' => 'file not found']);
+        return;
+    }
+
+    $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+    if (!in_array($ext, $audioFormats)) {
+        echo json_encode(['success' => false, 'error' => 'unsupported format']);
+        return;
+    }
+
+    $meta = ['title' => '', 'artist' => ''];
+    $max = 3145728; // 3MBまでスキャン
+    $fp = @fopen($path, 'rb');
+    if (!$fp) {
+        echo json_encode(['success' => false, 'error' => 'open failed']);
+        return;
+    }
+    $buf = fread($fp, $max);
+    fclose($fp);
+
+    if ($ext === 'mp3') {
+        $meta = parseID3v2Metadata($buf);
+    } elseif ($ext === 'flac') {
+        $meta = parseFLACVorbisComment($buf);
+    } elseif ($ext === 'm4a' || $ext === 'mp4' || $ext === 'aac') {
+        $meta = parseMP4IlstMetadata($buf);
+    }
+
+    echo json_encode(['success' => true, 'title' => $meta['title'], 'artist' => $meta['artist']]);
+}
+
+/**
+ * カバーアート取得
+ */
+function getCoverArt() {
+    global $conf, $audioFormats, $writelog_process_name;
+    $file = isset($_REQUEST['file']) ? $_REQUEST['file'] : '';
+    $file = str_replace('..', '', $file);
+    $path = $conf['sharePath'] . '/' . ltrim($file, '/');
+
+    header('Cache-Control: private, max-age=600');
+
+    if (!file_exists($path)) {
+        http_response_code(404);
+        return;
+    }
+
+    $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+    if (!in_array($ext, $audioFormats)) {
+        http_response_code(415);
+        return;
+    }
+
+    $max = 4194304; // 4MBまでスキャン
+    $fp = @fopen($path, 'rb');
+    if (!$fp) {
+        http_response_code(500);
+        return;
+    }
+    $buf = fread($fp, $max);
+    fclose($fp);
+
+    $result = null;
+    if ($ext === 'mp3') {
+        $result = extractMP3CoverFromBuffer($buf);
+    } elseif ($ext === 'flac') {
+        $result = extractFLACCoverFromBuffer($buf);
+    } elseif ($ext === 'm4a' || $ext === 'mp4' || $ext === 'aac') {
+        $result = extractMP4CoverFromBuffer($buf);
+    }
+
+    if ($result && isset($result['data'])) {
+        $mime = isset($result['mime']) ? $result['mime'] : 'image/jpeg';
+        header('Content-Type: ' . $mime);
+        echo $result['data'];
+        return;
+    }
+
+    // 見つからない場合は204 No Content
+    http_response_code(204);
+}
+
+// --- 解析ヘルパ ---
+
+function parseID3v2Metadata($buf) {
+    $meta = ['title' => '', 'artist' => ''];
+    if (strlen($buf) < 10) return $meta;
+    if (substr($buf, 0, 3) !== 'ID3') return $meta;
+    $version = ord($buf[3]);
+    $flags = ord($buf[5]);
+    $size = 0;
+    for ($i = 6; $i < 10; $i++) $size = ($size << 7) + (ord($buf[$i]) & 0x7f);
+    $offset = 10;
+    if ($flags & 0x40) {
+        if (strlen($buf) < $offset + 4) return $meta;
+        $extSize = unpack('N', substr($buf, $offset, 4))[1];
+        $offset += $extSize;
+    }
+    while ($offset + 10 <= min(strlen($buf), $size + 10)) {
+        $frameId = substr($buf, $offset, 4);
+        if ($frameId === "\0\0\0\0") break;
+        if ($version >= 4) {
+            $fsize = 0;
+            for ($i = 0; $i < 4; $i++) $fsize = ($fsize << 7) + (ord($buf[$offset + 4 + $i]) & 0x7f);
+        } else {
+            $fsize = unpack('N', substr($buf, $offset + 4, 4))[1];
+        }
+        $dataStart = $offset + 10;
+        if ($fsize <= 0 || $dataStart + $fsize > strlen($buf)) break;
+        if ($frameId === 'TIT2' || $frameId === 'TPE1') {
+            $enc = ord($buf[$dataStart]);
+            $textBytes = substr($buf, $dataStart + 1, $fsize - 1);
+            $text = decodeID3Text($textBytes, $enc);
+            if ($frameId === 'TIT2') $meta['title'] = $text;
+            if ($frameId === 'TPE1') $meta['artist'] = $text;
+        }
+        $offset += 10 + $fsize;
+        if ($meta['title'] !== '' && $meta['artist'] !== '') break;
+    }
+    return $meta;
+}
+
+function decodeID3Text($bytes, $enc) {
+    // 0: ISO-8859-1, 1: UTF-16 with BOM, 2: UTF-16BE, 3: UTF-8
+    if ($enc === 0) return @iconv('ISO-8859-1', 'UTF-8//IGNORE', $bytes);
+    if ($enc === 1) return @iconv('UTF-16', 'UTF-8//IGNORE', $bytes);
+    if ($enc === 2) return @iconv('UTF-16BE', 'UTF-8//IGNORE', $bytes);
+    if ($enc === 3) return @iconv('UTF-8', 'UTF-8//IGNORE', $bytes);
+    return '';
+}
+
+function parseFLACVorbisComment($buf) {
+    $meta = ['title' => '', 'artist' => ''];
+    if (strlen($buf) < 4 || substr($buf, 0, 4) !== 'fLaC') return $meta;
+    $offset = 4;
+    while ($offset + 4 <= strlen($buf)) {
+        $hdr = unpack('N', substr($buf, $offset, 4))[1];
+        $isLast = ($hdr & 0x80000000) !== 0;
+        $type = ($hdr >> 24) & 0x7f;
+        $size = $hdr & 0x00ffffff;
+        $offset += 4;
+        if ($type === 4) { // VORBIS_COMMENT
+            $p = $offset;
+            if ($p + 4 > strlen($buf)) break;
+            $vendorLen = unpack('V', substr($buf, $p, 4))[1]; $p += 4 + $vendorLen;
+            if ($p + 4 > strlen($buf)) break;
+            $userCount = unpack('V', substr($buf, $p, 4))[1]; $p += 4;
+            for ($i = 0; $i < $userCount; $i++) {
+                if ($p + 4 > strlen($buf)) break;
+                $len = unpack('V', substr($buf, $p, 4))[1]; $p += 4;
+                if ($p + $len > strlen($buf)) break;
+                $kv = substr($buf, $p, $len); $p += $len;
+                $eq = strpos($kv, '=');
+                if ($eq !== false) {
+                    $key = strtoupper(substr($kv, 0, $eq));
+                    $val = substr($kv, $eq + 1);
+                    if ($key === 'TITLE') $meta['title'] = $val;
+                    if ($key === 'ARTIST') $meta['artist'] = $val;
+                }
+            }
+            break;
+        }
+        $offset += $size;
+        if ($isLast) break;
+    }
+    return $meta;
+}
+
+function parseMP4IlstMetadata($buf) {
+    $meta = ['title' => '', 'artist' => ''];
+    $len = strlen($buf);
+    $offset = 0;
+    while ($offset + 8 <= $len) {
+        $size = unpack('N', substr($buf, $offset, 4))[1];
+        $type = substr($buf, $offset + 4, 4);
+        if ($size <= 0) break;
+        $inner = $offset + 8 + ($type === 'meta' ? 4 : 0);
+        $end = min($len, $offset + $size);
+        if (in_array($type, ['moov', 'udta', 'meta', 'ilst'])) {
+            while ($inner + 8 <= $end) {
+                $ssize = unpack('N', substr($buf, $inner, 4))[1];
+                $stype = substr($buf, $inner + 4, 4);
+                if ($ssize <= 0) break;
+                if ($stype === "\xA9".'nam' || $stype === "\xA9".'ART' || $stype === 'aART') {
+                    $p = $inner + 8; $subEnd = min($end, $inner + $ssize);
+                    while ($p + 8 <= $subEnd) {
+                        $dsize = unpack('N', substr($buf, $p, 4))[1];
+                        $dtype = substr($buf, $p + 4, 4);
+                        if ($dsize <= 0) break;
+                        if ($dtype === 'data') {
+                            // skip 8 bytes (version/flags + type set) + 4 bytes locale
+                            $payloadStart = $p + 16;
+                            $payloadLen = min($subEnd, $p + $dsize) - $payloadStart;
+                            if ($payloadLen > 0) {
+                                $text = substr($buf, $payloadStart, $payloadLen);
+                                $text = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
+                                if ($stype === "\xA9".'nam') $meta['title'] = $text;
+                                else $meta['artist'] = $text;
+                            }
+                            break;
+                        }
+                        $p += $dsize;
+                    }
+                }
+                $inner += $ssize;
+            }
+        }
+        $offset += $size;
+    }
+    return $meta;
+}
+
+function extractMP3CoverFromBuffer($buf) {
+    if (strlen($buf) < 10 || substr($buf, 0, 3) !== 'ID3') return null;
+    $version = ord($buf[3]);
+    $flags = ord($buf[5]);
+    $size = 0; for ($i = 6; $i < 10; $i++) $size = ($size << 7) + (ord($buf[$i]) & 0x7f);
+    $offset = 10;
+    if ($flags & 0x40) {
+        if (strlen($buf) < $offset + 4) return null;
+        $extSize = unpack('N', substr($buf, $offset, 4))[1];
+        $offset += $extSize;
+    }
+    while ($offset + 10 <= min(strlen($buf), $size + 10)) {
+        $frameId = substr($buf, $offset, 4);
+        if ($version >= 4) {
+            $fsize = 0; for ($i = 0; $i < 4; $i++) $fsize = ($fsize << 7) + (ord($buf[$offset + 4 + $i]) & 0x7f);
+        } else {
+            $fsize = unpack('N', substr($buf, $offset + 4, 4))[1];
+        }
+        $dataStart = $offset + 10;
+        if ($frameId === 'APIC' && $fsize > 0 && $dataStart + $fsize <= strlen($buf)) {
+            $p = $dataStart;
+            $p++; // encoding
+            // mime
+            $mime = '';
+            while ($p < $dataStart + $fsize && ord($buf[$p]) !== 0) { $mime .= $buf[$p]; $p++; }
+            $p++; // null
+            $p++; // picture type
+            // description
+            while ($p < $dataStart + $fsize && ord($buf[$p]) !== 0) { $p++; }
+            $p++; // null
+            $img = substr($buf, $p, ($dataStart + $fsize) - $p);
+            if ($mime === '') $mime = 'image/jpeg';
+            return ['mime' => $mime, 'data' => $img];
+        }
+        $offset += 10 + $fsize;
+    }
+    return null;
+}
+
+function extractFLACCoverFromBuffer($buf) {
+    if (strlen($buf) < 4 || substr($buf, 0, 4) !== 'fLaC') return null;
+    $offset = 4;
+    while ($offset + 4 <= strlen($buf)) {
+        $hdr = unpack('N', substr($buf, $offset, 4))[1];
+        $isLast = ($hdr & 0x80000000) !== 0;
+        $type = ($hdr >> 24) & 0x7f;
+        $size = $hdr & 0x00ffffff;
+        $offset += 4;
+        if ($type === 6) { // PICTURE
+            $p = $offset;
+            $p += 4; // picture type
+            $mimeLen = unpack('N', substr($buf, $p, 4))[1]; $p += 4;
+            $mime = substr($buf, $p, $mimeLen); $p += $mimeLen;
+            $descLen = unpack('N', substr($buf, $p, 4))[1]; $p += 4 + $descLen;
+            $p += 16; // w,h,depth,colors
+            $imgLen = unpack('N', substr($buf, $p, 4))[1]; $p += 4;
+            $img = substr($buf, $p, $imgLen);
+            return ['mime' => $mime ?: 'image/jpeg', 'data' => $img];
+        }
+        $offset += $size;
+        if ($isLast) break;
+    }
+    return null;
+}
+
+function extractMP4CoverFromBuffer($buf) {
+    $len = strlen($buf);
+    $offset = 0;
+    while ($offset + 8 <= $len) {
+        $size = unpack('N', substr($buf, $offset, 4))[1];
+        $type = substr($buf, $offset + 4, 4);
+        if ($size <= 0) break;
+        $inner = $offset + 8 + ($type === 'meta' ? 4 : 0);
+        $end = min($len, $offset + $size);
+        if (in_array($type, ['moov', 'udta', 'meta', 'ilst', 'covr'])) {
+            if ($type === 'covr') {
+                // inside covr, look for data atom
+                $p = $inner; $subEnd = $end;
+                while ($p + 8 <= $subEnd) {
+                    $dsize = unpack('N', substr($buf, $p, 4))[1];
+                    $dtype = substr($buf, $p + 4, 4);
+                    if ($dsize <= 0) break;
+                    if ($dtype === 'data') {
+                        $payloadStart = $p + 16;
+                        $payloadLen = min($subEnd, $p + $dsize) - $payloadStart;
+                        if ($payloadLen > 0) {
+                            $img = substr($buf, $payloadStart, $payloadLen);
+                            $mime = (strlen($img) > 1 && ord($img[0]) === 0x89 && ord($img[1]) === 0x50) ? 'image/png' : 'image/jpeg';
+                            return ['mime' => $mime, 'data' => $img];
+                        }
+                        break;
+                    }
+                    $p += $dsize;
+                }
+            } else {
+                while ($inner + 8 <= $end) {
+                    $ssize = unpack('N', substr($buf, $inner, 4))[1];
+                    $stype = substr($buf, $inner + 4, 4);
+                    if ($ssize <= 0) break;
+                    if ($stype === 'covr') {
+                        // recurse into covr
+                        $sub = extractMP4CoverFromBuffer(substr($buf, $inner, $ssize));
+                        if ($sub) return $sub;
+                    }
+                    $inner += $ssize;
+                }
+            }
+        }
+        $offset += $size;
+    }
+    return null;
 }
 
 ?> 
