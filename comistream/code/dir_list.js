@@ -213,7 +213,8 @@ function toggleView() {
 // RAWモード切り替え
 function toggleRaw() {
   const currentRaw = getCookie("rawMode") || "raw";
-  const newRaw = currentRaw === "raw" ? "compressed" : "raw";
+  // 旧仕様に合わせて compressed ではなく cmp を使用
+  const newRaw = currentRaw === "raw" ? "cmp" : "raw";
 
   document.cookie = "rawMode=" + newRaw + "; path=/; SameSite=Strict";
   location.reload();

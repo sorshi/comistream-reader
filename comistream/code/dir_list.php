@@ -743,17 +743,22 @@ $js_config_temp = json_encode([
     <script src="/theme/js/i18n.js" defer></script>
 
     <script>
-    // Cookie取得
-    for(var keyValues of document.cookie.split(";") ){
-      keyValue = keyValues.split("=");
-      if( keyValue[0].match(/comistreamUser/) ){
-        // ユーザ名設定
-        document.getElementById("loginIcon").className = "login";
-      }else if( keyValue[0].match(/rawMode/) ){
-        // 圧縮有無設定
-        document.getElementById("rawMode").className = keyValue[1];
+    // Cookie取得（旧実装互換: rawMode=cmp/raw を期待。compressed は cmp にマップ）
+    (function(){
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const parts = cookies[i].split("=");
+        const key = (parts[0] || "").trim();
+        const val = (parts[1] || "").trim();
+        if (/comistreamUser/.test(key)) {
+          document.getElementById("loginIcon").className = "login";
+        } else if (/rawMode/.test(key)) {
+          // 互換マップ: 'compressed' → 'cmp'
+          const mapped = (val === 'compressed') ? 'cmp' : val;
+          document.getElementById("rawMode").className = mapped || 'raw';
+        }
       }
-    }
+    })();
     // -->
     </script>
 
