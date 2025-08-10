@@ -203,21 +203,48 @@ function linkhook(e) {
 
 // ビューモード切り替え
 function toggleView() {
-  const viewmode = getCookie("viewmode") || "list";
-  const newViewmode = viewmode === "cover" ? "list" : "cover";
+  const stylesheet = document.getElementById("stylesheet");
+  if (!stylesheet) return;
 
-  document.cookie = "viewmode=" + newViewmode + "; path=/; SameSite=Strict";
-  location.reload();
+  if (/style\.css/.test(stylesheet.href || "")) {
+    // List -> Cover
+    document.cookie = "viewmode=cover; path=/; SameSite=Strict";
+    stylesheet.href = "/theme/style_cover.css?2025080200";
+    setTimeout(() => {
+      try { reinitializeContentFeatures(); } catch (e) { console.error(e); }
+      try { applyDirectoryCustomIcons(); } catch (e) { console.error(e); }
+      try { reinitializePreviewFeatures(); } catch (e) { console.error(e); }
+      try { updateCoverSideGutter(); } catch (e) {}
+      // ネットワークなしで既読/お気に入りを即時反映
+      try { applyBookmarkCache(); } catch (e) { console.error(e); }
+    }, 100);
+  } else {
+    // Cover -> List
+    document.cookie = "viewmode=list; path=/; SameSite=Strict";
+    stylesheet.href = "/theme/style.css?2025080200";
+    setTimeout(() => {
+      try { reinitializeContentFeatures(); } catch (e) { console.error(e); }
+      try { applyDirectoryCustomIcons(); } catch (e) { console.error(e); }
+      // リストビューではプレビューを無効化
+      try { clearPreviewEventListeners(); } catch (e) { console.error(e); }
+      // ネットワークなしで既読/お気に入りを即時反映
+      try { applyBookmarkCache(); } catch (e) { console.error(e); }
+    }, 100);
+  }
 }
 
 // RAWモード切り替え
 function toggleRaw() {
-  const currentRaw = getCookie("rawMode") || "raw";
-  // 旧仕様に合わせて compressed ではなく cmp を使用
-  const newRaw = currentRaw === "raw" ? "cmp" : "raw";
-
-  document.cookie = "rawMode=" + newRaw + "; path=/; SameSite=Strict";
-  location.reload();
+  const rawEl = document.getElementById("rawMode");
+  if (!rawEl) return;
+  const isRaw = rawEl.classList.contains("raw");
+  if (isRaw) {
+    rawEl.className = "cmp";
+    document.cookie = "rawMode=cmp; path=/; SameSite=Strict";
+  } else {
+    rawEl.className = "raw";
+    document.cookie = "rawMode=raw; path=/; SameSite=Strict";
+  }
 }
 
 // Cookie取得ヘルパー関数

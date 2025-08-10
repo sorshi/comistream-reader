@@ -734,7 +734,7 @@ $js_config_temp = json_encode([
             if (parts.length === 2) return parts.pop().split(';').shift();
         }
 
-        // Note: toggleView()関数はfooter.htmlで定義済み（既存処理との競合を回避）
+        // Note: toggleView() は dir_list.js 側の実装を優先（ネットワーク不要での再初期化・キャッシュ反映対応）
     </script>
 </head>
 
