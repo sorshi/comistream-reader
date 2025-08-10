@@ -62,7 +62,8 @@ if ($dbh) {
 function escape_problematic_chars($filepath)
 {
     // 問題を引き起こす特定の文字のみをパーセントエンコード（/は保持）
-    $problematic_chars = ['#', '?', '&', '=', '%', '\\', ':', '@', '<', '>', '"', "'", '|', '*', ' '];
+    // 注意: '%' までエンコードすると "%25XX" となり、もともとエンコード済みのシーケンスが二重化するため除外する
+    $problematic_chars = ['#', '?', '&', '=', '\\', ':', '@', '<', '>', '"', "'", '|', '*', ' '];
     $encoded_chars = array_map('rawurlencode', $problematic_chars);
     return str_replace($problematic_chars, $encoded_chars, $filepath);
 }
@@ -1043,9 +1044,10 @@ $js_config_temp = json_encode([
         $data_image_attr = '';
 
         if (!$item['is_dir']) {
-            // ファイルの場合、プレビュー画像のdata-image属性を設定
+            // ファイルの場合、プレビュー画像のdata-image属性を設定（問題文字はパーセントエンコード）
             $preview_path = preg_replace('/\.[^.]+$/', '.webp', $raw_filepath);
-            $preview_image_url = '/theme/preview' . $preview_path;
+            $escaped_preview_path = escape_problematic_chars($preview_path);
+            $preview_image_url = '/theme/preview' . $escaped_preview_path;
             $data_image_attr = ' data-image="' . htmlspecialchars($preview_image_url) . '"';
 
             // デバッグ用ログ（最初の数個のファイルのみ）
@@ -1056,10 +1058,10 @@ $js_config_temp = json_encode([
             }
 
             if ($viewmode === 'cover') {
-                // カバービューモードでファイルの場合、/theme/covers/ 以下の.jpg画像を使用
-                // 拡張子を.jpgに変更
+                // カバービューモードでファイルの場合、/theme/covers/ 以下の.jpg画像を使用（問題文字はパーセントエンコード）
                 $cover_path = preg_replace('/\.[^.]+$/', '.jpg', $raw_filepath);
-                $cover_image_url = '/theme/covers' . $cover_path;
+                $escaped_cover_path = escape_problematic_chars($cover_path);
+                $cover_image_url = '/theme/covers' . $escaped_cover_path;
                 $indexcolname_content = '<img src="' . htmlspecialchars($cover_image_url) . '" alt="Cover" onerror="this.style.display=\'none\'">';
             }
         }

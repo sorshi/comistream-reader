@@ -358,7 +358,7 @@ function getBookmark() {
   debugLog("DEBUG getBookmark called, pathName:", pathName);
 
   (async function () {
-    const requestUrl = cgiPath + "?mode=list&file=" + pathName;
+    const requestUrl = cgiPath + "?mode=list&file=" + encodeURIComponent(pathName);
     debugLog("DEBUG getBookmark request URL:", requestUrl);
 
     let listData = [];
@@ -553,6 +553,7 @@ function toggleFavorite(e) {
     .replaceAll("&", "%26")
     .replaceAll("=", "%3D");
 
+  // fileLink はこの直前で encodeURIComponent 済み（& と = も置換済み）なので再エンコードしない
   var favQuery = "file=" + fileLink + "&mode=";
   if (e.target.style.backgroundImage) {
     e.target.style.backgroundImage = "";
@@ -585,7 +586,7 @@ function getHistory() {
   debugLog("DEBUG getHistory called, pathName:", pathName);
 
   var xmlHttp = new XMLHttpRequest();
-  var requestUrl = cgiPath + "?mode=history&file=" + pathName;
+  var requestUrl = cgiPath + "?mode=history&file=" + encodeURIComponent(pathName);
   debugLog("DEBUG getHistory request URL:", requestUrl);
 
   xmlHttp.open("GET", requestUrl, false);
@@ -717,57 +718,29 @@ function applyDirectoryCustomIcons() {
       return;
     }
 
-    // data-filepath優先で正確なパスを取得
-    let fullHref = anchor.getAttribute("data-filepath") || anchor.getAttribute("href") || "";
-    if (fullHref) {
-      try {
-        fullHref = decodeURIComponent(fullHref);
-      } catch (_) {
-        // 失敗したらそのまま使う
-      }
+    // data-filepath を強制使用（href は # を含むとブラウザがフラグメント扱いするため）
+    const encodedDataPath = anchor.getAttribute("data-filepath");
+    if (!encodedDataPath) {
+      // data-filepath が無いと安全に扱えないのでスキップ
+      return;
     }
 
-    // publicDir 基準で相対パスを抽出
-    let pathAfterPublicDir = "";
-    const publicDirWithSlash = (typeof publicDir !== "undefined" ? publicDir : "") + "/";
-    if (publicDir && fullHref.includes(publicDirWithSlash)) {
-      pathAfterPublicDir = fullHref.substring(fullHref.indexOf(publicDirWithSlash) + publicDirWithSlash.length);
-    } else {
-      try {
-        if (fullHref.startsWith("http://") || fullHref.startsWith("https://")) {
-          const urlObj = new URL(fullHref);
-          pathAfterPublicDir = urlObj.pathname;
-        } else {
-          pathAfterPublicDir = fullHref;
-        }
-        if (pathAfterPublicDir.startsWith("/")) pathAfterPublicDir = pathAfterPublicDir.substring(1);
-      } catch (_) {
-        pathAfterPublicDir = fullHref.replace(location.origin, "");
-        if (pathAfterPublicDir.startsWith("/")) pathAfterPublicDir = pathAfterPublicDir.substring(1);
-        if (publicDir && pathAfterPublicDir.startsWith(publicDirWithSlash)) {
-          pathAfterPublicDir = pathAfterPublicDir.substring(publicDirWithSlash.length);
-        }
-      }
+    // すでに percent-encode 済みのパスから相対パスを生成（先頭の / と publicDir を除去）
+    let relativeEncodedPath = encodedDataPath;
+    if (relativeEncodedPath.startsWith("/")) {
+      relativeEncodedPath = relativeEncodedPath.substring(1);
     }
+    const publicDirVal = typeof publicDir !== "undefined" ? publicDir : "";
+    if (publicDirVal && relativeEncodedPath.startsWith(publicDirVal + "/")) {
+      relativeEncodedPath = relativeEncodedPath.substring((publicDirVal + "/").length);
+    }
+    if (!relativeEncodedPath.endsWith("/")) {
+      relativeEncodedPath += "/";
+    }
+    // CSS url() 内の安全性のため、シングルクォートだけは %27 に置換
+    relativeEncodedPath = relativeEncodedPath.replace(/'/g, "%27");
 
-    // 末尾に/を保証
-    if (!pathAfterPublicDir.endsWith("/")) pathAfterPublicDir += "/";
-
-    // ディレクトリ各パートを安全にエンコード（' も %27 へ）
-    const parts = pathAfterPublicDir.split("/");
-    let encodedParts = parts
-      .slice(0, -1)
-      .map(function (part) {
-        let decoded = part;
-        try {
-          decoded = decodeURIComponent(part);
-        } catch (_) {}
-        return encodeURIComponent(decoded).replace(/'/g, "%27");
-      });
-    let relativeDirPath = encodedParts.join("/");
-    if (pathAfterPublicDir.endsWith("/") && parts.length > 1) relativeDirPath += "/";
-
-    const dirCustomIconUrl = imgBasePath + relativeDirPath + "index.webp";
+    const dirCustomIconUrl = imgBasePath + relativeEncodedPath + "index.webp";
 
     // 画像を事前ロードして有効性チェック（サイズ 560x656）
     (function (linkEl, url) {
@@ -811,11 +784,30 @@ function reinitializeContentFeatures() {
   // ソート設定の再初期化
   initializeSortControls();
 
-  // お気に入りボタンのイベント設定
+  // お気に入りボタンのイベント設定（inline onclick がある場合は二重バインドしない）
   const favButton = document.getElementById("favbutton");
   if (favButton) {
-    favButton.addEventListener("click", searchFavButton);
-    debugLog("DEBUG Favorite button reinitialized");
+    if (!favButton.getAttribute("onclick")) {
+      favButton.addEventListener("click", searchFavButton);
+      debugLog("DEBUG Favorite button bound via addEventListener");
+    } else {
+      debugLog("DEBUG Favorite button uses inline onclick; skipping addEventListener");
+    }
+  }
+
+  // 行ごとのお気に入りトグル（indexcoliconセルにクリックハンドラを設定）
+  try {
+    const iconCells = document.querySelectorAll("#table-tbody td.indexcolicon");
+    let boundCount = 0;
+    iconCells.forEach((cell) => {
+      if (cell && cell.onclick !== toggleFavorite) {
+        cell.onclick = toggleFavorite;
+        boundCount++;
+      }
+    });
+    debugLog("DEBUG Favorite toggle bound on icon cells:", boundCount);
+  } catch (e) {
+    console.error("ERROR binding favorite toggle:", e);
   }
 }
 

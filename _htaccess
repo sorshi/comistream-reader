@@ -29,7 +29,8 @@
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteCond %{REQUEST_URI} !^/$
   RewriteCond %{THE_REQUEST} \s/+(.+?)[\s?] [NC]
-  RewriteRule ^ /cgi-bin/dir_list.php?path=%1 [L,QSA,E=no-gzip:1]
+  # B flag escapes backreferences for the query string (so '+' stays '%2B' etc.)
+  RewriteRule ^ /cgi-bin/dir_list.php?path=%1 [L,QSA,B,E=no-gzip:1]
 
   # ----------------------------------------------------------------------
   # 1. 書影パス (/theme/covers/) と プレビューパス (/theme/preview/) でファイルが存在しない場合
@@ -44,7 +45,8 @@
   # ここで初めて dir_list.php に渡すルールを適用する
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule ^(.*)$ /cgi-bin/dir_list.php?path=$1 [L,QSA]
+  # Ensure any special chars in $1 are preserved in the query string
+  RewriteRule ^(.*)$ /cgi-bin/dir_list.php?path=$1 [L,QSA,B]
 
   # ----------------------------------------------------------------------
   # グローバルなErrorDocument設定は不要になるか、汎用的なものを指定
