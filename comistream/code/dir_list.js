@@ -388,6 +388,26 @@ function getBookmark() {
     var elementsFound = 0;
     var elementsUpdated = 0;
 
+    // 取得データをキャッシュ用に整形
+    try {
+      const itemsMap = new Map();
+      for (let j = 0; j < listData.length; j++) {
+        const item = listData[j];
+        if (!item || !item.baseFile) continue;
+        itemsMap.set(item.baseFile, {
+          currentPage: Number(item.currentPage || 0),
+          maxPage: Number(item.maxPage || 0),
+          favorite: !!item.favorite,
+        });
+      }
+      window._bookmarkCache = {
+        path: comistreamConfig.currentPath,
+        items: itemsMap,
+      };
+    } catch (e) {
+      console.error("bookmark cache build failed:", e);
+    }
+
     for (var j = 0; j < listData.length; j++) {
       var item = listData[j];
       if (!item || !item.baseFile) continue;
@@ -544,6 +564,84 @@ function getBookmark() {
   })();
 }
 
+// 既存のキャッシュから既読・お気に入り表示を再適用（ネットワークなしで即時）
+function applyBookmarkCache() {
+  try {
+    if (!window._bookmarkCache) return;
+    if (
+      !comistreamConfig ||
+      window._bookmarkCache.path !== comistreamConfig.currentPath
+    )
+      return;
+
+    const items = window._bookmarkCache.items;
+    if (!items || typeof items.forEach !== "function") return;
+
+    let elementsFound = 0;
+    let elementsUpdated = 0;
+
+    items.forEach((data, fileName) => {
+      let elm = document.getElementById(fileName);
+      if (!elm) {
+        // テキスト一致で救済
+        const allIndexColName = document.getElementsByClassName("indexcolname");
+        for (let searchIdx = 0; searchIdx < Math.min(allIndexColName.length, 10); searchIdx++) {
+          const searchElm = allIndexColName[searchIdx];
+          const searchText = searchElm.firstChild
+            ? searchElm.firstChild.textContent
+            : "no text";
+          if (searchText === fileName) {
+            searchElm.setAttribute("id", fileName);
+            searchElm.id = fileName;
+            elm = searchElm;
+            break;
+          }
+        }
+      }
+
+      if (!elm) return;
+      elementsFound++;
+
+      // 既読アイコン再適用
+      const currentPage = Number(data.currentPage || 0);
+      const maxPage = Number(data.maxPage || 0);
+      if (currentPage > 0) {
+        // <a>要素と<img>要素を確実に取得
+        const iconLinkElements = elm.previousSibling
+          ? elm.previousSibling.getElementsByTagName("a")
+          : [];
+        let iconImgElement = null;
+        if (iconLinkElements.length > 0) {
+          const imgElements = iconLinkElements[0].getElementsByTagName("img");
+          if (imgElements.length > 0) iconImgElement = imgElements[0];
+        }
+        if (iconImgElement) {
+          iconImgElement.src =
+            iconPath + (currentPage < maxPage ? "open.png" : "done.png");
+          elementsUpdated++;
+        }
+      }
+
+      // お気に入り再適用
+      if (data.favorite && elm.previousSibling) {
+        elm.previousSibling.style.backgroundPosition = "5px";
+        elm.previousSibling.style.backgroundImage =
+          'url("' + iconPath + 'staron.png")';
+        elementsUpdated++;
+      }
+    });
+
+    debugLog(
+      "DEBUG applyBookmarkCache completed - Elements found:",
+      elementsFound,
+      "Elements updated:",
+      elementsUpdated
+    );
+  } catch (e) {
+    console.error("applyBookmarkCache failed:", e);
+  }
+}
+
 // お気に入りフラグの設定
 function toggleFavorite(e) {
   // data-filepath属性から正確なファイルパスを取得（#文字対応）
@@ -567,6 +665,28 @@ function toggleFavorite(e) {
   }
 
   navigator.sendBeacon(cgiPath, favQuery);
+
+  // キャッシュも同期更新（UIと状態のズレを防止）
+  try {
+    if (window._bookmarkCache && window._bookmarkCache.items) {
+      const linkEl = e.target.querySelector("a");
+      const fileName = linkEl ? linkEl.textContent : null;
+      if (fileName) {
+        const prev = window._bookmarkCache.items.get(fileName) || {
+          currentPage: 0,
+          maxPage: 0,
+          favorite: false,
+        };
+        window._bookmarkCache.items.set(fileName, {
+          currentPage: prev.currentPage,
+          maxPage: prev.maxPage,
+          favorite: !prev.favorite,
+        });
+      }
+    }
+  } catch (err) {
+    console.error("toggleFavorite cache sync failed:", err);
+  }
 }
 
 // お気に入りフラグの検索
@@ -809,6 +929,14 @@ function reinitializeContentFeatures() {
     debugLog("DEBUG Favorite toggle bound on icon cells:", boundCount);
   } catch (e) {
     console.error("ERROR binding favorite toggle:", e);
+  }
+
+  // 既存キャッシュがあれば即時反映
+  try {
+    applyBookmarkCache();
+  } catch (e) {
+    // 反映失敗は致命的ではないためログのみ
+    console.error("applyBookmarkCache in reinitializeContentFeatures failed:", e);
   }
 }
 

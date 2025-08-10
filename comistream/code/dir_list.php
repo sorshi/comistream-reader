@@ -679,17 +679,53 @@ $js_config_temp = json_encode([
                     if (typeof reinitializePreviewFeatures === 'function') {
                         reinitializePreviewFeatures();
                     }
-                    // 読書進捗とお気に入り機能を再初期化（inlineで出力されるため即座に利用可能）
-                    if (typeof getBookmark === 'function') {
-                        setTimeout(getBookmark, 0);
+                    // 読書進捗とお気に入り・履歴を安全に呼び出し（dir_list.js 読込遅延に耐性）
+                    try {
+                        callGetBookmarkWhenReady();
+                        callGetHistoryWhenReady();
+                    } catch (e) {
+                        console.error('ERROR Normal render: schedule getBookmark/getHistory failed:', e);
                     }
-                    if (typeof getHistory === 'function') {
-                        setTimeout(getHistory, 0);
+                    // キャッシュ済み既読・お気に入りを即時反映（取得済みなら）
+                    try {
+                        if (typeof applyBookmarkCache === 'function') {
+                            debugLog('DEBUG Normal render: Applying bookmark cache');
+                            applyBookmarkCache();
+                        }
+                    } catch (e) {
+                        console.error('ERROR Normal render: applyBookmarkCache failed:', e);
                     }
 
                     // 不要なクリーンアップ処理は削除（インラインスタイル制御のため）
                 }, 100);
             }, 200);
+        }
+
+        // 遅延ロードされたスクリプト（dir_list.js）定義待ちで安全に呼び出すヘルパー
+        function callGetBookmarkWhenReady(maxAttempts = 20, intervalMs = 50) {
+            let attempts = 0;
+            const tryCall = () => {
+                if (typeof getBookmark === 'function') {
+                    try { getBookmark(); } catch (e) { console.error('getBookmark call failed:', e); }
+                } else if (attempts < maxAttempts) {
+                    attempts++;
+                    setTimeout(tryCall, intervalMs);
+                }
+            };
+            setTimeout(tryCall, 0);
+        }
+
+        function callGetHistoryWhenReady(maxAttempts = 20, intervalMs = 50) {
+            let attempts = 0;
+            const tryCall = () => {
+                if (typeof getHistory === 'function') {
+                    try { getHistory(); } catch (e) { console.error('getHistory call failed:', e); }
+                } else if (attempts < maxAttempts) {
+                    attempts++;
+                    setTimeout(tryCall, intervalMs);
+                }
+            };
+            setTimeout(tryCall, 0);
         }
 
         function getCookie(name) {
@@ -1184,27 +1220,24 @@ $js_config_temp = json_encode([
                     console.error('ERROR Fast render: reinitializePreviewFeatures is not a function');
                 }
 
-                // 読書進捗とお気に入り機能を再初期化（inlineで出力されるため即座に利用可能）
-                if (typeof getBookmark === 'function') {
-                    try {
-                        debugLog('DEBUG Fast render: Calling getBookmark');
-                        setTimeout(getBookmark, 0);
-                    } catch (e) {
-                        console.error('ERROR Fast render: getBookmark failed:', e);
+                // キャッシュ済み既読・お気に入りを即時反映
+                try {
+                    if (typeof applyBookmarkCache === 'function') {
+                        debugLog('DEBUG Fast render: Applying bookmark cache');
+                        applyBookmarkCache();
                     }
-                } else {
-                    console.error('ERROR Fast render: getBookmark is not a function');
+                } catch (e) {
+                    console.error('ERROR Fast render: applyBookmarkCache failed:', e);
                 }
 
-                if (typeof getHistory === 'function') {
-                    try {
-                        debugLog('DEBUG Fast render: Calling getHistory');
-                        setTimeout(getHistory, 0);
-                    } catch (e) {
-                        console.error('ERROR Fast render: getHistory failed:', e);
-                    }
-                } else {
-                    console.error('ERROR Fast render: getHistory is not a function');
+                // 読書進捗とお気に入り機能を再初期化（inlineで出力されるため即座に利用可能）
+                // getBookmark/getHistory は dir_list.js インライン読込のため遅れることがある
+                try {
+                    debugLog('DEBUG Fast render: Scheduling getBookmark/getHistory');
+                    callGetBookmarkWhenReady();
+                    callGetHistoryWhenReady();
+                } catch (e) {
+                    console.error('ERROR Fast render: schedule getBookmark/getHistory failed:', e);
                 }
 
                 // 次のフレームでtransitionを復活（クリーンアップ）
