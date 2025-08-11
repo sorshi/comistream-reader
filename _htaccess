@@ -23,10 +23,19 @@
   RewriteCond %{REQUEST_FILENAME} -f
   RewriteRule ^ - [L]
 
+  # ----------------------------------------------------------------------
+  # ブラウザが解釈できる画像拡張子は、そのまま配信（既存 -f で配信）
+  # 存在しない場合は 404 を返し、dir_list.php には渡さない
+  # ----------------------------------------------------------------------
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule .*\.(?:avif|webp|gif|png|jpe?g|svg|bmp|ico|tiff|apng)$ - [L,R=404]
+
   # For directories, rewrite to the listing script ONLY if an index file does not exist.
   # Force rewrite for all directories that don't have index files
   # Security: Only respect index files in the document root, ignore all subdirectory index files
   RewriteCond %{REQUEST_FILENAME} -d
+  # もしサブディレクトリでindex.phpを許可する場合はコメントアウト外す
+  # RewriteCond %{REQUEST_FILENAME}/index.php !-f
   RewriteCond %{REQUEST_URI} !^/$
   RewriteCond %{THE_REQUEST} \s/+(.+?)[\s?] [NC]
   # B flag escapes backreferences for the query string (so '+' stays '%2B' etc.)

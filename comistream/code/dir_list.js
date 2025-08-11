@@ -116,6 +116,14 @@ function linkhook(e) {
     return false;
   }
 
+  // 画像ファイルはそのままブラウザで開く（リーダーは起動しない）
+  if (
+    e.target.href &&
+    e.target.href.match(/\.(jpe?g|png|gif|webp|avif|bmp|svg|tiff?|heic|heif)$/i)
+  ) {
+    return true; // onclick="return linkhook(event)" のため true でデフォルト遷移
+  }
+
   // 音楽ファイルの場合
   if (
     e.target.href.match(/\.(mp3|m4a|aac|flac|aiff|aif|wav|wave|ogg|oga|wma)$/i)
@@ -420,11 +428,12 @@ function getBookmark() {
       const itemsMap = new Map();
       for (let j = 0; j < listData.length; j++) {
         const item = listData[j];
-        if (!item || !item.baseFile) continue;
-        itemsMap.set(item.baseFile, {
-          currentPage: Number(item.currentPage || 0),
-          maxPage: Number(item.maxPage || 0),
-          favorite: !!item.favorite,
+        if (!item || !(item.file || item.baseFile)) continue;
+        const fileKey = item.file || item.baseFile;
+        itemsMap.set(fileKey, {
+          currentPage: Number((item.page ?? item.currentPage) || 0),
+          maxPage: Number((item.max ?? item.maxPage) || 0),
+          favorite: !!(item.fav ?? item.favorite),
         });
       }
       window._bookmarkCache = {
@@ -437,12 +446,12 @@ function getBookmark() {
 
     for (var j = 0; j < listData.length; j++) {
       var item = listData[j];
-      if (!item || !item.baseFile) continue;
+      if (!item || !(item.file || item.baseFile)) continue;
 
-      var fileName = item.baseFile;
-      var currentPage = Number(item.currentPage || 0);
-      var maxPage = Number(item.maxPage || 0);
-      var isFavorite = !!item.favorite;
+      var fileName = item.file || item.baseFile;
+      var currentPage = Number((item.page ?? item.currentPage) || 0);
+      var maxPage = Number((item.max ?? item.maxPage) || 0);
+      var isFavorite = !!(item.fav ?? item.favorite);
 
       var elm = document.getElementById(fileName);
       debugLog(

@@ -294,12 +294,12 @@ function getBookmark() {
   
   for (var j = 0; j < listData.length; j++){
     var item = listData[j];
-    if (!item || !item.baseFile) continue;
+    if (!item || !(item.file || item.baseFile)) continue;
     
-    var fileName = item.baseFile;
-    var currentPage = Number(item.currentPage || 0);
-    var maxPage = Number(item.maxPage || 0);
-    var isFavorite = !!item.favorite;
+    var fileName = item.file || item.baseFile;
+    var currentPage = Number((item.page ?? item.currentPage) || 0);
+    var maxPage = Number((item.max ?? item.maxPage) || 0);
+    var isFavorite = !!(item.fav ?? item.favorite);
 
     var elm = document.getElementById(fileName);
     debugLog('DEBUG getBookmark item', j, '- filename:', fileName, 'element found:', !!elm);

@@ -669,13 +669,13 @@ function getBookmarkList()
                     $maxPage = (int)$row['max_page'];
                 }
                 $json[] = [
-                    'baseFile' => $row['base_file'],
-                    'currentPage' => $currentPage,
-                    'maxPage' => $maxPage,
-                    'favorite' => (bool)$isFavorite,
+                    'file' => $row['base_file'],
+                    'page' => $currentPage,
+                    'max' => $maxPage,
+                    'fav' => (bool)$isFavorite,
                 ];
             }
-            echo json_encode($json);
+            echo compressResponse(json_encode($json));
             writelog("DEBUG getBookmarkList() " . json_encode($json) . " with DB");
         } else {
             $bookmarkPath = "$bookmarkDir/$user/$file/bookmark";
@@ -686,10 +686,10 @@ function getBookmarkList()
                         $parts = explode("\t", $line);
                         if (count($parts) >= 3) {
                             $json[] = [
-                                'baseFile' => $parts[0],
-                                'currentPage' => (int)$parts[1],
-                                'maxPage' => (int)$parts[2],
-                                'favorite' => (isset($parts[3]) && trim($parts[3]) === '*'),
+                                'file' => $parts[0],
+                                'page' => (int)$parts[1],
+                                'max' => (int)$parts[2],
+                                'fav' => (isset($parts[3]) && trim($parts[3]) === '*'),
                             ];
                         }
                     }
@@ -1990,6 +1990,7 @@ function compressResponse($content)
             header('Content-Encoding: gzip');
             return gzencode($content);
         default:
+            writelog("DEBUG compressResponse() no compress");
             return $content; // 圧縮をサポートしていない場合は非圧縮コンテンツを返す
     }
 } //end function compressResponse
