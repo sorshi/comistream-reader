@@ -962,8 +962,9 @@ function outputPage($isFileout = false)
                 if ($unpackedSize === 0) {
                     // エラー処理: 指定されたファイルがアーカイブ内に見つかりませんでした。
                     header("HTTP/1.1 500 Internal Server Error");
-                    showReloadRequiredImg(1);
+                    // showReloadRequiredImg(1);
                     writelog("ERROR outputPage() Could not find the specified file in the archive.");
+                    deleteCacheDirAndReload();
                     exit;
                 }
 
@@ -1307,8 +1308,9 @@ function deleteCacheDirAndReload()
         }
         showReloadRequiredImg();
     } else {
-        writelog("ERROR CANNOT DELETE DIR $cacheDir/$file ");
+        writelog("CRITICAL NOT DIR $cacheDir/$file ");
     }
+    exit(1);
 } //end function deleteCacheDirAndReload
 
 

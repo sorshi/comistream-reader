@@ -223,6 +223,8 @@ function toggleView() {
       try { applyDirectoryCustomIcons(); } catch (e) { console.error(e); }
       try { reinitializePreviewFeatures(); } catch (e) { console.error(e); }
       try { updateCoverSideGutter(); } catch (e) {}
+      // 表紙画像を動的に追加
+      try { addCoverImages(); } catch (e) { console.error(e); }
       // ネットワークなしで既読/お気に入りを即時反映
       try { applyBookmarkCache(); } catch (e) { console.error(e); }
     }, 100);
@@ -235,6 +237,8 @@ function toggleView() {
       try { applyDirectoryCustomIcons(); } catch (e) { console.error(e); }
       // リストビューではプレビューを無効化
       try { clearPreviewEventListeners(); } catch (e) { console.error(e); }
+      // 表紙画像を削除
+      try { removeCoverImages(); } catch (e) { console.error(e); }
       // ネットワークなしで既読/お気に入りを即時反映
       try { applyBookmarkCache(); } catch (e) { console.error(e); }
     }, 100);
@@ -847,6 +851,109 @@ function showPreview(imageSrc, element) {
   modal.onclick = function () {
     modal.style.display = "none";
   };
+}
+
+// 問題文字をパーセントエンコードする関数（PHP側のescape_problematic_chars()と同等）
+function escapeProblematicChars(filepath) {
+  if (!filepath) return "";
+  
+  // PHP側と同じ問題文字リスト（%は除外して二重エンコードを防ぐ）
+  const problematicChars = ['#', '?', '&', '=', '\\', ':', '@', '<', '>', '"', "'", '|', '*', ' '];
+  
+  let result = filepath;
+  problematicChars.forEach(char => {
+    result = result.replaceAll(char, encodeURIComponent(char));
+  });
+  
+  return result;
+}
+
+// 表紙画像を動的に追加する関数（リスト→カバービュー切り替え時）
+function addCoverImages() {
+  debugLog("DEBUG addCoverImages called");
+  
+  // 全てのファイル行を取得（parent-dir-rowは除外）
+  const tableBody = document.querySelector("#table-tbody");
+  const rows = tableBody.querySelectorAll("tr:not(.parent-dir-row)");
+  
+  let addedCount = 0;
+  rows.forEach(function(row) {
+    const nameCell = row.querySelector(".indexcolname");
+    const anchor = nameCell ? nameCell.querySelector("a") : null;
+    
+    if (!anchor) return;
+    
+    // ディレクトリの場合は除外（hrefが/で終わるかdata-filepathで判断）
+    const dataFilepath = anchor.getAttribute("data-filepath");
+    const isDirectory = dataFilepath && dataFilepath.endsWith("/");
+    
+    if (isDirectory) {
+      debugLog("DEBUG addCoverImages: Skipping directory:", dataFilepath);
+      return;
+    }
+    
+    // 既に表紙画像が存在する場合はスキップ
+    if (nameCell.querySelector("img")) {
+      debugLog("DEBUG addCoverImages: Cover image already exists for:", dataFilepath);
+      return;
+    }
+    
+    // 表紙画像パスを生成
+    const coverImagePath = generateCoverImagePath(dataFilepath);
+    if (!coverImagePath) return;
+    
+    // img要素を作成
+    const img = document.createElement("img");
+    img.src = coverImagePath;
+    img.alt = "Cover";
+    img.style.display = "block"; // 初期表示
+    
+    // エラー時は非表示にする
+    img.onerror = function() {
+      this.style.display = "none";
+    };
+    
+    // nameCell の先頭に挿入（aタグの前）
+    nameCell.insertBefore(img, anchor);
+    addedCount++;
+    
+    debugLog("DEBUG addCoverImages: Added cover image for:", dataFilepath);
+  });
+  
+  debugLog("DEBUG addCoverImages completed, added:", addedCount);
+}
+
+// 表紙画像を削除する関数（カバー→リストビュー切り替え時）
+function removeCoverImages() {
+  debugLog("DEBUG removeCoverImages called");
+  
+  const tableBody = document.querySelector("#table-tbody");
+  const coverImages = tableBody.querySelectorAll(".indexcolname img");
+  
+  let removedCount = 0;
+  coverImages.forEach(function(img) {
+    img.remove();
+    removedCount++;
+  });
+  
+  debugLog("DEBUG removeCoverImages completed, removed:", removedCount);
+}
+
+// 表紙画像パスを生成する関数（PHP側の処理と同等）
+function generateCoverImagePath(rawFilepath) {
+  if (!rawFilepath) return null;
+  
+  // data-filepath から拡張子を.jpgに変更
+  const coverPath = rawFilepath.replace(/\.[^.]+$/, '.jpg');
+  
+  // 問題文字をエスケープ
+  const escapedCoverPath = escapeProblematicChars(coverPath);
+  
+  // 表紙画像URLを生成
+  const coverImageUrl = '/theme/covers' + escapedCoverPath;
+  
+  debugLog("DEBUG generateCoverImagePath:", rawFilepath, "->", coverImageUrl);
+  return coverImageUrl;
 }
 
 // カスタムディレクトリアイコン適用（カバービュー時に /theme/covers/<path>/index.webp を背景に設定）
