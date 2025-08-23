@@ -249,6 +249,69 @@ function format_size($bytes)
     return '-';
 }
 
+function normalize_kana_for_sort($str)
+{
+    // 安全性チェック：NULL や空文字の場合はそのまま返す
+    if (!isset($str) || $str === '') {
+        return $str;
+    }
+
+    // 初回のみ詳細なデバッグ情報を出力
+    static $debug_logged = false;
+    if (!$debug_logged) {
+        $debug_logged = true;
+        $mbstring_loaded = extension_loaded('mbstring');
+        $mb_convert_kana_exists = function_exists('mb_convert_kana');
+        $mb_strtolower_exists = function_exists('mb_strtolower');
+
+        writelog("DEBUG normalize_kana_for_sort: Extension loaded: " . ($mbstring_loaded ? 'YES' : 'NO'), "dir_list");
+        writelog("DEBUG normalize_kana_for_sort: mb_convert_kana exists: " . ($mb_convert_kana_exists ? 'YES' : 'NO'), "dir_list");
+        writelog("DEBUG normalize_kana_for_sort: mb_strtolower exists: " . ($mb_strtolower_exists ? 'YES' : 'NO'), "dir_list");
+
+        // PHP バージョンも記録
+        writelog("DEBUG normalize_kana_for_sort: PHP version: " . PHP_VERSION, "dir_list");
+    }
+
+    try {
+        // より安全な実装：段階的にフォールバック
+        if (function_exists('mb_strtolower')) {
+            // mb_strtolowerが使えるなら、まずはこれで小文字化
+            $normalized = mb_strtolower($str, 'UTF-8');
+
+            // mb_convert_kanaが使えるならカナ変換も実行
+            if (function_exists('mb_convert_kana')) {
+                // 実際に関数を呼び出してテスト（カタカナ→ひらがな変換をテスト）
+                $test_result = @mb_convert_kana('テスト', 'c', 'UTF-8');
+                if ($test_result !== false && $test_result !== null) {
+                    // 半角カタカナを全角カタカナに変換: 'H'
+                    // 全角カタカナをひらがなに変換: 'c'  
+                    // 全角・半角英数字を半角に変換: 'as'
+                    $normalized = mb_convert_kana($normalized, 'cHas', 'UTF-8');
+                } else {
+                    writelog("WARNING normalize_kana_for_sort: mb_convert_kana exists but returns false/null", "dir_list");
+                }
+            } else {
+                // mb_convert_kanaが使えない場合は基本的な変換のみ
+                writelog("INFO normalize_kana_for_sort: mb_convert_kana not available, using basic normalization for: '$str'", "dir_list");
+            }
+
+            return $normalized;
+        } else {
+            // mbstring関数が全く使えない場合は通常の処理にフォールバック
+            writelog("INFO normalize_kana_for_sort: mbstring functions not available, using basic strtolower for: '$str'", "dir_list");
+            return strtolower($str);
+        }
+    } catch (Exception $e) {
+        // エラーが発生した場合は元の文字列を小文字化して返す
+        writelog("WARNING normalize_kana_for_sort: Error processing '$str': " . $e->getMessage(), "dir_list");
+        return strtolower($str);
+    } catch (Throwable $t) {
+        // PHP 7.x+ のより包括的なエラーハンドリング
+        writelog("WARNING normalize_kana_for_sort: Throwable error processing '$str': " . $t->getMessage(), "dir_list");
+        return strtolower($str);
+    }
+}
+
 // Main script execution
 $document_root = $_SERVER['DOCUMENT_ROOT'];
 $request_path = $_GET['path'] ?? '';
@@ -993,7 +1056,7 @@ $js_config_temp = json_encode([
         $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
             $val_a = $a[$sort_by];
             $val_b = $b[$sort_by];
-            $cmp = ($sort_by === 'name') ? strnatcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
+            $cmp = ($sort_by === 'name') ? strnatcasecmp(normalize_kana_for_sort($val_a), normalize_kana_for_sort($val_b)) : ($val_a <=> $val_b);
             return ($sort_order === 'asc') ? $cmp : -$cmp;
         };
         usort($all_items, $sort_func);
@@ -1003,7 +1066,7 @@ $js_config_temp = json_encode([
         $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
             $val_a = $a[$sort_by];
             $val_b = $b[$sort_by];
-            $cmp = ($sort_by === 'name') ? strnatcasecmp($val_a, $val_b) : ($val_a <=> $val_b);
+            $cmp = ($sort_by === 'name') ? strnatcasecmp(normalize_kana_for_sort($val_a), normalize_kana_for_sort($val_b)) : ($val_a <=> $val_b);
             return ($sort_order === 'asc') ? $cmp : -$cmp;
         };
         usort($dirs, $sort_func);
