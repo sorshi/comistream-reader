@@ -128,7 +128,7 @@ a:hover {
 /* タブレットサイズのデバイス向け */
 /* @media screen and (max-width:768px){
   .history{
-    max-width: calc(100% - 150px);
+    max-width: calc(100% - 159px);
   }
 } */
 /* スマートフォンサイズのデバイス向け */
@@ -240,7 +240,7 @@ table {
 tr {
   display: inline-block;
   position: relative;
-  width: 150px;
+  width: 159px;
   margin: 3px;
   border-bottom: 0px;
 
@@ -257,7 +257,7 @@ th {
 td.indexcolicon {
   display: block;
   position: absolute;
-  width: 150px;
+  width: 159px;
   bottom: 90px;
   box-sizing: border-box;
   padding-left: 10px;
@@ -290,7 +290,7 @@ td.indexcolname {
   position: absolute;
   left: 0px;
   top: 0px;
-  width: 150px;
+  width: 159px;
   height: 100%;
   object-fit: cover;
   object-position: 25% 0%;

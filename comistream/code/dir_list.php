@@ -620,7 +620,7 @@ $js_config_temp = json_encode([
                 row.style.cssText = `
                     display: inline-block !important;
                     position: relative !important;
-                    width: 150px !important;
+                    width: 159px !important;
                     height: 310px !important;
                     margin: 3px !important;
                     border-bottom: 0px !important;
@@ -629,7 +629,7 @@ $js_config_temp = json_encode([
                     <td class="indexcolicon" style="
                         display: block !important;
                         position: absolute !important;
-                        width: 150px !important;
+                        width: 159px !important;
                         bottom: 90px !important;
                         box-sizing: border-box !important;
                         padding-left: 10px !important;
@@ -653,7 +653,7 @@ $js_config_temp = json_encode([
                             position: absolute;
                             left: 0px;
                             top: 0px;
-                            width: 150px;
+                            width: 159px;
                             height: 100%;
                             background: #e9ecef;
                             overflow: hidden;

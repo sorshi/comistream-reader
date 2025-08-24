@@ -127,7 +127,7 @@ a:hover{
 /* タブレットサイズのデバイス向け */
 /* @media screen and (max-width:768px){
   .history{
-    max-width: calc(100% - 150px);
+    max-width: calc(100% - 159px);
   }
 } */
 /* スマートフォンサイズのデバイス向け */

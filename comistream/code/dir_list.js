@@ -1361,7 +1361,7 @@ function updateCoverSideGutter() {
     return;
   }
 
-  const slotWidth = 150 + 3 + 3; // card width + horizontal margins
+  const slotWidth = 159 + 3 + 3; // card width + horizontal margins
   const containerWidth = tableContainer.clientWidth;
   if (!containerWidth) return;
   const columns = Math.max(1, Math.floor(containerWidth / slotWidth));

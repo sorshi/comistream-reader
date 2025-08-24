@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Comistream Reader - Music Player PHP
  *
@@ -15,10 +16,10 @@
 
 // library
 if (file_exists(__DIR__ . "/comistream_lib.php")) {
-  require(__DIR__ . "/comistream_lib.php");
-  writelog("DEBUG library file exist:" . __DIR__ . "/comistream_lib.php", 'MusicPlayer');
+    require(__DIR__ . "/comistream_lib.php");
+    writelog("DEBUG library file exist:" . __DIR__ . "/comistream_lib.php", 'MusicPlayer');
 } else {
-  exit(1);
+    exit(1);
 }
 
 // セッションスタート
@@ -26,17 +27,17 @@ session_start();
 
 // DB接続
 if (databaseExists()) {
-  $DSN = "sqlite:" . __DIR__ . '/../data/db/comistream.sqlite';
-  try {
-    $dbh = new PDO($DSN);
-    $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $dbh->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-  } catch (PDOException $e) {
-    echo '接続エラー: ' . $e->getMessage();
-    die();
-  }
+    $DSN = "sqlite:" . __DIR__ . '/../data/db/comistream.sqlite';
+    try {
+        $dbh = new PDO($DSN);
+        $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $dbh->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        echo '接続エラー: ' . $e->getMessage();
+        die();
+    }
 } else {
-  errorExit("config invalid", "設定内容が異常です。");
+    errorExit("config invalid", "設定内容が異常です。");
 }
 
 // 設定ファイル読み込み
@@ -92,7 +93,8 @@ if ($mode == 'open' && $file != '') {
 /**
  * 音楽プレイヤーテーブル作成
  */
-function createMusicTables($dbh) {
+function createMusicTables($dbh)
+{
     // プレイリストテーブル
     $sql = "CREATE TABLE IF NOT EXISTS music_playlists (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,7 +122,8 @@ function createMusicTables($dbh) {
 /**
  * 音楽プレイヤーを開く
  */
-function openMusicPlayer() {
+function openMusicPlayer()
+{
     global $conf, $file, $user, $audioFormats, $writelog_process_name;
 
     $file = str_replace('../', '', $file);
@@ -168,7 +171,7 @@ function openMusicPlayer() {
     }
 
     // 音楽ファイルをソート
-    usort($musicFiles, function($a, $b) {
+    usort($musicFiles, function ($a, $b) {
         return strnatcmp($a['name'], $b['name']);
     });
 
@@ -568,24 +571,25 @@ HTML;
 /**
  * プレイリスト作成
  */
-function createPlaylist() {
+function createPlaylist()
+{
     global $dbh, $user, $writelog_process_name;
-    
+
     $name = isset($_POST['name']) ? trim($_POST['name']) : '';
     $description = isset($_POST['description']) ? trim($_POST['description']) : '';
-    
+
     if (empty($name)) {
         echo json_encode(['success' => false, 'error' => 'プレイリスト名は必須です']);
         return;
     }
-    
+
     try {
         $sql = "INSERT INTO music_playlists (user, name, description) VALUES (?, ?, ?)";
         $stmt = $dbh->prepare($sql);
         $stmt->execute([$user, $name, $description]);
-        
+
         $playlistId = $dbh->lastInsertId();
-        
+
         echo json_encode(['success' => true, 'playlist_id' => $playlistId]);
         writelog("DEBUG createPlaylist() created playlist: $name for user: $user", $writelog_process_name);
     } catch (PDOException $e) {
@@ -597,38 +601,39 @@ function createPlaylist() {
 /**
  * プレイリストに楽曲追加
  */
-function addToPlaylist() {
+function addToPlaylist()
+{
     global $dbh, $user, $playlist_id, $file, $writelog_process_name;
-    
+
     if (empty($playlist_id) || empty($file)) {
         echo json_encode(['success' => false, 'error' => 'パラメータが不足しています']);
         return;
     }
-    
+
     $fileName = basename($file);
-    
+
     try {
         // プレイリストの存在確認
         $sql = "SELECT id FROM music_playlists WHERE id = ? AND user = ?";
         $stmt = $dbh->prepare($sql);
         $stmt->execute([$playlist_id, $user]);
-        
+
         if (!$stmt->fetch()) {
             echo json_encode(['success' => false, 'error' => 'プレイリストが見つかりません']);
             return;
         }
-        
+
         // 次のtrack_orderを取得
         $sql = "SELECT COALESCE(MAX(track_order), 0) + 1 as next_order FROM music_playlist_tracks WHERE playlist_id = ?";
         $stmt = $dbh->prepare($sql);
         $stmt->execute([$playlist_id]);
         $nextOrder = $stmt->fetchColumn();
-        
+
         // 楽曲をプレイリストに追加
         $sql = "INSERT INTO music_playlist_tracks (playlist_id, file_path, file_name, track_order) VALUES (?, ?, ?, ?)";
         $stmt = $dbh->prepare($sql);
         $stmt->execute([$playlist_id, $file, $fileName, $nextOrder]);
-        
+
         echo json_encode(['success' => true]);
         writelog("DEBUG addToPlaylist() added track: $fileName to playlist: $playlist_id", $writelog_process_name);
     } catch (PDOException $e) {
@@ -640,16 +645,17 @@ function addToPlaylist() {
 /**
  * プレイリスト一覧取得
  */
-function getPlaylists() {
+function getPlaylists()
+{
     global $dbh, $user, $writelog_process_name;
-    
+
     try {
         $sql = "SELECT id, name, description, created_at FROM music_playlists WHERE user = ? ORDER BY updated_at DESC";
         $stmt = $dbh->prepare($sql);
         $stmt->execute([$user]);
-        
+
         $playlists = $stmt->fetchAll();
-        
+
         echo json_encode(['success' => true, 'playlists' => $playlists]);
     } catch (PDOException $e) {
         echo json_encode(['success' => false, 'error' => 'データベースエラー']);
@@ -660,9 +666,10 @@ function getPlaylists() {
 /**
  * プレイリストの楽曲一覧取得
  */
-function getPlaylistTracks() {
+function getPlaylistTracks()
+{
     global $dbh, $user, $playlist_id, $writelog_process_name;
-    
+
     try {
         $sql = "SELECT pt.file_path, pt.file_name, pt.track_order 
                 FROM music_playlist_tracks pt 
@@ -671,9 +678,9 @@ function getPlaylistTracks() {
                 ORDER BY pt.track_order";
         $stmt = $dbh->prepare($sql);
         $stmt->execute([$playlist_id, $user]);
-        
+
         $tracks = $stmt->fetchAll();
-        
+
         echo json_encode(['success' => true, 'tracks' => $tracks]);
     } catch (PDOException $e) {
         echo json_encode(['success' => false, 'error' => 'データベースエラー']);
@@ -684,14 +691,15 @@ function getPlaylistTracks() {
 /**
  * プレイリスト削除
  */
-function deletePlaylist() {
+function deletePlaylist()
+{
     global $dbh, $user, $playlist_id, $writelog_process_name;
-    
+
     try {
         $sql = "DELETE FROM music_playlists WHERE id = ? AND user = ?";
         $stmt = $dbh->prepare($sql);
         $stmt->execute([$playlist_id, $user]);
-        
+
         if ($stmt->rowCount() > 0) {
             echo json_encode(['success' => true]);
             writelog("DEBUG deletePlaylist() deleted playlist: $playlist_id", $writelog_process_name);
@@ -707,7 +715,8 @@ function deletePlaylist() {
 /**
  * メタデータ取得（タイトル/アーティスト）
  */
-function getMetadata() {
+function getMetadata()
+{
     global $conf, $audioFormats, $writelog_process_name;
     $file = isset($_REQUEST['file']) ? $_REQUEST['file'] : '';
     $file = str_replace('..', '', $file);
@@ -751,7 +760,8 @@ function getMetadata() {
 /**
  * カバーアート取得
  */
-function getCoverArt() {
+function getCoverArt()
+{
     global $conf, $audioFormats, $writelog_process_name;
     $file = isset($_REQUEST['file']) ? $_REQUEST['file'] : '';
     $file = str_replace('..', '', $file);
@@ -801,7 +811,8 @@ function getCoverArt() {
 
 // --- 解析ヘルパ ---
 
-function parseID3v2Metadata($buf) {
+function parseID3v2Metadata($buf)
+{
     $meta = ['title' => '', 'artist' => ''];
     if (strlen($buf) < 10) return $meta;
     if (substr($buf, 0, 3) !== 'ID3') return $meta;
@@ -839,7 +850,8 @@ function parseID3v2Metadata($buf) {
     return $meta;
 }
 
-function decodeID3Text($bytes, $enc) {
+function decodeID3Text($bytes, $enc)
+{
     // 0: ISO-8859-1, 1: UTF-16 with BOM, 2: UTF-16BE, 3: UTF-8
     if ($enc === 0) return @iconv('ISO-8859-1', 'UTF-8//IGNORE', $bytes);
     if ($enc === 1) return @iconv('UTF-16', 'UTF-8//IGNORE', $bytes);
@@ -848,7 +860,8 @@ function decodeID3Text($bytes, $enc) {
     return '';
 }
 
-function parseFLACVorbisComment($buf) {
+function parseFLACVorbisComment($buf)
+{
     $meta = ['title' => '', 'artist' => ''];
     if (strlen($buf) < 4 || substr($buf, 0, 4) !== 'fLaC') return $meta;
     $offset = 4;
@@ -861,14 +874,18 @@ function parseFLACVorbisComment($buf) {
         if ($type === 4) { // VORBIS_COMMENT
             $p = $offset;
             if ($p + 4 > strlen($buf)) break;
-            $vendorLen = unpack('V', substr($buf, $p, 4))[1]; $p += 4 + $vendorLen;
+            $vendorLen = unpack('V', substr($buf, $p, 4))[1];
+            $p += 4 + $vendorLen;
             if ($p + 4 > strlen($buf)) break;
-            $userCount = unpack('V', substr($buf, $p, 4))[1]; $p += 4;
+            $userCount = unpack('V', substr($buf, $p, 4))[1];
+            $p += 4;
             for ($i = 0; $i < $userCount; $i++) {
                 if ($p + 4 > strlen($buf)) break;
-                $len = unpack('V', substr($buf, $p, 4))[1]; $p += 4;
+                $len = unpack('V', substr($buf, $p, 4))[1];
+                $p += 4;
                 if ($p + $len > strlen($buf)) break;
-                $kv = substr($buf, $p, $len); $p += $len;
+                $kv = substr($buf, $p, $len);
+                $p += $len;
                 $eq = strpos($kv, '=');
                 if ($eq !== false) {
                     $key = strtoupper(substr($kv, 0, $eq));
@@ -885,7 +902,8 @@ function parseFLACVorbisComment($buf) {
     return $meta;
 }
 
-function parseMP4IlstMetadata($buf) {
+function parseMP4IlstMetadata($buf)
+{
     $meta = ['title' => '', 'artist' => ''];
     $len = strlen($buf);
     $offset = 0;
@@ -900,8 +918,9 @@ function parseMP4IlstMetadata($buf) {
                 $ssize = unpack('N', substr($buf, $inner, 4))[1];
                 $stype = substr($buf, $inner + 4, 4);
                 if ($ssize <= 0) break;
-                if ($stype === "\xA9".'nam' || $stype === "\xA9".'ART' || $stype === 'aART') {
-                    $p = $inner + 8; $subEnd = min($end, $inner + $ssize);
+                if ($stype === "\xA9" . 'nam' || $stype === "\xA9" . 'ART' || $stype === 'aART') {
+                    $p = $inner + 8;
+                    $subEnd = min($end, $inner + $ssize);
                     while ($p + 8 <= $subEnd) {
                         $dsize = unpack('N', substr($buf, $p, 4))[1];
                         $dtype = substr($buf, $p + 4, 4);
@@ -913,7 +932,7 @@ function parseMP4IlstMetadata($buf) {
                             if ($payloadLen > 0) {
                                 $text = substr($buf, $payloadStart, $payloadLen);
                                 $text = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
-                                if ($stype === "\xA9".'nam') $meta['title'] = $text;
+                                if ($stype === "\xA9" . 'nam') $meta['title'] = $text;
                                 else $meta['artist'] = $text;
                             }
                             break;
@@ -929,11 +948,13 @@ function parseMP4IlstMetadata($buf) {
     return $meta;
 }
 
-function extractMP3CoverFromBuffer($buf) {
+function extractMP3CoverFromBuffer($buf)
+{
     if (strlen($buf) < 10 || substr($buf, 0, 3) !== 'ID3') return null;
     $version = ord($buf[3]);
     $flags = ord($buf[5]);
-    $size = 0; for ($i = 6; $i < 10; $i++) $size = ($size << 7) + (ord($buf[$i]) & 0x7f);
+    $size = 0;
+    for ($i = 6; $i < 10; $i++) $size = ($size << 7) + (ord($buf[$i]) & 0x7f);
     $offset = 10;
     if ($flags & 0x40) {
         if (strlen($buf) < $offset + 4) return null;
@@ -943,7 +964,8 @@ function extractMP3CoverFromBuffer($buf) {
     while ($offset + 10 <= min(strlen($buf), $size + 10)) {
         $frameId = substr($buf, $offset, 4);
         if ($version >= 4) {
-            $fsize = 0; for ($i = 0; $i < 4; $i++) $fsize = ($fsize << 7) + (ord($buf[$offset + 4 + $i]) & 0x7f);
+            $fsize = 0;
+            for ($i = 0; $i < 4; $i++) $fsize = ($fsize << 7) + (ord($buf[$offset + 4 + $i]) & 0x7f);
         } else {
             $fsize = unpack('N', substr($buf, $offset + 4, 4))[1];
         }
@@ -953,11 +975,16 @@ function extractMP3CoverFromBuffer($buf) {
             $p++; // encoding
             // mime
             $mime = '';
-            while ($p < $dataStart + $fsize && ord($buf[$p]) !== 0) { $mime .= $buf[$p]; $p++; }
+            while ($p < $dataStart + $fsize && ord($buf[$p]) !== 0) {
+                $mime .= $buf[$p];
+                $p++;
+            }
             $p++; // null
             $p++; // picture type
             // description
-            while ($p < $dataStart + $fsize && ord($buf[$p]) !== 0) { $p++; }
+            while ($p < $dataStart + $fsize && ord($buf[$p]) !== 0) {
+                $p++;
+            }
             $p++; // null
             $img = substr($buf, $p, ($dataStart + $fsize) - $p);
             if ($mime === '') $mime = 'image/jpeg';
@@ -968,7 +995,8 @@ function extractMP3CoverFromBuffer($buf) {
     return null;
 }
 
-function extractFLACCoverFromBuffer($buf) {
+function extractFLACCoverFromBuffer($buf)
+{
     if (strlen($buf) < 4 || substr($buf, 0, 4) !== 'fLaC') return null;
     $offset = 4;
     while ($offset + 4 <= strlen($buf)) {
@@ -980,11 +1008,15 @@ function extractFLACCoverFromBuffer($buf) {
         if ($type === 6) { // PICTURE
             $p = $offset;
             $p += 4; // picture type
-            $mimeLen = unpack('N', substr($buf, $p, 4))[1]; $p += 4;
-            $mime = substr($buf, $p, $mimeLen); $p += $mimeLen;
-            $descLen = unpack('N', substr($buf, $p, 4))[1]; $p += 4 + $descLen;
+            $mimeLen = unpack('N', substr($buf, $p, 4))[1];
+            $p += 4;
+            $mime = substr($buf, $p, $mimeLen);
+            $p += $mimeLen;
+            $descLen = unpack('N', substr($buf, $p, 4))[1];
+            $p += 4 + $descLen;
             $p += 16; // w,h,depth,colors
-            $imgLen = unpack('N', substr($buf, $p, 4))[1]; $p += 4;
+            $imgLen = unpack('N', substr($buf, $p, 4))[1];
+            $p += 4;
             $img = substr($buf, $p, $imgLen);
             return ['mime' => $mime ?: 'image/jpeg', 'data' => $img];
         }
@@ -994,7 +1026,8 @@ function extractFLACCoverFromBuffer($buf) {
     return null;
 }
 
-function extractMP4CoverFromBuffer($buf) {
+function extractMP4CoverFromBuffer($buf)
+{
     $len = strlen($buf);
     $offset = 0;
     while ($offset + 8 <= $len) {
@@ -1006,7 +1039,8 @@ function extractMP4CoverFromBuffer($buf) {
         if (in_array($type, ['moov', 'udta', 'meta', 'ilst', 'covr'])) {
             if ($type === 'covr') {
                 // inside covr, look for data atom
-                $p = $inner; $subEnd = $end;
+                $p = $inner;
+                $subEnd = $end;
                 while ($p + 8 <= $subEnd) {
                     $dsize = unpack('N', substr($buf, $p, 4))[1];
                     $dtype = substr($buf, $p + 4, 4);
@@ -1041,5 +1075,3 @@ function extractMP4CoverFromBuffer($buf) {
     }
     return null;
 }
-
-?> 
