@@ -701,6 +701,16 @@ $js_config_temp = json_encode([
                 // 実際のコンテンツを設定
                 tbody.innerHTML = actualHtml;
 
+                // コンテンツ設定直後にカバービューの中央寄せを計算（フェードイン前に実行）
+                try {
+                    if (typeof updateCoverSideGutter === 'function') {
+                        updateCoverSideGutter();
+                        debugLog('DEBUG Normal render: updateCoverSideGutter called before fade-in');
+                    }
+                } catch (e) {
+                    console.error('ERROR Normal render: updateCoverSideGutter failed:', e);
+                }
+
                 // スケルトンクラスを削除
                 tableContainer.classList.remove('skeleton-loading');
 
@@ -759,6 +769,7 @@ $js_config_temp = json_encode([
                         console.error('ERROR Normal render: applyBookmarkCache failed:', e);
                     }
 
+                    // updateCoverSideGutter()は既にフェードイン前に実行済みのため、ここでは実行しない
                     // 不要なクリーンアップ処理は削除（インラインスタイル制御のため）
                 }, 100);
             }, 200);
@@ -1229,6 +1240,16 @@ $js_config_temp = json_encode([
                 const tableContainer = document.getElementById('indexlist');
 
                 tbody.innerHTML = actualContent;
+
+                // コンテンツ設定直後にカバービューの中央寄せを計算（即座に表示前に実行）
+                try {
+                    if (typeof updateCoverSideGutter === 'function') {
+                        updateCoverSideGutter();
+                        debugLog('DEBUG Fast render: updateCoverSideGutter called before display');
+                    }
+                } catch (e) {
+                    console.error('ERROR Fast render: updateCoverSideGutter failed:', e);
+                }
 
                 // transitionを無効化してからクラス操作（アニメーション競合回避）
                 tableContainer.style.transition = 'none';
