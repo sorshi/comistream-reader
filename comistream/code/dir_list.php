@@ -991,207 +991,8 @@ $js_config_temp = json_encode([
     </script>
 
     <?php
-    // スケルトンローディングを表示してからディレクトリ処理を開始
-    if (ob_get_level()) ob_end_flush();
-    flush();
-
-    // 実際のディレクトリ処理開始
-    ob_start(); // 出力バッファを開始
-
-    $tbody_content = '';
-
-    if ($physical_path !== $document_root) {
-        $parent_path = dirname($request_path);
-        if (DIRECTORY_SEPARATOR !== '/') $parent_path = str_replace(DIRECTORY_SEPARATOR, '/', $parent_path);
-        if ($parent_path === '/' || $parent_path === '.' || $parent_path === '') $parent_path = '/';
-        // Parent Directoryでも問題のある文字を一時的に置換
-        $escaped_parent_path = escape_problematic_chars($parent_path);
-        $tbody_content .= '<tr class="parent-dir-row">';
-        $parent_icon_src = ($viewmode === 'cover') ? '/theme/icons/blank.png' : get_icon_map()['__parent'];
-        $tbody_content .= '<td class="indexcolicon"><a href="' . htmlspecialchars($parent_path) . '" data-filepath="' . htmlspecialchars($escaped_parent_path) . '"><img src="' . $parent_icon_src . '" alt="[PARENTDIR]"></a></td>';
-        $tbody_content .= '<td class="indexcolname"><a href="' . htmlspecialchars($parent_path) . '" data-filepath="' . htmlspecialchars($escaped_parent_path) . '">Parent Directory</a></td>';
-        $tbody_content .= '<td class="indexcollastmod">&nbsp;</td>';
-        $tbody_content .= '<td class="indexcolsize">-</td>';
-        $tbody_content .= '</tr>';
-    }
-
-    // Performance measurement: Start scandir
-    $perf_scandir_start = microtime(true);
-
-    $dirs = [];
-    $files = [];
-    $all_items = [];
-
-    if (!$is_404_mode) {
-        // 通常モード: ディレクトリをスキャン
-        $items = scandir($physical_path, SCANDIR_SORT_NONE);
-
-        foreach ($items as $item) {
-            if ($item === '.' || $item === '..') continue;
-            // Skip hidden files (files starting with dot)
-            if (strpos($item, '.') === 0) continue;
-            $item_path = $physical_path . '/' . $item;
-            $is_dir = is_dir($item_path);
-            $stat = stat($item_path);
-            $entry = [
-                'name' => $item,
-                'is_dir' => $is_dir,
-                'size' => $is_dir ? -1 : $stat['size'],
-                'lastmod' => $stat['mtime']
-            ];
-
-            // すべてのアイテムを配列に追加
-            $all_items[] = $entry;
-
-            // 従来の分割ソート用に分類も保持
-            if ($is_dir) $dirs[] = $entry;
-            else $files[] = $entry;
-        }
-    }
-    // 404モードの場合は配列は空のまま（空のディレクトリとして表示）
-
-    // Performance measurement: End scandir
-    $perf_scandir_end = microtime(true);
-    $perf_scandir_time = ($perf_scandir_end - $perf_scandir_start) * 1000; // milliseconds
-
-    // ソート設定：name順とlastmod順の場合は混在ソート、それ以外は分割ソート
-    // ハードコーディング設定：分割ソートを強制する場合は true に変更
-    $force_separate_sort = false;
-    $use_mixed_sort = (($sort_by === 'name' || $sort_by === 'lastmod') && !$force_separate_sort);
-
-    // Performance measurement: Start sort
-    $perf_sort_start = microtime(true);
-
-    if ($use_mixed_sort) {
-        // 混在ソート（MacのFinderライク）
-        $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
-            $val_a = $a[$sort_by];
-            $val_b = $b[$sort_by];
-            $cmp = ($sort_by === 'name') ? strnatcasecmp(normalize_kana_for_sort($val_a), normalize_kana_for_sort($val_b)) : ($val_a <=> $val_b);
-            return ($sort_order === 'asc') ? $cmp : -$cmp;
-        };
-        usort($all_items, $sort_func);
-        $sorted_items = $all_items;
-    } else {
-        // 分割ソート（従来通り：ディレクトリが先、ファイルが後）
-        $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
-            $val_a = $a[$sort_by];
-            $val_b = $b[$sort_by];
-            $cmp = ($sort_by === 'name') ? strnatcasecmp(normalize_kana_for_sort($val_a), normalize_kana_for_sort($val_b)) : ($val_a <=> $val_b);
-            return ($sort_order === 'asc') ? $cmp : -$cmp;
-        };
-        usort($dirs, $sort_func);
-        usort($files, $sort_func);
-        $sorted_items = array_merge($dirs, $files);
-    }
-
-    // Performance measurement: End sort
-    $perf_sort_end = microtime(true);
-    $perf_sort_time = ($perf_sort_end - $perf_sort_start) * 1000; // milliseconds
-
-    // Performance log: Output performance data
-    $total_items = count($all_items);
-    $dir_count = count($dirs);
-    $file_count = count($files);
-    $sort_mode = $use_mixed_sort ? 'mixed' : 'separate';
-
-    // Fast rendering判定ロジック
-    $total_process_time = $perf_scandir_time + $perf_sort_time;
-    $fast_render_threshold_ms = 50; // 50ms以下なら高速モード
-    $fast_render_item_threshold = 100; // 100個以下も高速モード対象
-
-    // デバッグフラグ: スケルトンアニメーション強制実行 (URLパラメータやconfigで制御可能)
-    $force_skeleton_animation = isset($_GET['force_skeleton']) ||
-        (isset($conf['forceSkeletonAnimation']) && $conf['forceSkeletonAnimation']);
-
-    $fast_render_mode = !$force_skeleton_animation &&
-        ($total_process_time <= $fast_render_threshold_ms || $total_items <= $fast_render_item_threshold);
-
-    writelog("DEBUG dir_list: " . sprintf(
-        "PERF dir_list: scandir=%.2fms sort=%.2fms total=%.2fms mode=%s key=%s order=%s total=%d dirs=%d files=%d path=%s fast_render=%s force_skeleton=%s 404_mode=%s",
-        $perf_scandir_time,
-        $perf_sort_time,
-        $total_process_time,
-        $sort_mode,
-        $sort_by,
-        $sort_order,
-        $total_items,
-        $dir_count,
-        $file_count,
-        $request_path,
-        $fast_render_mode ? 'true' : 'false',
-        $force_skeleton_animation ? 'true' : 'false',
-        $is_404_mode ? 'true' : 'false'
-    ), "dir_list");
-
-    foreach ($sorted_items as $item) {
-        $icon = get_icon($item['name'], $item['is_dir']);
-        $href = rtrim($request_path, '/') . '/' . rawurlencode($item['name']);
-        // JavaScript用に生のファイルパスも保存（#文字対応）
-        $raw_filepath = rtrim($request_path, '/') . '/' . $item['name'];
-        // #文字を一時的に置換（ブラウザが#でURLを切るのを防ぐ）
-        $escaped_filepath = escape_problematic_chars($raw_filepath);
-        if ($item['is_dir']) {
-            $href .= '/';
-            $raw_filepath .= '/';
-            $escaped_filepath .= '/';
-        }
-
-        // デバッグ用ログ（問題のある文字を含むファイルの場合のみ）
-        if (preg_match('/[#?&=%\\:@<>"\'|* ]/', $item['name'])) {
-            writelog("DEBUG dir_list: Special characters found in filename: " . $item['name'] . ", raw_filepath: " . $raw_filepath . ", percent_encoded: " . $escaped_filepath, "dir_list");
-        }
-
-        $tbody_content .= '<tr>';
-        // For directories in cover view, the icon is a background image on the link, not an img tag.
-        // So, we provide a blank image for cover view directories to maintain layout.
-        $icon_img_src = ($viewmode === 'cover' && $item['is_dir']) ? '/theme/icons/blank.png' : $icon;
-        $tbody_content .= '<td class="indexcolicon"><a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"><img src="' . $icon_img_src . '" alt="[ICO]"></a></td>';
-
-        // Add onclick handler for files (not directories) to maintain compatibility with mod_autoindex
-        $onclick_attr = '';
-        if (!$item['is_dir']) {
-            $onclick_attr = ' onclick="return linkhook(event)"';
-        }
-
-        // カバービューモードでファイルの場合は表紙画像を追加
-        $indexcolname_content = '';
-        $data_image_attr = '';
-
-        if (!$item['is_dir']) {
-            // ファイルの場合、プレビュー画像のdata-image属性を設定（問題文字はパーセントエンコード）
-            $preview_path = preg_replace('/\.[^.]+$/', '.webp', $raw_filepath);
-            $escaped_preview_path = escape_problematic_chars($preview_path);
-            $preview_image_url = '/theme/preview' . $escaped_preview_path;
-            $data_image_attr = ' data-image="' . htmlspecialchars($preview_image_url) . '"';
-
-            // デバッグ用ログ（最初の数個のファイルのみ）
-            static $debug_count = 0;
-            if ($debug_count < 3) {
-                writelog("DEBUG dir_list: preview data-image for '{$item['name']}': raw_filepath='$raw_filepath', preview_url='$preview_image_url'", "dir_list");
-                $debug_count++;
-            }
-
-            if ($viewmode === 'cover') {
-                // カバービューモードでファイルの場合、/theme/covers/ 以下の.jpg画像を使用（問題文字はパーセントエンコード）
-                $cover_path = preg_replace('/\.[^.]+$/', '.jpg', $raw_filepath);
-                $escaped_cover_path = escape_problematic_chars($cover_path);
-                $cover_image_url = '/theme/covers' . $escaped_cover_path;
-                $indexcolname_content = '<img src="' . htmlspecialchars($cover_image_url) . '" alt="Cover" onerror="this.style.display=\'none\'">';
-            }
-        }
-
-        // td要素にもid属性を設定（getBookmark関数で使用される）
-        $td_id_attr = !$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '';
-        $tbody_content .= '<td class="indexcolname"' . $data_image_attr . $td_id_attr . '>' . $indexcolname_content . '<a href="' . htmlspecialchars($href) . '" data-filepath="' . htmlspecialchars($escaped_filepath) . '"' .
-            (!$item['is_dir'] ? ' id="' . htmlspecialchars($item['name']) . '"' : '') .
-            $onclick_attr . '>' . htmlspecialchars($item['name']) . '</a></td>';
-        $tbody_content .= '<td class="indexcollastmod">' . date('Y-m-d H:i', $item['lastmod']) . '</td>';
-        $tbody_content .= '<td class="indexcolsize">' . format_size($item['size']) . '</td>';
-        $tbody_content .= '</tr>';
-    }
-
-    // パフォーマンス測定完了後、最終的なJavaScript設定を作成
+    // Ajax呼び出し用の初期設定
+    // 初期表示専用のJavaScript設定を作成
     $js_config = json_encode([
         'cgiPath' => $cgiPath,
         'hlsCgiPath' => $hlsCgiPath,
@@ -1203,141 +1004,427 @@ $js_config_temp = json_encode([
         'hasSessionSortPrefs' => isset($_SESSION['dirSortPrefs']),
         'currentSort' => $sort_by,
         'currentOrder' => $sort_order,
-        'debugFlag' => $global_debug_flag,
-        'fastRenderMode' => $fast_render_mode,
-        'forceSkeletonAnimation' => $force_skeleton_animation,
-        'totalProcessTime' => round($total_process_time, 2), // デバッグ用に処理時間も送信
-        'totalItems' => $total_items // デバッグ用にアイテム数も送信
+        'debugFlag' => $global_debug_flag
     ]);
-
-    // JSONエンコードして JavaScript に送信
-    $tbody_content_json = json_encode($tbody_content);
     ?>
 
     <script>
-        // 処理完了後の最終設定でcomistreamConfigを更新
+        // JavaScript設定を設定
         const comistreamConfig = <?php echo $js_config; ?>;
 
-        // 高速レンダリングモードのログ出力（デバッグ用）
-        if (debugFlag) {
-            console.debug('Fast Render Mode:', comistreamConfig.fastRenderMode);
-            console.debug('Force Skeleton Animation:', comistreamConfig.forceSkeletonAnimation);
-            console.debug('Process Time:', comistreamConfig.totalProcessTime + 'ms');
-            console.debug('Total Items:', comistreamConfig.totalItems);
+        // Ajax でディレクトリ内容を取得するルン！
+        function loadDirectoryContent() {
+            debugLog('Loading directory content via Ajax...');
+            
+            // パフォーマンス測定開始（高速表示判定用）
+            const ajaxStartTime = performance.now();
+            const FAST_RENDER_THRESHOLD_MS = 100; // 100ms以下なら高速表示
+            
+            // パラメータを構築
+            const urlParams = new URLSearchParams(window.location.search);
+            const currentPath = window.location.pathname;
+            const viewmode = getCookie('viewmode') || 'list';
+            
+            // API URL を構築
+            const apiUrl = '/cgi-bin/dir_list_api.php';
+            const params = new URLSearchParams({
+                path: currentPath,
+                viewmode: viewmode
+            });
+            
+            // ソートパラメータがあれば追加
+            if (urlParams.get('sort')) params.set('sort', urlParams.get('sort'));
+            if (urlParams.get('order')) params.set('order', urlParams.get('order'));
+            
+            const fullApiUrl = apiUrl + '?' + params.toString();
+            debugLog('API URL:', fullApiUrl);
+            
+            // Ajax リクエスト実行
+            fetch(fullApiUrl, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                    'Cache-Control': 'no-cache'
+                },
+                credentials: 'same-origin'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Ajax 応答時間を測定
+                const ajaxEndTime = performance.now();
+                const ajaxResponseTime = ajaxEndTime - ajaxStartTime;
+                const isFastRender = ajaxResponseTime <= FAST_RENDER_THRESHOLD_MS;
+                
+                // スケルトンタイマーをキャンセル（高速/通常どちらの場合も）
+                if (window._skeletonTimer) {
+                    clearTimeout(window._skeletonTimer);
+                    window._skeletonTimer = null;
+                    debugLog('DEBUG: Skeleton timer cancelled - response received in time');
+                }
+                
+                debugLog('API response received:', data, 'Response time:', ajaxResponseTime.toFixed(2) + 'ms', 'Fast render:', isFastRender);
+                
+                if (data.success) {
+                    // JavaScript設定を更新
+                    if (window.comistreamConfig) {
+                        window.comistreamConfig.currentSort = data.meta.sort_by;
+                        window.comistreamConfig.currentOrder = data.meta.sort_order;
+                    }
+                    
+                    // 高速表示 vs 通常表示（スケルトン）の判定
+                    if (isFastRender) {
+                        // 高速表示：スケルトンをスキップして直接表示
+                        debugLog('Fast render mode: rendering content directly');
+                        renderDirectoryContentFast(data.data, data.meta);
+                    } else {
+                        // 通常表示：スケルトンからの切り替え
+                        debugLog('Normal render mode: using skeleton transition');
+                        renderDirectoryContent(data.data, data.meta);
+                    }
+                    
+                    debugLog('Directory content loaded successfully. Items:', data.meta.total_items, 'Server process time:', data.meta.processing_time_ms + 'ms', 'Total response time:', ajaxResponseTime.toFixed(2) + 'ms');
+                } else {
+                    // エラー時の処理
+                    throw new Error(data.error ? data.error.message : 'Unknown API error');
+                }
+            })
+            .catch(error => {
+                // エラー時もスケルトンタイマーをキャンセル
+                if (window._skeletonTimer) {
+                    clearTimeout(window._skeletonTimer);
+                    window._skeletonTimer = null;
+                    debugLog('DEBUG: Skeleton timer cancelled due to error');
+                }
+                
+                console.error('Failed to load directory content:', error);
+                renderErrorMessage('ディレクトリの読み込みに失敗しました: ' + error.message);
+            });
         }
-
-        // 高速レンダリングモードの場合、スケルトンアニメーションをスキップ
-        if (comistreamConfig.fastRenderMode) {
-            // スケルトン表示をスキップ
-            window.shouldShowSkeleton = false;
-            debugLog('Fast render mode: skipping skeleton animation entirely');
-
-            // 即座にコンテンツを表示
-            setTimeout(function() {
-                const actualContent = <?php echo $tbody_content_json; ?>;
-                // スケルトンが表示されていない場合は直接コンテンツを設定
-                const tbody = document.querySelector('#table-tbody');
-                const tableContainer = document.getElementById('indexlist');
-
-                tbody.innerHTML = actualContent;
-
-                // コンテンツ設定直後にカバービューの中央寄せを計算（即座に表示前に実行）
+        
+        // ディレクトリ内容をレンダリング
+        function renderDirectoryContent(items, meta) {
+            const tbody = document.querySelector('#table-tbody');
+            const tableContainer = document.getElementById('indexlist');
+            
+            if (!tbody || !tableContainer) {
+                console.error('Required DOM elements not found');
+                return;
+            }
+            
+            // HTML構築
+            let htmlContent = '';
+            items.forEach(item => {
+                let rowClass = '';
+                if (item.is_parent) {
+                    rowClass = ' class="parent-dir-row"';
+                }
+                
+                htmlContent += '<tr' + rowClass + '>';
+                
+                // アイコンカラム
+                htmlContent += '<td class="indexcolicon">';
+                htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '">';
+                htmlContent += '<img src="' + escapeHtml(item.icon) + '" alt="[ICO]">';
+                htmlContent += '</a></td>';
+                
+                // 名前カラム
+                let nameContent = '';
+                let dataImageAttr = '';
+                let tdIdAttr = '';
+                let onclickAttr = '';
+                
+                // ファイルの場合の特別処理
+                if (!item.is_dir && !item.is_parent) {
+                    // プレビュー画像属性
+                    if (item.preview_image) {
+                        dataImageAttr = ' data-image="' + escapeHtml(item.preview_image) + '"';
+                    }
+                    // ID属性（ブックマーク用）
+                    tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
+                    // onclick ハンドラ
+                    onclickAttr = ' onclick="return linkhook(event)"';
+                    
+                    // カバービューでファイルの場合、表紙画像を追加
+                    const viewmode = getCookie('viewmode') || 'list';
+                    if (viewmode === 'cover' && item.cover_image) {
+                        nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
+                    }
+                }
+                
+                htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + '>';
+                htmlContent += nameContent;
+                htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
+                if (!item.is_dir && !item.is_parent) {
+                    htmlContent += ' id="' + escapeHtml(item.name) + '"';
+                }
+                htmlContent += onclickAttr + '>';
+                htmlContent += escapeHtml(item.name);
+                htmlContent += '</a></td>';
+                
+                // 最終更新日カラム
+                htmlContent += '<td class="indexcollastmod">' + escapeHtml(item.lastmod_formatted) + '</td>';
+                
+                // サイズカラム  
+                htmlContent += '<td class="indexcolsize">' + escapeHtml(item.size_formatted) + '</td>';
+                
+                htmlContent += '</tr>';
+            });
+            
+            // スケルトンが表示されているかどうかで処理を分ける
+            if (isSkeletonCurrentlyDisplayed()) {
+                debugLog('DEBUG: Normal render using skeleton transition');
+                hideSkeletonLoading(htmlContent);
+            } else {
+                debugLog('DEBUG: Normal render without skeleton (direct) - skeleton was not displayed in time');
+                // スケルトンが表示されていない場合は高速表示と同じ処理
+                tbody.innerHTML = htmlContent;
+                
+                // カバービューの中央寄せ計算
                 try {
                     if (typeof updateCoverSideGutter === 'function') {
                         updateCoverSideGutter();
-                        debugLog('DEBUG Fast render: updateCoverSideGutter called before display');
+                        debugLog('DEBUG Normal render (direct): updateCoverSideGutter called');
                     }
                 } catch (e) {
-                    console.error('ERROR Fast render: updateCoverSideGutter failed:', e);
+                    console.error('ERROR Normal render (direct): updateCoverSideGutter failed:', e);
                 }
-
-                // transitionを無効化してからクラス操作（アニメーション競合回避）
-                tableContainer.style.transition = 'none';
-                tbody.style.transition = 'none';
-
+                
                 tableContainer.classList.remove('skeleton-loading');
                 tbody.classList.add('actual-content');
-                tbody.style.opacity = '1'; // 即座に表示
-
-                // フッターを表示
+                tbody.style.opacity = '1';
+                
                 const footer = document.querySelector('.footer');
                 if (footer) {
                     footer.style.opacity = '1';
                 }
-
-                // 機能を再初期化
-                debugLog('DEBUG Fast render: Starting function initialization');
-
-                if (typeof reinitializeContentFeatures === 'function') {
-                    try {
-                        debugLog('DEBUG Fast render: Calling reinitializeContentFeatures');
-                        reinitializeContentFeatures();
-                        debugLog('DEBUG Fast render: reinitializeContentFeatures completed');
-                    } catch (e) {
-                        console.error('ERROR Fast render: reinitializeContentFeatures failed:', e);
-                    }
-                } else {
-                    console.error('ERROR Fast render: reinitializeContentFeatures is not a function');
-                }
-
-                if (typeof applyDirectoryCustomIcons === 'function') {
-                    try {
-                        debugLog('DEBUG Fast render: Calling applyDirectoryCustomIcons');
-                        applyDirectoryCustomIcons();
-                        debugLog('DEBUG Fast render: applyDirectoryCustomIcons completed');
-                    } catch (e) {
-                        console.error('ERROR Fast render: applyDirectoryCustomIcons failed:', e);
-                    }
-                } else {
-                    console.error('ERROR Fast render: applyDirectoryCustomIcons is not a function');
-                }
-
-                if (typeof reinitializePreviewFeatures === 'function') {
-                    try {
-                        debugLog('DEBUG Fast render: Calling reinitializePreviewFeatures');
-                        reinitializePreviewFeatures();
-                        debugLog('DEBUG Fast render: reinitializePreviewFeatures completed');
-                    } catch (e) {
-                        console.error('ERROR Fast render: reinitializePreviewFeatures failed:', e);
-                    }
-                } else {
-                    console.error('ERROR Fast render: reinitializePreviewFeatures is not a function');
-                }
-
-                // キャッシュ済み既読・お気に入りを即時反映
+                
+                // 機能の再初期化
                 try {
+                    if (typeof reinitializeContentFeatures === 'function') {
+                        reinitializeContentFeatures();
+                    }
+                    if (typeof applyDirectoryCustomIcons === 'function') {
+                        applyDirectoryCustomIcons();
+                    }
+                    if (typeof reinitializePreviewFeatures === 'function') {
+                        reinitializePreviewFeatures();
+                    }
                     if (typeof applyBookmarkCache === 'function') {
-                        debugLog('DEBUG Fast render: Applying bookmark cache');
                         applyBookmarkCache();
                     }
-                } catch (e) {
-                    console.error('ERROR Fast render: applyBookmarkCache failed:', e);
-                }
-
-                // 読書進捗とお気に入り機能を再初期化（inlineで出力されるため即座に利用可能）
-                // getBookmark/getHistory は dir_list.js インライン読込のため遅れることがある
-                try {
-                    debugLog('DEBUG Fast render: Scheduling getBookmark/getHistory');
                     callGetBookmarkWhenReady();
                     callGetHistoryWhenReady();
                 } catch (e) {
-                    console.error('ERROR Fast render: schedule getBookmark/getHistory failed:', e);
+                    console.error('ERROR Normal render (direct): Initialization failed:', e);
                 }
-
-                // 次のフレームでtransitionを復活（クリーンアップ）
-                requestAnimationFrame(() => {
-                    tableContainer.style.transition = '';
-                    tbody.style.transition = '';
-                });
-            }, 0);
-        } else {
-            // 通常モード: 既存のアニメーション
-            debugLog('Normal render mode: showing skeleton animation');
-            setTimeout(function() {
-                const actualContent = <?php echo $tbody_content_json; ?>;
-                hideSkeletonLoading(actualContent);
-            }, 150); // 少し遅延させてスケルトン表示を確実にする
+            }
         }
+        
+        // 高速表示用のディレクトリ内容レンダリング（スケルトンアニメーションなし）
+        function renderDirectoryContentFast(items, meta) {
+            const tbody = document.querySelector('#table-tbody');
+            const tableContainer = document.getElementById('indexlist');
+            
+            if (!tbody || !tableContainer) {
+                console.error('Required DOM elements not found');
+                return;
+            }
+            
+            // HTML構築（renderDirectoryContent()と同じロジック）
+            let htmlContent = '';
+            items.forEach(item => {
+                let rowClass = '';
+                if (item.is_parent) {
+                    rowClass = ' class="parent-dir-row"';
+                }
+                
+                htmlContent += '<tr' + rowClass + '>';
+                
+                // アイコンカラム
+                htmlContent += '<td class="indexcolicon">';
+                htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '">';
+                htmlContent += '<img src="' + escapeHtml(item.icon) + '" alt="[ICO]">';
+                htmlContent += '</a></td>';
+                
+                // 名前カラム
+                let nameContent = '';
+                let dataImageAttr = '';
+                let tdIdAttr = '';
+                let onclickAttr = '';
+                
+                // ファイルの場合の特別処理
+                if (!item.is_dir && !item.is_parent) {
+                    // プレビュー画像属性
+                    if (item.preview_image) {
+                        dataImageAttr = ' data-image="' + escapeHtml(item.preview_image) + '"';
+                    }
+                    // ID属性（ブックマーク用）
+                    tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
+                    // onclick ハンドラ
+                    onclickAttr = ' onclick="return linkhook(event)"';
+                    
+                    // カバービューでファイルの場合、表紙画像を追加
+                    const viewmode = getCookie('viewmode') || 'list';
+                    if (viewmode === 'cover' && item.cover_image) {
+                        nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
+                    }
+                }
+                
+                htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + '>';
+                htmlContent += nameContent;
+                htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
+                if (!item.is_dir && !item.is_parent) {
+                    htmlContent += ' id="' + escapeHtml(item.name) + '"';
+                }
+                htmlContent += onclickAttr + '>';
+                htmlContent += escapeHtml(item.name);
+                htmlContent += '</a></td>';
+                
+                // 最終更新日カラム
+                htmlContent += '<td class="indexcollastmod">' + escapeHtml(item.lastmod_formatted) + '</td>';
+                
+                // サイズカラム  
+                htmlContent += '<td class="indexcolsize">' + escapeHtml(item.size_formatted) + '</td>';
+                
+                htmlContent += '</tr>';
+            });
+            
+            // 高速表示：スケルトンをスキップして直接コンテンツ設定
+            debugLog('DEBUG Fast render: Setting content directly without skeleton animation');
+            
+            // コンテンツを直接設定
+            tbody.innerHTML = htmlContent;
+            
+            // カバービューの中央寄せ計算（コンテンツ設定直後に実行）
+            try {
+                if (typeof updateCoverSideGutter === 'function') {
+                    updateCoverSideGutter();
+                    debugLog('DEBUG Fast render: updateCoverSideGutter called');
+                }
+            } catch (e) {
+                console.error('ERROR Fast render: updateCoverSideGutter failed:', e);
+            }
+            
+            // スケルトンクラスを削除し、実際のコンテンツクラスを追加
+            tableContainer.classList.remove('skeleton-loading');
+            tbody.classList.add('actual-content');
+            tbody.style.opacity = '1'; // 即座に表示
+            
+            // フッターを表示
+            const footer = document.querySelector('.footer');
+            if (footer) {
+                footer.style.opacity = '1';
+            }
+            
+            // すべての機能を再初期化
+            try {
+                debugLog('DEBUG Fast render: Starting function initialization');
+                
+                if (typeof reinitializeContentFeatures === 'function') {
+                    reinitializeContentFeatures();
+                    debugLog('DEBUG Fast render: reinitializeContentFeatures completed');
+                } else {
+                    debugLog('WARNING Fast render: reinitializeContentFeatures not available');
+                }
+                
+                if (typeof applyDirectoryCustomIcons === 'function') {
+                    applyDirectoryCustomIcons();
+                    debugLog('DEBUG Fast render: applyDirectoryCustomIcons completed');
+                }
+                
+                if (typeof reinitializePreviewFeatures === 'function') {
+                    reinitializePreviewFeatures();
+                    debugLog('DEBUG Fast render: reinitializePreviewFeatures completed');
+                }
+                
+                // キャッシュ済み既読・お気に入りを即時反映
+                if (typeof applyBookmarkCache === 'function') {
+                    applyBookmarkCache();
+                    debugLog('DEBUG Fast render: applyBookmarkCache completed');
+                }
+                
+                // 読書進捗とお気に入り機能を呼び出し
+                callGetBookmarkWhenReady();
+                callGetHistoryWhenReady();
+                
+                debugLog('DEBUG Fast render: All initialization completed');
+            } catch (e) {
+                console.error('ERROR Fast render: Initialization failed:', e);
+            }
+        }
+        
+        // スケルトンが現在表示されているかチェック
+        function isSkeletonCurrentlyDisplayed() {
+            const tableContainer = document.getElementById('indexlist');
+            const tbody = document.querySelector('#table-tbody');
+            const skeletonRows = tbody ? tbody.querySelectorAll('.skeleton-row') : [];
+            
+            return tableContainer && 
+                   tableContainer.classList.contains('skeleton-loading') && 
+                   skeletonRows.length > 0;
+        }
+        
+        // エラーメッセージを表示
+        function renderErrorMessage(message) {
+            const tbody = document.querySelector('#table-tbody');
+            const tableContainer = document.getElementById('indexlist');
+            
+            if (!tbody || !tableContainer) return;
+            
+            const errorHtml = '<tr><td colspan="4" style="text-align: center; color: #d32f2f; padding: 20px;">' + escapeHtml(message) + '</td></tr>';
+            
+            // スケルトンが表示されているかどうかで処理を分ける
+            if (isSkeletonCurrentlyDisplayed()) {
+                debugLog('DEBUG: Error display using skeleton transition');
+                hideSkeletonLoading(errorHtml);
+            } else {
+                debugLog('DEBUG: Error display without skeleton (direct)');
+                // スケルトンが表示されていない場合は直接エラー表示
+                tbody.innerHTML = errorHtml;
+                tableContainer.classList.remove('skeleton-loading');
+                tbody.classList.add('actual-content');
+                tbody.style.opacity = '1';
+                
+                // フッターも表示
+                const footer = document.querySelector('.footer');
+                if (footer) {
+                    footer.style.opacity = '1';
+                }
+            }
+        }
+        
+        // HTMLエスケープ関数
+        function escapeHtml(text) {
+            if (text == null) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // DOMContentLoaded時にAjax読み込み開始
+        document.addEventListener('DOMContentLoaded', function() {
+            // 高速表示判定のため、即座にAjax開始
+            debugLog('DEBUG: Starting Ajax immediately for fast render detection');
+            
+            // スケルトン表示を遅延（Ajax応答が遅い場合のみ表示）
+            const skeletonTimer = setTimeout(function() {
+                debugLog('DEBUG: Showing skeleton after delay (slow response)');
+                if (window.shouldShowSkeleton) {
+                    showSkeletonLoading();
+                }
+            }, 150); // 150ms後にスケルトン表示（Ajax応答が遅い場合のみ）
+            
+            // スケルトンタイマーをグローバルに保存（Ajax応答時にキャンセルするため）
+            window._skeletonTimer = skeletonTimer;
+            
+            // Ajax即座開始
+            loadDirectoryContent();
+        });
     </script>
 
     <div id="actual-content" style="display: none;">
