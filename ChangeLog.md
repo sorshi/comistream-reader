@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 破損画像での破損画像表示
 - ファイルサイズ20MBを以上や辺のピクセル数8000以上の巨大画像でのエラー処理によるエラー処理
 - ディレクトリリスティングでカバービューモードでもソートオーダー設定可能に
+- ディレクトリリスティングにスケルトンスクリーン搭載
 
 ### 変更
 - unrar path設定項目を削除
@@ -39,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 画像縮小をImageMagickからLibvipsに変更
 - ディレクトリリスティングで404の場合からのディレクトリ表示をとした
 - 文書PDFの表示速度向上
+- カバービューモードでの表紙横幅を159pxに拡大
 
 ### 修正
 - Dockerfileにunrar追加
