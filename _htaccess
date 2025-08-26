@@ -37,7 +37,7 @@
   # もしサブディレクトリでindex.phpを許可する場合はコメントアウト外す
   # RewriteCond %{REQUEST_FILENAME}/index.php !-f
   RewriteCond %{REQUEST_URI} !^/$
-  RewriteCond %{THE_REQUEST} \s/+(.+?)[\s?] [NC]
+  RewriteCond %{REQUEST_URI} ^/(.+?)/?$ [NC]
   # B flag escapes backreferences for the query string (so '+' stays '%2B' etc.)
   RewriteRule ^ /cgi-bin/dir_list.php?path=%1 [L,QSA,B,E=no-gzip:1]
 

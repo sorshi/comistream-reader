@@ -562,7 +562,7 @@ $js_config_temp = json_encode([
     <link rel="icon" type="image/png" href="/theme/icons/comistream.png" />
     <link rel="apple-touch-icon" href="/theme/icons/comistreamapp.png" />
     <link id="stylesheet" rel="stylesheet" href="<?php echo $stylesheet_path; ?>">
-    <link rel="stylesheet" href="/theme/skeleton.css">
+    <link rel="stylesheet" href="/theme/skeleton.css?2025082601">
     <script>
         // スケルトンローディング制御関数
         function showSkeletonLoading() {
@@ -693,86 +693,90 @@ $js_config_temp = json_encode([
             const tbody = document.querySelector('#table-tbody');
             const tableContainer = document.getElementById('indexlist');
 
-            // スケルトン行のみをフェードアウト（より安全なアプローチ）
-            const skeletonRows = tbody.querySelectorAll('.skeleton-row');
-            skeletonRows.forEach(row => row.classList.add('fade-out'));
+            debugLog('DEBUG hideSkeletonLoading: Starting smooth transition with background preservation');
 
-            setTimeout(() => {
-                // 実際のコンテンツを設定
-                tbody.innerHTML = actualHtml;
-
-                // コンテンツ設定直後にカバービューの中央寄せを計算（フェードイン前に実行）
-                try {
-                    if (typeof updateCoverSideGutter === 'function') {
-                        updateCoverSideGutter();
-                        debugLog('DEBUG Normal render: updateCoverSideGutter called before fade-in');
-                    }
-                } catch (e) {
-                    console.error('ERROR Normal render: updateCoverSideGutter failed:', e);
+            // 事前にカバービューの計算を実行（新コンテンツ用）
+            try {
+                if (typeof updateCoverSideGutter === 'function') {
+                    updateCoverSideGutter();
+                    debugLog('DEBUG hideSkeletonLoading: updateCoverSideGutter pre-calculated');
                 }
+            } catch (e) {
+                console.error('ERROR hideSkeletonLoading: updateCoverSideGutter pre-calculation failed:', e);
+            }
 
-                // スケルトンクラスを削除
-                tableContainer.classList.remove('skeleton-loading');
+            // 背景色を維持してスムーズなトランジション開始
+            requestAnimationFrame(() => {
+                // テーブル背景色を一時的に固定（空白防止）
+                const tableBackgroundColor = window.getComputedStyle(tableContainer).backgroundColor;
+                tableContainer.style.backgroundColor = tableBackgroundColor || '#fff';
+                tbody.style.backgroundColor = tableBackgroundColor || '#fff';
 
-                // コンテンツクラスを追加してから、フェードイン効果を設定
-                tbody.classList.add('actual-content');
-
-                // 初期状態を明示的に設定（opacity: 0から開始）
-                tbody.style.opacity = '0';
-
-                // 次のフレームでフェードイン開始
-                requestAnimationFrame(() => {
-                    tbody.style.transition = 'opacity 0.3s ease-in';
-                    tbody.style.opacity = '1';
-
-                    // アニメーション完了後にインラインスタイルをクリーンアップ
-                    setTimeout(() => {
-                        tbody.style.opacity = '';
-                        tbody.style.transition = '';
-                    }, 300);
+                // スケルトン行のスムーズフェードアウト
+                const skeletonRows = tbody.querySelectorAll('.skeleton-row');
+                skeletonRows.forEach(row => {
+                    row.style.transition = 'opacity 0.2s ease-out';
+                    row.style.opacity = '0';
                 });
 
-                // フッターを表示
-                const footer = document.querySelector('.footer');
-                if (footer) {
-                    footer.style.opacity = '1';
-                }
-
-                // コンテンツが置換された後、すべての機能を再初期化
+                // スケルトンフェードアウト完了を待ってコンテンツ置換
                 setTimeout(() => {
-                    // 検索機能のためのid属性とイベントハンドラーを設定
-                    if (typeof reinitializeContentFeatures === 'function') {
-                        reinitializeContentFeatures();
-                    }
-                    // カスタムディレクトリアイコンを適用
-                    if (typeof applyDirectoryCustomIcons === 'function') {
-                        applyDirectoryCustomIcons();
-                    }
-                    // プレビュー機能を再初期化
-                    if (typeof reinitializePreviewFeatures === 'function') {
-                        reinitializePreviewFeatures();
-                    }
-                    // 読書進捗とお気に入り・履歴を安全に呼び出し（dir_list.js 読込遅延に耐性）
-                    try {
-                        callGetBookmarkWhenReady();
-                        callGetHistoryWhenReady();
-                    } catch (e) {
-                        console.error('ERROR Normal render: schedule getBookmark/getHistory failed:', e);
-                    }
-                    // キャッシュ済み既読・お気に入りを即時反映（取得済みなら）
-                    try {
-                        if (typeof applyBookmarkCache === 'function') {
-                            debugLog('DEBUG Normal render: Applying bookmark cache');
-                            applyBookmarkCache();
-                        }
-                    } catch (e) {
-                        console.error('ERROR Normal render: applyBookmarkCache failed:', e);
-                    }
+                    // 実際のコンテンツを設定
+                    tbody.innerHTML = actualHtml;
+                    
+                    // スケルトンクラスを削除
+                    tableContainer.classList.remove('skeleton-loading');
+                    tbody.classList.add('actual-content');
+                    
+                    // 新コンテンツを透明状態で設定（スムーズフェードイン準備）
+                    tbody.style.opacity = '0';
+                    tbody.style.transition = 'opacity 0.25s ease-in';
 
-                    // updateCoverSideGutter()は既にフェードイン前に実行済みのため、ここでは実行しない
-                    // 不要なクリーンアップ処理は削除（インラインスタイル制御のため）
-                }, 100);
-            }, 200);
+                    // 即座にフェードイン開始（背景色で隠れているため滑らか）
+                    requestAnimationFrame(() => {
+                        tbody.style.opacity = '1';
+
+                        // フッターを表示
+                        const footer = document.querySelector('.footer');
+                        if (footer) {
+                            footer.style.opacity = '1';
+                        }
+
+                        // フェードイン完了後に背景色スタイルをクリーンアップ
+                        setTimeout(() => {
+                            tableContainer.style.backgroundColor = '';
+                            tbody.style.backgroundColor = '';
+                            tbody.style.opacity = '';
+                            tbody.style.transition = '';
+                            debugLog('DEBUG hideSkeletonLoading: Smooth transition completed');
+                        }, 250);
+                    });
+
+                    // すべての機能を再初期化（フェードイン中に実行）
+                    setTimeout(() => {
+                        try {
+                            if (typeof reinitializeContentFeatures === 'function') {
+                                reinitializeContentFeatures();
+                            }
+                            if (typeof applyDirectoryCustomIcons === 'function') {
+                                applyDirectoryCustomIcons();
+                            }
+                            if (typeof reinitializePreviewFeatures === 'function') {
+                                reinitializePreviewFeatures();
+                            }
+                            if (typeof applyBookmarkCache === 'function') {
+                                applyBookmarkCache();
+                                debugLog('DEBUG hideSkeletonLoading: applyBookmarkCache completed');
+                            }
+                            callGetBookmarkWhenReady();
+                            callGetHistoryWhenReady();
+                        } catch (e) {
+                            console.error('ERROR hideSkeletonLoading: Initialization failed:', e);
+                        }
+                    }, 50); // フェードイン開始と同時に初期化実行
+
+                }, 200); // スケルトンフェードアウト完了を待つ
+            });
         }
 
         // 遅延ロードされたスクリプト（dir_list.js）定義待ちで安全に呼び出すヘルパー

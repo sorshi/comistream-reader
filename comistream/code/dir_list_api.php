@@ -312,7 +312,12 @@ try {
     if ($physical_path !== $document_root) {
         $parent_path = dirname($request_path);
         if (DIRECTORY_SEPARATOR !== '/') $parent_path = str_replace(DIRECTORY_SEPARATOR, '/', $parent_path);
-        if ($parent_path === '/' || $parent_path === '.' || $parent_path === '') $parent_path = '/';
+        if ($parent_path === '/' || $parent_path === '.' || $parent_path === '') {
+            $parent_path = '/';
+        } else {
+            // ディレクトリパスには必ず末尾スラッシュを付ける（301リダイレクト回避）
+            $parent_path = rtrim($parent_path, '/') . '/';
+        }
         
         $escaped_parent_path = escape_problematic_chars($parent_path);
         $parent_icon_src = ($viewmode === 'cover') ? '/theme/icons/blank.png' : get_icon_map()['__parent'];

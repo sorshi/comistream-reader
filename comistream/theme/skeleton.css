@@ -113,6 +113,12 @@
   opacity: 1;
 }
 
+/* スムーズトランジション用の背景色維持 */
+.smooth-transition-bg {
+  background-color: #f8f9fa;
+  transition: background-color 0.3s ease;
+}
+
 /* スケルトンローディング中のフッター制御 */
 /* フッターはデフォルト表示。スケルトン表示中のみ非表示にする */
 .footer {
