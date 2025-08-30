@@ -175,7 +175,14 @@ try {
     // パスのサニタイズ（dir_list.phpと同様）
     $request_path = rawurldecode($request_path);
     $request_path = str_replace([
-        "\0", "\r", "\n", "\t", chr(7), chr(8), chr(11), chr(12),
+        "\0",
+        "\r",
+        "\n",
+        "\t",
+        chr(7),
+        chr(8),
+        chr(11),
+        chr(12),
     ], '', $request_path);
     $request_path = str_replace(['../', '.\\', '..\\'], '', $request_path);
     $request_path = '/' . ltrim($request_path, '/');
@@ -206,40 +213,11 @@ try {
         $physical_path = realpath($joined_path) ?: $joined_path;
     }
 
-    // セッション開始（ソート設定用）
+    // セッション開始（必要に応じて）
     session_start();
-
-    // ソート設定取得
-    $current_path = $request_path;
-    $sort_prefs = $_SESSION['dirSortPrefs'] ?? [];
-    $sort_by = strtolower($_GET['sort'] ?? 'name');
-    $sort_order = strtolower($_GET['order'] ?? 'asc');
-
-    // URLパラメータがない場合はセッションから取得
-    if (!isset($_GET['sort']) && !isset($_GET['order'])) {
-        if (isset($sort_prefs[$current_path])) {
-            $sort_by = $sort_prefs[$current_path]['sort'] ?? 'name';
-            $sort_order = $sort_prefs[$current_path]['order'] ?? 'asc';
-        }
-    }
-
-    // バリデーション
-    if (!in_array($sort_by, ['name', 'lastmod', 'size'])) $sort_by = 'name';
-    if (!in_array($sort_order, ['asc', 'desc'])) $sort_order = 'asc';
-
-    // ソート設定が変更された場合はセッションを更新
-    if (isset($_GET['sort']) || isset($_GET['order'])) {
-        $sort_prefs[$current_path] = [
-            'sort' => $sort_by,
-            'order' => $sort_order
-        ];
-        $_SESSION['dirSortPrefs'] = $sort_prefs;
-    }
 
     // メタ情報設定
     $api_response['meta']['path'] = $request_path;
-    $api_response['meta']['sort_by'] = $sort_by;
-    $api_response['meta']['sort_order'] = $sort_order;
     $api_response['meta']['is_404_mode'] = $is_404_mode;
 
     // ディレクトリ処理開始
@@ -275,35 +253,8 @@ try {
     $perf_scandir_end = microtime(true);
     $perf_scandir_time = ($perf_scandir_end - $perf_scandir_start) * 1000;
 
-    // ソート処理
-    $perf_sort_start = microtime(true);
-
-    $force_separate_sort = false;
-    $use_mixed_sort = (($sort_by === 'name' || $sort_by === 'lastmod') && !$force_separate_sort);
-
-    if ($use_mixed_sort) {
-        $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
-            $val_a = $a[$sort_by];
-            $val_b = $b[$sort_by];
-            $cmp = ($sort_by === 'name') ? strnatcasecmp(normalize_kana_for_sort($val_a), normalize_kana_for_sort($val_b)) : ($val_a <=> $val_b);
-            return ($sort_order === 'asc') ? $cmp : -$cmp;
-        };
-        usort($all_items, $sort_func);
-        $sorted_items = $all_items;
-    } else {
-        $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
-            $val_a = $a[$sort_by];
-            $val_b = $b[$sort_by];
-            $cmp = ($sort_by === 'name') ? strnatcasecmp(normalize_kana_for_sort($val_a), normalize_kana_for_sort($val_b)) : ($val_a <=> $val_b);
-            return ($sort_order === 'asc') ? $cmp : -$cmp;
-        };
-        usort($dirs, $sort_func);
-        usort($files, $sort_func);
-        $sorted_items = array_merge($dirs, $files);
-    }
-
-    $perf_sort_end = microtime(true);
-    $perf_sort_time = ($perf_sort_end - $perf_sort_start) * 1000;
+    // ソートはクライアント側で行うため、ここではソートしない
+    $sorted_items = $all_items;
 
     // レスポンスデータ構築
     $response_items = [];
@@ -318,10 +269,10 @@ try {
             // ディレクトリパスには必ず末尾スラッシュを付ける（301リダイレクト回避）
             $parent_path = rtrim($parent_path, '/') . '/';
         }
-        
+
         $escaped_parent_path = escape_problematic_chars($parent_path);
         $parent_icon_src = ($viewmode === 'cover') ? '/theme/icons/blank.png' : get_icon_map()['__parent'];
-        
+
         $response_items[] = [
             'name' => 'Parent Directory',
             'is_dir' => true,
@@ -342,7 +293,7 @@ try {
         $href = rtrim($request_path, '/') . '/' . rawurlencode($item['name']);
         $raw_filepath = rtrim($request_path, '/') . '/' . $item['name'];
         $escaped_filepath = escape_problematic_chars($raw_filepath);
-        
+
         if ($item['is_dir']) {
             $href .= '/';
             $raw_filepath .= '/';
@@ -390,6 +341,7 @@ try {
     $api_response['meta']['directories'] = count($dirs);
     $api_response['meta']['files'] = count($files);
     $api_response['meta']['processing_time_ms'] = round($total_processing_time, 2);
+    $api_response['meta']['scandir_time_ms'] = round($perf_scandir_time, 2);
 
     // 成功レスポンス
     $api_response['success'] = true;
@@ -397,19 +349,14 @@ try {
 
     // パフォーマンスログ
     writelog("DEBUG dir_list_api: " . sprintf(
-        "PERF scandir=%.2fms sort=%.2fms total=%.2fms mode=%s key=%s order=%s total=%d dirs=%d files=%d path=%s",
+        "PERF scandir=%.2fms total=%.2fms total=%d dirs=%d files=%d path=%s",
         $perf_scandir_time,
-        $perf_sort_time,
         $total_processing_time,
-        $use_mixed_sort ? 'mixed' : 'separate',
-        $sort_by,
-        $sort_order,
         count($all_items),
         count($dirs),
         count($files),
         $request_path
     ), "dir_list_api");
-
 } catch (Exception $e) {
     http_response_code(500);
     $api_response['success'] = false;

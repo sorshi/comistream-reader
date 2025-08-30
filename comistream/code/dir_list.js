@@ -15,6 +15,342 @@ let previewWindowHeight = Math.round(
   (812 * document.documentElement.clientWidth) / 1734
 ); // プレビュー画像の表示上の高さ
 
+// ソート設定の管理
+let currentSortBy = 'name';
+let currentSortOrder = 'asc';
+let currentPath = window.location.pathname;
+
+// Intl.Collator for natural sorting with kana normalization
+const collator = new Intl.Collator('ja', {
+  numeric: true,
+  sensitivity: 'base',
+  ignorePunctuation: true,
+  caseFirst: 'upper'
+});
+
+// カタカナをひらがなに変換するマッピング
+const katakanaToHiragana = {
+  'ア': 'あ', 'イ': 'い', 'ウ': 'う', 'エ': 'え', 'オ': 'お',
+  'カ': 'か', 'キ': 'き', 'ク': 'く', 'ケ': 'け', 'コ': 'こ',
+  'サ': 'さ', 'シ': 'し', 'ス': 'す', 'セ': 'せ', 'ソ': 'そ',
+  'タ': 'た', 'チ': 'ち', 'ツ': 'つ', 'テ': 'て', 'ト': 'と',
+  'ナ': 'な', 'ニ': 'に', 'ヌ': 'ぬ', 'ネ': 'ね', 'ノ': 'の',
+  'ハ': 'は', 'ヒ': 'ひ', 'フ': 'ふ', 'ヘ': 'へ', 'ホ': 'ほ',
+  'マ': 'ま', 'ミ': 'み', 'ム': 'む', 'メ': 'め', 'モ': 'も',
+  'ヤ': 'や', 'ユ': 'ゆ', 'ヨ': 'よ',
+  'ラ': 'ら', 'リ': 'り', 'ル': 'る', 'レ': 'れ', 'ロ': 'ろ',
+  'ワ': 'わ', 'ヲ': 'を', 'ン': 'ん',
+  'ガ': 'が', 'ギ': 'ぎ', 'グ': 'ぐ', 'ゲ': 'げ', 'ゴ': 'ご',
+  'ザ': 'ざ', 'ジ': 'じ', 'ズ': 'ず', 'ゼ': 'ぜ', 'ゾ': 'ぞ',
+  'ダ': 'だ', 'ヂ': 'ぢ', 'ヅ': 'づ', 'デ': 'で', 'ド': 'ど',
+  'バ': 'ば', 'ビ': 'び', 'ブ': 'ぶ', 'ベ': 'べ', 'ボ': 'ぼ',
+  'パ': 'ぱ', 'ピ': 'ぴ', 'プ': 'ぷ', 'ペ': 'ぺ', 'ポ': 'ぽ',
+  'ャ': 'ゃ', 'ュ': 'ゅ', 'ョ': 'ょ', 'ッ': 'っ', 'ー': 'ー'
+};
+
+// 半角カタカナを全角カタカナに変換するマッピング
+const hankakuToZenkaku = {
+  'ｱ': 'ア', 'ｲ': 'イ', 'ｳ': 'ウ', 'ｴ': 'エ', 'ｵ': 'オ',
+  'ｶ': 'カ', 'ｷ': 'キ', 'ｸ': 'ク', 'ｹ': 'ケ', 'ｺ': 'コ',
+  'ｻ': 'サ', 'ｼ': 'シ', 'ｽ': 'ス', 'ｾ': 'セ', 'ｿ': 'ソ',
+  'ﾀ': 'タ', 'ﾁ': 'チ', 'ﾂ': 'ツ', 'ﾃ': 'テ', 'ﾄ': 'ト',
+  'ﾅ': 'ナ', 'ﾆ': 'ニ', 'ﾇ': 'ヌ', 'ﾈ': 'ネ', 'ﾉ': 'ノ',
+  'ﾊ': 'ハ', 'ﾋ': 'ヒ', 'ﾌ': 'フ', 'ﾍ': 'ヘ', 'ﾎ': 'ホ',
+  'ﾏ': 'マ', 'ﾐ': 'ミ', 'ﾑ': 'ム', 'ﾒ': 'メ', 'ﾓ': 'モ',
+  'ﾔ': 'ヤ', 'ﾕ': 'ユ', 'ﾖ': 'ヨ',
+  'ﾗ': 'ラ', 'ﾘ': 'リ', 'ﾙ': 'ル', 'ﾚ': 'レ', 'ﾛ': 'ロ',
+  'ﾜ': 'ワ', 'ｦ': 'ヲ', 'ﾝ': 'ン',
+  'ｶﾞ': 'ガ', 'ｷﾞ': 'ギ', 'ｸﾞ': 'グ', 'ｹﾞ': 'ゲ', 'ｺﾞ': 'ゴ',
+  'ｻﾞ': 'ザ', 'ｼﾞ': 'ジ', 'ｽﾞ': 'ズ', 'ｾﾞ': 'ゼ', 'ｿﾞ': 'ゾ',
+  'ﾀﾞ': 'ダ', 'ﾁﾞ': 'ヂ', 'ﾂﾞ': 'ヅ', 'ﾃﾞ': 'デ', 'ﾄﾞ': 'ド',
+  'ﾊﾞ': 'バ', 'ﾋﾞ': 'ビ', 'ﾌﾞ': 'ブ', 'ﾍﾞ': 'ベ', 'ﾎﾞ': 'ボ',
+  'ﾊﾟ': 'パ', 'ﾋﾟ': 'ピ', 'ﾌﾟ': 'プ', 'ﾍﾟ': 'ペ', 'ﾎﾟ': 'ポ',
+  'ｬ': 'ャ', 'ｭ': 'ュ', 'ｮ': 'ョ', 'ｯ': 'ッ'
+};
+
+// 全角アルファベットを半角に変換するマッピング
+const zenkakuAlphaToHankaku = {
+  'Ａ': 'A', 'Ｂ': 'B', 'Ｃ': 'C', 'Ｄ': 'D', 'Ｅ': 'E',
+  'Ｆ': 'F', 'Ｇ': 'G', 'Ｈ': 'H', 'Ｉ': 'I', 'Ｊ': 'J',
+  'Ｋ': 'K', 'Ｌ': 'L', 'Ｍ': 'M', 'Ｎ': 'N', 'Ｏ': 'O',
+  'Ｐ': 'P', 'Ｑ': 'Q', 'Ｒ': 'R', 'Ｓ': 'S', 'Ｔ': 'T',
+  'Ｕ': 'U', 'Ｖ': 'V', 'Ｗ': 'W', 'Ｘ': 'X', 'Ｙ': 'Y', 'Ｚ': 'Z',
+  'ａ': 'a', 'ｂ': 'b', 'ｃ': 'c', 'ｄ': 'd', 'ｅ': 'e',
+  'ｆ': 'f', 'ｇ': 'g', 'ｈ': 'h', 'ｉ': 'i', 'ｊ': 'j',
+  'ｋ': 'k', 'ｌ': 'l', 'ｍ': 'm', 'ｎ': 'n', 'ｏ': 'o',
+  'ｐ': 'p', 'ｑ': 'q', 'ｒ': 'r', 'ｓ': 's', 'ｔ': 't',
+  'ｕ': 'u', 'ｖ': 'v', 'ｗ': 'w', 'ｘ': 'x', 'ｙ': 'y', 'ｚ': 'z'
+};
+
+// 全角数字を半角に変換するマッピング
+const zenkakuNumToHankaku = {
+  '０': '0', '１': '1', '２': '2', '３': '3', '４': '4',
+  '５': '5', '６': '6', '７': '7', '８': '8', '９': '9'
+};
+
+// 全角スペースを半角に変換
+const zenkakuSpaceToHankaku = { '　': ' ' };
+
+// カタカナをひらがなに変換する関数
+function convertKatakanaToHiragana(str) {
+  let result = '';
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (katakanaToHiragana[char]) {
+      result += katakanaToHiragana[char];
+    } else {
+      result += char;
+    }
+  }
+  return result;
+}
+
+// 半角カタカナを全角カタカナに変換する関数
+function convertHankakuKanaToZenkaku(str) {
+  let result = '';
+  let i = 0;
+  while (i < str.length) {
+    const char = str[i];
+    const nextChar = str[i + 1];
+    // 濁点・半濁点付きの半角カナをチェック
+    if (nextChar === 'ﾞ' || nextChar === 'ﾟ') {
+      const combined = char + nextChar;
+      if (hankakuToZenkaku[combined]) {
+        result += hankakuToZenkaku[combined];
+        i += 2;
+        continue;
+      }
+    }
+    // 通常の半角カナ
+    if (hankakuToZenkaku[char]) {
+      result += hankakuToZenkaku[char];
+    } else {
+      result += char;
+    }
+    i++;
+  }
+  return result;
+}
+
+// 半角全角変換関数
+function convertWidth(str) {
+  let result = '';
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (zenkakuAlphaToHankaku[char]) {
+      result += zenkakuAlphaToHankaku[char];
+    } else if (zenkakuNumToHankaku[char]) {
+      result += zenkakuNumToHankaku[char];
+    } else if (zenkakuSpaceToHankaku[char]) {
+      result += zenkakuSpaceToHankaku[char];
+    } else {
+      result += char;
+    }
+  }
+  return result;
+}
+
+// JavaScript版のnormalize_kana_for_sort関数
+function normalizeKanaForSort(str) {
+  if (!str || str === '') {
+    return str;
+  }
+
+  try {
+    // 1. 小文字化
+    let normalized = str.toLowerCase();
+
+    // 2. 半角カタカナを全角カタカナに変換
+    normalized = convertHankakuKanaToZenkaku(normalized);
+
+    // 3. カタカナをひらがなに変換
+    normalized = convertKatakanaToHiragana(normalized);
+
+    // 4. 全角アルファベット・数字・スペースを半角に変換
+    normalized = convertWidth(normalized);
+
+    return normalized;
+  } catch (e) {
+    console.warn('normalizeKanaForSort error:', e);
+    return str.toLowerCase();
+  }
+}
+
+// クライアント側ソート関数
+function sortItemsClientSide(items, sortBy, sortOrder) {
+  if (!Array.isArray(items)) {
+    return items;
+  }
+
+  return items.sort((a, b) => {
+    // Parent Directoryは常に先頭
+    if (a.is_parent && !b.is_parent) return -1;
+    if (!a.is_parent && b.is_parent) return 1;
+    if (a.is_parent && b.is_parent) return 0;
+
+    let valA, valB;
+
+    // ソート対象の値を取得
+    switch (sortBy) {
+      case 'name':
+        valA = normalizeKanaForSort(a.name || '');
+        valB = normalizeKanaForSort(b.name || '');
+        break;
+      case 'lastmod':
+        valA = a.lastmod || 0;
+        valB = b.lastmod || 0;
+        break;
+      case 'size':
+        valA = a.size || 0;
+        valB = b.size || 0;
+        break;
+      default:
+        valA = normalizeKanaForSort(a.name || '');
+        valB = normalizeKanaForSort(b.name || '');
+    }
+
+    // 比較
+    let cmp;
+    if (sortBy === 'name') {
+      cmp = collator.compare(valA, valB);
+    } else {
+      cmp = valA < valB ? -1 : valA > valB ? 1 : 0;
+    }
+
+    // 昇順/降順
+    return sortOrder === 'asc' ? cmp : -cmp;
+  });
+}
+
+// ソート設定をlocalStorageから読み込み
+function loadSortSettings() {
+  try {
+    const sortPrefs = JSON.parse(localStorage.getItem('dirSortPrefs') || '{}');
+    const currentPrefs = sortPrefs[currentPath];
+    if (currentPrefs) {
+      currentSortBy = currentPrefs.sort || 'name';
+      currentSortOrder = currentPrefs.order || 'asc';
+      debugLog('Loaded sort settings from localStorage:', currentSortBy, currentSortOrder);
+    } else {
+      debugLog('No sort settings found in localStorage for current path');
+    }
+  } catch (e) {
+    console.warn('Failed to load sort settings from localStorage:', e);
+    // デフォルト値を設定
+    currentSortBy = 'name';
+    currentSortOrder = 'asc';
+  }
+}
+
+// ソート設定をURLパラメータから読み込み（優先度高）
+function loadSortFromUrl() {
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sort = urlParams.get('sort');
+    const order = urlParams.get('order');
+
+    if (sort && ['name', 'lastmod', 'size'].includes(sort) &&
+        order && ['asc', 'desc'].includes(order)) {
+      changeSort(sort, order);
+      debugLog('Loaded sort settings from URL:', sort, order);
+      return true;
+    }
+  } catch (e) {
+    console.warn('Failed to load sort settings from URL:', e);
+  }
+  return false;
+}
+
+// ソート設定をlocalStorageに保存
+function saveSortSettings() {
+  try {
+    const sortPrefs = JSON.parse(localStorage.getItem('dirSortPrefs') || '{}');
+    sortPrefs[currentPath] = {
+      sort: currentSortBy,
+      order: currentSortOrder
+    };
+    localStorage.setItem('dirSortPrefs', JSON.stringify(sortPrefs));
+  } catch (e) {
+    console.warn('Failed to save sort settings:', e);
+  }
+}
+
+// ソート設定を変更
+function changeSort(sortBy, sortOrder) {
+  currentSortBy = sortBy || 'name';
+  currentSortOrder = sortOrder || 'asc';
+  saveSortSettings();
+}
+
+// ソート設定を適用してアイテムをソート
+function applyCurrentSort(items) {
+  return sortItemsClientSide(items, currentSortBy, currentSortOrder);
+}
+
+// ディレクトリとファイルを別々にソートしてから結合する関数
+function sortItemsWithSeparateDirsAndFiles(items, sortBy, sortOrder) {
+  if (!Array.isArray(items)) {
+    return items;
+  }
+
+  const startTime = performance.now();
+
+  // Parent Directory、ディレクトリ、ファイルを分離
+  const parentItems = items.filter(item => item.is_parent);
+  const dirItems = items.filter(item => item.is_dir && !item.is_parent);
+  const fileItems = items.filter(item => !item.is_dir && !item.is_parent);
+
+  debugLog(`DEBUG sortItemsWithSeparateDirsAndFiles: ${items.length} items (${parentItems.length} parent, ${dirItems.length} dirs, ${fileItems.length} files)`);
+
+  // 各グループをソート
+  const sortFunc = (a, b) => {
+    let valA, valB;
+
+    // ソート対象の値を取得
+    switch (sortBy) {
+      case 'name':
+        valA = normalizeKanaForSort(a.name || '');
+        valB = normalizeKanaForSort(b.name || '');
+        break;
+      case 'lastmod':
+        valA = a.lastmod || 0;
+        valB = b.lastmod || 0;
+        break;
+      case 'size':
+        valA = a.size || 0;
+        valB = b.size || 0;
+        break;
+      default:
+        valA = normalizeKanaForSort(a.name || '');
+        valB = normalizeKanaForSort(b.name || '');
+    }
+
+    // 比較
+    let cmp;
+    if (sortBy === 'name') {
+      cmp = collator.compare(valA, valB);
+    } else {
+      cmp = valA < valB ? -1 : valA > valB ? 1 : 0;
+    }
+
+    // 昇順/降順
+    return sortOrder === 'asc' ? cmp : -cmp;
+  };
+
+  // ソート実行
+  parentItems.sort(sortFunc);
+  dirItems.sort(sortFunc);
+  fileItems.sort(sortFunc);
+
+  // 結合して返す
+  const result = [...parentItems, ...dirItems, ...fileItems];
+
+  const endTime = performance.now();
+  debugLog(`DEBUG sortItemsWithSeparateDirsAndFiles: completed in ${(endTime - startTime).toFixed(2)}ms`);
+
+  return result;
+}
+
 // DOM elements
 const modal = document.querySelector("#modal");
 const modalImage = document.querySelector("#modal-image");
@@ -233,14 +569,28 @@ function toggleView() {
     document.cookie = "viewmode=list; path=/; SameSite=Strict";
     stylesheet.href = "/theme/style.css?2025080200";
     setTimeout(() => {
+      debugLog("DEBUG toggleView: Switching to list view, calling functions...");
+      debugLog("DEBUG toggleView: Before reinitializeContentFeatures");
+      try { debugIconVisibility(); } catch (e) { console.error(e); }
+
       try { reinitializeContentFeatures(); } catch (e) { console.error(e); }
+      debugLog("DEBUG toggleView: After reinitializeContentFeatures");
+      try { debugIconVisibility(); } catch (e) { console.error(e); }
+
       try { applyDirectoryCustomIcons(); } catch (e) { console.error(e); }
+      debugLog("DEBUG toggleView: After applyDirectoryCustomIcons");
+      try { debugIconVisibility(); } catch (e) { console.error(e); }
+
       // リストビューではプレビューを無効化
       try { clearPreviewEventListeners(); } catch (e) { console.error(e); }
       // 表紙画像を削除
       try { removeCoverImages(); } catch (e) { console.error(e); }
+      debugLog("DEBUG toggleView: After removeCoverImages");
+      try { debugIconVisibility(); } catch (e) { console.error(e); }
+
       // ネットワークなしで既読/お気に入りを即時反映
       try { applyBookmarkCache(); } catch (e) { console.error(e); }
+      debugLog("DEBUG toggleView: List view switch completed");
     }, 100);
   }
 }
@@ -326,19 +676,10 @@ function applySortChange() {
   const selectedSortBy = sortBySelect.value;
   let selectedSortOrder = sortOrderSelect.value;
 
-  const currentSort =
-    typeof comistreamConfig !== "undefined" && comistreamConfig.currentSort
-      ? comistreamConfig.currentSort
-      : "name";
-  const currentOrder =
-    typeof comistreamConfig !== "undefined" && comistreamConfig.currentOrder
-      ? comistreamConfig.currentOrder
-      : "asc";
-
   // Name/asc から Last modified に切り替えたときは自動で desc を初期選択
   if (
-    currentSort === "name" &&
-    currentOrder === "asc" &&
+    currentSortBy === "name" &&
+    currentSortOrder === "asc" &&
     selectedSortBy === "lastmod"
   ) {
     selectedSortOrder = "desc";
@@ -348,24 +689,123 @@ function applySortChange() {
 
   // lastmod/size から name に戻すときは asc を初期選択
   if (
-    (currentSort === "lastmod" || currentSort === "size") &&
+    (currentSortBy === "lastmod" || currentSortBy === "size") &&
     selectedSortBy === "name"
   ) {
     selectedSortOrder = "asc";
     sortOrderSelect.value = "asc";
     debugLog(
       "INFO: Switching from " +
-        currentSort +
+        currentSortBy +
         "/" +
-        currentOrder +
+        currentSortOrder +
         " to name/asc"
     );
   }
 
-  const url = new URL(window.location);
-  url.searchParams.set("sort", selectedSortBy);
-  url.searchParams.set("order", selectedSortOrder);
-  window.location.href = url.toString();
+  // ソート設定を変更
+  changeSort(selectedSortBy, selectedSortOrder);
+
+  // 現在のデータを再ソートして表示
+  const tbody = document.querySelector('#table-tbody');
+  if (tbody) {
+    const rows = Array.from(tbody.querySelectorAll('tr:not(.parent-dir-row)'));
+    if (rows.length > 0) {
+      // 行データを収集
+      const items = rows.map(row => {
+        const nameCell = row.querySelector('.indexcolname a');
+        const lastmodCell = row.querySelector('.indexcollastmod');
+        const sizeCell = row.querySelector('.indexcolsize');
+
+        if (!nameCell) return null;
+
+        // data属性から値を取得、なければテキストから推測
+        const name = nameCell.textContent || '';
+        let lastmod = 0;
+        let size = -1;
+        let isDir = false;
+        let isParent = false;
+
+        // ディレクトリかどうかを判定
+        const href = nameCell.getAttribute('href') || '';
+        isDir = href.endsWith('/');
+
+        // parent directoryかどうかを判定
+        const dataFilepath = nameCell.getAttribute('data-filepath') || '';
+        isParent = name === 'Parent Directory' || (dataFilepath && dataFilepath.includes('Parent Directory'));
+
+        // lastmodを取得（data-timestamp属性があれば使用）
+        if (lastmodCell) {
+          const timestamp = lastmodCell.getAttribute('data-timestamp');
+          if (timestamp) {
+            lastmod = parseInt(timestamp);
+          } else {
+            // 日付文字列からタイムスタンプを推測
+            const dateText = lastmodCell.textContent || '';
+            const date = new Date(dateText);
+            if (!isNaN(date.getTime())) {
+              lastmod = Math.floor(date.getTime() / 1000);
+            }
+          }
+        }
+
+        // sizeを取得（data-size属性があれば使用）
+        if (sizeCell) {
+          const sizeAttr = sizeCell.getAttribute('data-size');
+          if (sizeAttr) {
+            size = parseInt(sizeAttr);
+          } else {
+            // サイズ文字列から数値を推測
+            const sizeText = sizeCell.textContent || '';
+            const sizeMatch = sizeText.match(/^([\d.]+)([KMGT]?)/);
+            if (sizeMatch) {
+              const num = parseFloat(sizeMatch[1]);
+              const unit = sizeMatch[2];
+              switch (unit) {
+                case 'K': size = num * 1024; break;
+                case 'M': size = num * 1024 * 1024; break;
+                case 'G': size = num * 1024 * 1024 * 1024; break;
+                case 'T': size = num * 1024 * 1024 * 1024 * 1024; break;
+                default: size = num; break;
+              }
+            }
+          }
+        }
+
+        return {
+          name: name,
+          lastmod: lastmod,
+          size: size,
+          is_dir: isDir,
+          is_parent: isParent,
+          rowElement: row
+        };
+      }).filter(item => item !== null);
+
+      // ソート適用（ディレクトリとファイルを別々にソートしてから結合）
+      debugLog('DEBUG applySortChange: Starting client-side sort for', items.length, 'items');
+      const sortStartTime = performance.now();
+      const sortedItems = sortItemsWithSeparateDirsAndFiles(items, selectedSortBy, selectedSortOrder);
+      const sortEndTime = performance.now();
+      debugLog(`DEBUG applySortChange: Sort completed in ${(sortEndTime - sortStartTime).toFixed(2)}ms`);
+
+      // DOMを再構築
+      const parentRow = tbody.querySelector('.parent-dir-row');
+      tbody.innerHTML = '';
+
+      // Parent Directoryを先頭に追加
+      if (parentRow) {
+        tbody.appendChild(parentRow);
+      }
+
+      // ソート済みの行を追加
+      sortedItems.forEach(item => {
+        tbody.appendChild(item.rowElement);
+      });
+
+      debugLog('Applied client-side sort:', selectedSortBy, selectedSortOrder);
+    }
+  }
 }
 
 // ソート設定の初期化
@@ -373,22 +813,23 @@ function initializeSortControls() {
   const sortBySelect = document.getElementById("sortBy");
   const sortOrderSelect = document.getElementById("sortOrder");
 
-  if (typeof comistreamConfig !== "undefined") {
-    const currentSort = comistreamConfig.currentSort || "name";
-    const currentOrder = comistreamConfig.currentOrder || "asc";
+  // URLパラメータを優先、ない場合はlocalStorageから読み込み
+  const urlLoaded = loadSortFromUrl();
+  if (!urlLoaded) {
+    loadSortSettings();
+  }
 
-    if (sortBySelect) {
-      sortBySelect.value = currentSort;
-      debugLog("DEBUG sortBySelect updated to:", sortBySelect.value);
-    } else {
-      debugLog("DEBUG sortBySelect not found");
-    }
-    if (sortOrderSelect) {
-      sortOrderSelect.value = currentOrder;
-      debugLog("DEBUG sortOrderSelect updated to:", sortOrderSelect.value);
-    } else {
-      debugLog("DEBUG sortOrderSelect not found");
-    }
+  if (sortBySelect) {
+    sortBySelect.value = currentSortBy;
+    debugLog("DEBUG sortBySelect updated to:", sortBySelect.value);
+  } else {
+    debugLog("DEBUG sortBySelect not found");
+  }
+  if (sortOrderSelect) {
+    sortOrderSelect.value = currentSortOrder;
+    debugLog("DEBUG sortOrderSelect updated to:", sortOrderSelect.value);
+  } else {
+    debugLog("DEBUG sortOrderSelect not found");
   }
 }
 
@@ -926,16 +1367,16 @@ function addCoverImages() {
 // 表紙画像を削除する関数（カバー→リストビュー切り替え時）
 function removeCoverImages() {
   debugLog("DEBUG removeCoverImages called");
-  
+
   const tableBody = document.querySelector("#table-tbody");
   const coverImages = tableBody.querySelectorAll(".indexcolname img");
-  
+
   let removedCount = 0;
   coverImages.forEach(function(img) {
     img.remove();
     removedCount++;
   });
-  
+
   debugLog("DEBUG removeCoverImages completed, removed:", removedCount);
 }
 
@@ -956,6 +1397,36 @@ function generateCoverImagePath(rawFilepath) {
   return coverImageUrl;
 }
 
+// デバッグ関数：アイコンの状態を確認
+function debugIconVisibility() {
+  debugLog("DEBUG debugIconVisibility called");
+
+  const iconCells = document.querySelectorAll("#table-tbody td.indexcolicon");
+  const nameCells = document.querySelectorAll("#table-tbody td.indexcolname");
+
+  debugLog("DEBUG Icon cells found:", iconCells.length);
+  debugLog("DEBUG Name cells found:", nameCells.length);
+
+  iconCells.forEach((cell, index) => {
+    const img = cell.querySelector("img");
+    if (img) {
+      debugLog(`DEBUG Icon ${index}: src=${img.src}, display=${img.style.display}, visibility=${img.style.visibility}, opacity=${img.style.opacity}`);
+    } else {
+      debugLog(`DEBUG Icon ${index}: No img element found`);
+    }
+  });
+
+  nameCells.forEach((cell, index) => {
+    const imgs = cell.querySelectorAll("img");
+    if (imgs.length > 0) {
+      debugLog(`DEBUG Name cell ${index}: Found ${imgs.length} images`);
+      imgs.forEach((img, imgIndex) => {
+        debugLog(`DEBUG Name cell ${index} img ${imgIndex}: alt=${img.alt}, display=${img.style.display}`);
+      });
+    }
+  });
+}
+
 // カスタムディレクトリアイコン適用（カバービュー時に /theme/covers/<path>/index.webp を背景に設定）
 function applyDirectoryCustomIcons() {
   debugLog("DEBUG applyDirectoryCustomIcons called");
@@ -965,19 +1436,30 @@ function applyDirectoryCustomIcons() {
   const isCoverView = stylesheet && /style_cover\.css/.test(stylesheet.href || "");
 
   const dirAnchors = document.querySelectorAll('.indexcolname a[href$="/"]');
+  debugLog("DEBUG applyDirectoryCustomIcons: isCoverView =", isCoverView, ", dirAnchors =", dirAnchors.length);
 
-  dirAnchors.forEach(function (anchor) {
+  dirAnchors.forEach(function (anchor, index) {
     // リストビューでは通常のフォルダアイコンを表示（背景はクリア）
     if (!isCoverView) {
+      debugLog(`DEBUG applyDirectoryCustomIcons: Processing directory ${index} for list view`);
       anchor.style.removeProperty("background-image");
       anchor.style.removeProperty("background-size");
       anchor.style.removeProperty("background-position");
       anchor.style.removeProperty("background-repeat");
+
       const iconImg = anchor.closest("tr")?.querySelector(".indexcolicon img");
       if (iconImg) {
+        debugLog(`DEBUG applyDirectoryCustomIcons: Found icon img for directory ${index}, setting styles`);
         iconImg.style.display = "";
         iconImg.style.visibility = "";
         iconImg.style.opacity = "";
+        // アイコンsrcを正しく設定
+        if (!iconImg.src || iconImg.src.includes("blank.png")) {
+          debugLog(`DEBUG applyDirectoryCustomIcons: Setting correct icon src for directory ${index}`);
+          iconImg.src = iconPath + "folder.png";
+        }
+      } else {
+        debugLog(`DEBUG applyDirectoryCustomIcons: No icon img found for directory ${index}`);
       }
       return;
     }
@@ -1329,6 +1811,7 @@ function initializeDirectoryListing() {
     setupLongPressHandler();
     reinitializeContentFeatures();
     reinitializePreviewFeatures();
+    initializeSortControls(); // ソート設定の初期化を追加
     try {
       updateCoverSideGutter();
     } catch (e) {}

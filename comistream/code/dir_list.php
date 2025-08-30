@@ -494,6 +494,9 @@ if ($is_404_mode) {
 
         // localStorage + Session 同期処理
         window.addEventListener('DOMContentLoaded', function() {
+            // URLパラメータからソート設定を読み込み
+            loadSortFromUrl();
+
             // セッションにソート設定がない場合のみlocalStorageから同期
             if (!hasSessionSortPrefs) {
                 syncLocalStorageToSession();
@@ -522,22 +525,26 @@ if ($is_404_mode) {
                     .then(response => response.json())
                     .then(data => {
                         if (data.status === 'success') {
-                            // 同期完了後、必要に応じてページリロード
-                            const currentPath = window.location.pathname;
-                            const prefs = JSON.parse(localSortPrefs);
-                            if (prefs[currentPath] && !window.location.search) {
-                                // 保存された設定でソート
-                                const sort = prefs[currentPath].sort;
-                                const order = prefs[currentPath].order;
-                                if (sort !== 'name' || order !== 'asc') {
-                                    window.location.href = `${currentPath}?sort=${sort}&order=${order}`;
-                                }
-                            }
+                            debugLog('Sort preferences synced to session');
+                        } else {
+                            console.warn('Failed to sync sort preferences to session');
                         }
                     })
                     .catch(error => {
                         console.error('同期エラー:', error);
                     });
+            }
+        }
+
+        // ソート設定をURLパラメータから読み込み
+        function loadSortFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const sort = urlParams.get('sort');
+            const order = urlParams.get('order');
+
+            if (sort && order) {
+                changeSort(sort, order);
+                debugLog('Loaded sort settings from URL:', sort, order);
             }
         }
 
@@ -1087,21 +1094,18 @@ if ($is_404_mode) {
                         debugLog('API response received:', data, 'Response time:', ajaxResponseTime.toFixed(2) + 'ms', 'Fast render:', isFastRender);
 
                         if (data.success) {
-                            // JavaScript設定を更新
-                            if (window.comistreamConfig) {
-                                window.comistreamConfig.currentSort = data.meta.sort_by;
-                                window.comistreamConfig.currentOrder = data.meta.sort_order;
-                            }
+                            // クライアント側ソートを適用（ディレクトリとファイルを別々にソート）
+                            const sortedData = sortItemsWithSeparateDirsAndFiles(data.data, currentSortBy, currentSortOrder);
 
                             // 高速表示 vs 通常表示（スケルトン）の判定
                             if (isFastRender) {
                                 // 高速表示：スケルトンをスキップして直接表示
                                 debugLog('Fast render mode: rendering content directly');
-                                renderDirectoryContentFast(data.data, data.meta);
+                                renderDirectoryContentFast(sortedData, data.meta);
                             } else {
                                 // 通常表示：スケルトンからの切り替え
                                 debugLog('Normal render mode: using skeleton transition');
-                                renderDirectoryContent(data.data, data.meta);
+                                renderDirectoryContent(sortedData, data.meta);
                             }
 
                             debugLog('Directory content loaded successfully. Items:', data.meta.total_items, 'Server process time:', data.meta.processing_time_ms + 'ms', 'Total response time:', ajaxResponseTime.toFixed(2) + 'ms');
@@ -1146,7 +1150,9 @@ if ($is_404_mode) {
                     // アイコンカラム
                     htmlContent += '<td class="indexcolicon">';
                     htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '">';
-                    htmlContent += '<img src="' + escapeHtml(item.icon) + '" alt="[ICO]">';
+                    // アイコン画像のsrcを正しく設定（APIから返されるitem.iconを使用）
+                    var iconSrc = item.icon && item.icon !== '/theme/icons/blank.png' ? item.icon : '/theme/icons/folder.png';
+                    htmlContent += '<img src="' + escapeHtml(iconSrc) + '" alt="[ICO]">';
                     htmlContent += '</a></td>';
 
                     // 名前カラム
@@ -1184,10 +1190,10 @@ if ($is_404_mode) {
                     htmlContent += '</a></td>';
 
                     // 最終更新日カラム
-                    htmlContent += '<td class="indexcollastmod">' + escapeHtml(item.lastmod_formatted) + '</td>';
+                    htmlContent += '<td class="indexcollastmod" data-timestamp="' + escapeHtml(item.lastmod) + '">' + escapeHtml(item.lastmod_formatted) + '</td>';
 
                     // サイズカラム
-                    htmlContent += '<td class="indexcolsize">' + escapeHtml(item.size_formatted) + '</td>';
+                    htmlContent += '<td class="indexcolsize" data-size="' + escapeHtml(item.size) + '">' + escapeHtml(item.size_formatted) + '</td>';
 
                     htmlContent += '</tr>';
                 });
@@ -1265,7 +1271,9 @@ if ($is_404_mode) {
                     // アイコンカラム
                     htmlContent += '<td class="indexcolicon">';
                     htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '">';
-                    htmlContent += '<img src="' + escapeHtml(item.icon) + '" alt="[ICO]">';
+                    // アイコン画像のsrcを正しく設定（APIから返されるitem.iconを使用）
+                    var iconSrc = item.icon && item.icon !== '/theme/icons/blank.png' ? item.icon : '/theme/icons/folder.png';
+                    htmlContent += '<img src="' + escapeHtml(iconSrc) + '" alt="[ICO]">';
                     htmlContent += '</a></td>';
 
                     // 名前カラム
@@ -1303,10 +1311,10 @@ if ($is_404_mode) {
                     htmlContent += '</a></td>';
 
                     // 最終更新日カラム
-                    htmlContent += '<td class="indexcollastmod">' + escapeHtml(item.lastmod_formatted) + '</td>';
+                    htmlContent += '<td class="indexcollastmod" data-timestamp="' + escapeHtml(item.lastmod) + '">' + escapeHtml(item.lastmod_formatted) + '</td>';
 
                     // サイズカラム
-                    htmlContent += '<td class="indexcolsize">' + escapeHtml(item.size_formatted) + '</td>';
+                    htmlContent += '<td class="indexcolsize" data-size="' + escapeHtml(item.size) + '">' + escapeHtml(item.size_formatted) + '</td>';
 
                     htmlContent += '</tr>';
                 });
