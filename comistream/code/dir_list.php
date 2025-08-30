@@ -458,6 +458,10 @@ $js_config_temp = json_encode([
     'debugFlag' => $global_debug_flag // デバッグフラグ
 ]);
 
+// $is_404_modeならhttp header 404 を出力
+if ($is_404_mode) {
+    http_response_code(404);
+}
 ?>
 <!DOCTYPE html>
 <html>
@@ -723,11 +727,11 @@ $js_config_temp = json_encode([
                 setTimeout(() => {
                     // 実際のコンテンツを設定
                     tbody.innerHTML = actualHtml;
-                    
+
                     // スケルトンクラスを削除
                     tableContainer.classList.remove('skeleton-loading');
                     tbody.classList.add('actual-content');
-                    
+
                     // 新コンテンツを透明状態で設定（スムーズフェードイン準備）
                     tbody.style.opacity = '0';
                     tbody.style.transition = 'opacity 0.25s ease-in';
@@ -784,7 +788,11 @@ $js_config_temp = json_encode([
             let attempts = 0;
             const tryCall = () => {
                 if (typeof getBookmark === 'function') {
-                    try { getBookmark(); } catch (e) { console.error('getBookmark call failed:', e); }
+                    try {
+                        getBookmark();
+                    } catch (e) {
+                        console.error('getBookmark call failed:', e);
+                    }
                 } else if (attempts < maxAttempts) {
                     attempts++;
                     setTimeout(tryCall, intervalMs);
@@ -797,7 +805,11 @@ $js_config_temp = json_encode([
             let attempts = 0;
             const tryCall = () => {
                 if (typeof getHistory === 'function') {
-                    try { getHistory(); } catch (e) { console.error('getHistory call failed:', e); }
+                    try {
+                        getHistory();
+                    } catch (e) {
+                        console.error('getHistory call failed:', e);
+                    }
                 } else if (attempts < maxAttempts) {
                     attempts++;
                     setTimeout(tryCall, intervalMs);
@@ -820,630 +832,681 @@ $js_config_temp = json_encode([
 
     <!-- Header content integrated from header.html -->
     <div class="menu">
-      <div class="viewmode" onclick="javascript:toggleView();"></div>
-      <div id="rawMode" class="raw" onclick="javascript:toggleRaw();"></div>
-      <div id="languageIcon" class="language" onclick="javascript:switchLanguageMenu();"></div>
-      <div id="loginIcon" class="guest" onclick="javascript:login();"></div>
-      <div class="history"><span id="history" style="white-space: nowrap;">-</span></div>
+        <div class="viewmode" onclick="javascript:toggleView();"></div>
+        <div id="rawMode" class="raw" onclick="javascript:toggleRaw();"></div>
+        <div id="languageIcon" class="language" onclick="javascript:switchLanguageMenu();"></div>
+        <div id="loginIcon" class="guest" onclick="javascript:login();"></div>
+        <div class="history"><span id="history" style="white-space: nowrap;">-</span></div>
     </div>
 
     <div id="filemenu" class="filemenu" style="position:absolute; width:80%; left:10%; padding:10px; display: none; background-color:rgba(0,0,0,0.5); border-radius:5px;">
-      <form id="fileope">
-        <input id="newname" type="text" name="newname" value="" style="width:99%;">
-        <input id="orgname" type="hidden" name="orgname" value="">
-        <input id="fileLink" type="hidden" name="file" value="">
-        <input type="button" name="cancel" value="キャンセル" style="float:right;" onclick="document.getElementById('filemenu').style.display='none';">
-        <input type="submit" name="update" value="更新" style="float:right;">
-      </form>
+        <form id="fileope">
+            <input id="newname" type="text" name="newname" value="" style="width:99%;">
+            <input id="orgname" type="hidden" name="orgname" value="">
+            <input id="fileLink" type="hidden" name="file" value="">
+            <input type="button" name="cancel" value="キャンセル" style="float:right;" onclick="document.getElementById('filemenu').style.display='none';">
+            <input type="submit" name="update" value="更新" style="float:right;">
+        </form>
     </div>
 
     <div id="bookdetail" class="filemenu" style="position:absolute; width:80%; left:10%; padding:10px; display: none; background-color:rgba(18, 126, 143, 0.5); border-radius:5px;">
-      <form id="openbookdetail">
-        <input id="fileA" type="text" name="fileA" value="" style="width:99%;">
-        <input id="fileB" type="hidden" name="fileB" value="">
-        <input id="detailFileLink" type="hidden" name="file" value="">
-        <input type="button" name="cancel" value="キャンセル" style="float:right;" onclick="document.getElementById('bookdetail').style.display='none';">
-        <input type="submit" name="detail" value="詳細" style="float:right;">
-      </form>
+        <form id="openbookdetail">
+            <input id="fileA" type="text" name="fileA" value="" style="width:99%;">
+            <input id="fileB" type="hidden" name="fileB" value="">
+            <input id="detailFileLink" type="hidden" name="file" value="">
+            <input type="button" name="cancel" value="キャンセル" style="float:right;" onclick="document.getElementById('bookdetail').style.display='none';">
+            <input type="submit" name="detail" value="詳細" style="float:right;">
+        </form>
     </div>
 
     <div id="languageMenu" class="filemenu" style="position:absolute; width:auto; padding:10px; display: none; background-color:rgba(0,0,0,0.7); border-radius:5px; z-index: 1100;">
-      <div id="languageOptions">
-        <!-- 言語オプションがここに動的に追加されます -->
-      </div>
+        <div id="languageOptions">
+            <!-- 言語オプションがここに動的に追加されます -->
+        </div>
     </div>
 
     <!-- 多言語対応スクリプト読み込み -->
     <script src="/theme/js/i18n.js" defer></script>
 
     <script>
-    // Cookie取得（旧実装互換: rawMode=cmp/raw を期待。compressed は cmp にマップ）
-    (function(){
-      const cookies = document.cookie.split(";");
-      for (let i = 0; i < cookies.length; i++) {
-        const parts = cookies[i].split("=");
-        const key = (parts[0] || "").trim();
-        const val = (parts[1] || "").trim();
-        if (/comistreamUser/.test(key)) {
-          document.getElementById("loginIcon").className = "login";
-        } else if (/rawMode/.test(key)) {
-          // 互換マップ: 'compressed' → 'cmp'
-          const mapped = (val === 'compressed') ? 'cmp' : val;
-          document.getElementById("rawMode").className = mapped || 'raw';
-        }
-      }
-    })();
-    // -->
+        // Cookie取得（旧実装互換: rawMode=cmp/raw を期待。compressed は cmp にマップ）
+        (function() {
+            const cookies = document.cookie.split(";");
+            for (let i = 0; i < cookies.length; i++) {
+                const parts = cookies[i].split("=");
+                const key = (parts[0] || "").trim();
+                const val = (parts[1] || "").trim();
+                if (/comistreamUser/.test(key)) {
+                    document.getElementById("loginIcon").className = "login";
+                } else if (/rawMode/.test(key)) {
+                    // 互換マップ: 'compressed' → 'cmp'
+                    const mapped = (val === 'compressed') ? 'cmp' : val;
+                    document.getElementById("rawMode").className = mapped || 'raw';
+                }
+            }
+        })();
+        // -->
     </script>
 
     <div id="modal" style="display: none">
-      <div id="modal-content">
-        <img id="modal-image" src="" alt="プレビュー画像" width="800" height="600" />
-      </div>
+        <div id="modal-content">
+            <img id="modal-image" src="" alt="プレビュー画像" width="800" height="600" />
+        </div>
     </div>
 
     <div class="wrapper">
-    <!-- we open the `wrapper` element here, but close it in the footer section -->
+        <!-- we open the `wrapper` element here, but close it in the footer section -->
 
-    <div>
-      <span class="breadcrumb" id="breadcrumb">/</span>
-      <div class="search-controls">
-        <div id="favbutton" class="favbutton" onclick="javascript:searchFavButton()"></div>
-        <form name="searchform" action="javascript:search()">
-          <input class="textbox" type="search" name="textbox" results="10" placeholder="ファイル名を検索">
-        </form>
-        <div id="sortToggle" class="sort-toggle" onclick="javascript:toggleSortPanel()"></div>
-        
-        <!-- ソート設定パネル（収納式） -->
-        <div class="sort-panel" id="sortPanel">
-          <div class="sort-panel-inner">
-            <span class="sort-label" id="sortLabel">ソート:</span>
-            <label for="sortBy" class="visually-hidden">ソート項目</label>
-            <select id="sortBy" class="sort-select" onchange="applySortChange()">
-              <option value="name">名前</option>
-              <option value="lastmod">更新日時</option>
-              <option value="size">サイズ</option>
-            </select>
-            <label for="sortOrder" class="visually-hidden">ソート順序</label>
-            <select id="sortOrder" class="sort-select" onchange="applySortChange()">
-              <option value="asc">昇順</option>
-              <option value="desc">降順</option>
-            </select>
-          </div>
+        <div>
+            <span class="breadcrumb" id="breadcrumb">/</span>
+            <div class="search-controls">
+                <div id="favbutton" class="favbutton" onclick="javascript:searchFavButton()"></div>
+                <form name="searchform" action="javascript:search()">
+                    <input class="textbox" type="search" name="textbox" results="10" placeholder="ファイル名を検索">
+                </form>
+                <div id="sortToggle" class="sort-toggle" onclick="javascript:toggleSortPanel()"></div>
+
+                <!-- ソート設定パネル（収納式） -->
+                <div class="sort-panel" id="sortPanel">
+                    <div class="sort-panel-inner">
+                        <span class="sort-label" id="sortLabel">ソート:</span>
+                        <label for="sortBy" class="visually-hidden">ソート項目</label>
+                        <select id="sortBy" class="sort-select" onchange="applySortChange()">
+                            <option value="name">名前</option>
+                            <option value="lastmod">更新日時</option>
+                            <option value="size">サイズ</option>
+                        </select>
+                        <label for="sortOrder" class="visually-hidden">ソート順序</label>
+                        <select id="sortOrder" class="sort-select" onchange="applySortChange()">
+                            <option value="asc">昇順</option>
+                            <option value="desc">降順</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
 
-    <br>
+        <br>
 
-    <script>
-        // パンくずリストを設定
-        window.addEventListener('DOMContentLoaded', function() {
-            const breadcrumb = document.getElementById('breadcrumb');
+        <script>
+            // パンくずリストを設定
+            window.addEventListener('DOMContentLoaded', function() {
+                const breadcrumb = document.getElementById('breadcrumb');
 
-            if (breadcrumb) {
-                // 既存のfooter.html処理を参考にしたパンくずリスト生成
-                let pathAll = "/<a href=\"/\">TOP</a>";
-                let path = "";
-                const dirList = window.location.pathname.split("/");
+                if (breadcrumb) {
+                    // 既存のfooter.html処理を参考にしたパンくずリスト生成
+                    let pathAll = "/<a href=\"/\">TOP</a>";
+                    let path = "";
+                    const dirList = window.location.pathname.split("/");
 
-                for (let i = 0; i < dirList.length; i++) {
-                    if (dirList[i] !== "") {
-                        path = path + "/" + dirList[i];
-                        pathAll = pathAll + "/<a href='" + path + "'>" + decodeURIComponent(dirList[i]) + "</a>";
+                    for (let i = 0; i < dirList.length; i++) {
+                        if (dirList[i] !== "") {
+                            path = path + "/" + dirList[i];
+                            pathAll = pathAll + "/<a href='" + path + "'>" + decodeURIComponent(dirList[i]) + "</a>";
+                        }
                     }
+
+                    breadcrumb.innerHTML = pathAll;
                 }
+            });
+        </script>
 
-                breadcrumb.innerHTML = pathAll;
-            }
-        });
-    </script>
-
-    <div id="skeleton-container">
-        <table id="indexlist" class="skeleton-loading">
-            <thead>
-                <tr class="indexhead">
-                    <th class="indexcolicon"><img src="/theme/icons/blank.png" alt="[ICO]"></th>
-                    <?php
-                    function print_sort_header($title, $sort_key, $current_sort_by, $current_sort_order, $request_path)
-                    {
-                        if ($current_sort_by === $sort_key) {
-                            // 現在のソート対象と同じカラムがクリックされた場合は逆順にする
-                            $order = ($current_sort_order === 'asc') ? 'desc' : 'asc';
-                        } else {
-                            // 異なるカラムがクリックされた場合の処理
-                            if ($sort_key === 'lastmod') {
-                                // 更新日時順への切り替えは常に降順から開始
-                                $order = 'desc';
-
-                                // デフォルトの名前順・昇順から更新日時順への切り替えをログ出力
-                                if ($current_sort_by === 'name' && $current_sort_order === 'asc') {
-                                    writelog("INFO dir_list: Switching from default name/asc to lastmod/desc for path: " . $request_path, "dir_list");
-                                }
-                            } else if ($sort_key === 'size') {
-                                $order = 'desc';  // Sizeは降順が初期値
+        <div id="skeleton-container">
+            <table id="indexlist" class="skeleton-loading">
+                <thead>
+                    <tr class="indexhead">
+                        <th class="indexcolicon"><img src="/theme/icons/blank.png" alt="[ICO]"></th>
+                        <?php
+                        function print_sort_header($title, $sort_key, $current_sort_by, $current_sort_order, $request_path)
+                        {
+                            if ($current_sort_by === $sort_key) {
+                                // 現在のソート対象と同じカラムがクリックされた場合は逆順にする
+                                $order = ($current_sort_order === 'asc') ? 'desc' : 'asc';
                             } else {
-                                $order = 'asc';   // Nameなどは昇順が初期値
+                                // 異なるカラムがクリックされた場合の処理
+                                if ($sort_key === 'lastmod') {
+                                    // 更新日時順への切り替えは常に降順から開始
+                                    $order = 'desc';
+
+                                    // デフォルトの名前順・昇順から更新日時順への切り替えをログ出力
+                                    if ($current_sort_by === 'name' && $current_sort_order === 'asc') {
+                                        writelog("INFO dir_list: Switching from default name/asc to lastmod/desc for path: " . $request_path, "dir_list");
+                                    }
+                                } else if ($sort_key === 'size') {
+                                    $order = 'desc';  // Sizeは降順が初期値
+                                } else {
+                                    $order = 'asc';   // Nameなどは昇順が初期値
+                                }
                             }
+                            $class = 'indexcol' . $sort_key;
+                            if ($current_sort_by === $sort_key) {
+                                $class .= ' sort-' . $current_sort_order;
+                            }
+                            $url = '?path=' . rawurlencode($request_path) . '&sort=' . $sort_key . '&order=' . $order;
+                            echo '<th class="' . $class . '"><a href="' . htmlspecialchars($url) . '">' . $title . '</a></th>';
                         }
-                        $class = 'indexcol' . $sort_key;
-                        if ($current_sort_by === $sort_key) {
-                            $class .= ' sort-' . $current_sort_order;
-                        }
-                        $url = '?path=' . rawurlencode($request_path) . '&sort=' . $sort_key . '&order=' . $order;
-                        echo '<th class="' . $class . '"><a href="' . htmlspecialchars($url) . '">' . $title . '</a></th>';
-                    }
-                    print_sort_header('Name', 'name', $sort_by, $sort_order, $request_path);
-                    print_sort_header('Last modified', 'lastmod', $sort_by, $sort_order, $request_path);
-                    print_sort_header('Size', 'size', $sort_by, $sort_order, $request_path);
-                    ?>
-                </tr>
-            </thead>
-            <tbody id="table-tbody">
-            </tbody>
-        </table>
-    </div>
+                        print_sort_header('Name', 'name', $sort_by, $sort_order, $request_path);
+                        print_sort_header('Last modified', 'lastmod', $sort_by, $sort_order, $request_path);
+                        print_sort_header('Size', 'size', $sort_by, $sort_order, $request_path);
+                        ?>
+                    </tr>
+                </thead>
+                <tbody id="table-tbody">
+                </tbody>
+            </table>
+        </div>
 
-    <script>
-        // ページ読み込み時にスケルトンを表示（高速モードの場合は後で制御）
-        window.shouldShowSkeleton = true; // デフォルトは表示
-        document.addEventListener('DOMContentLoaded', function() {
-            if (window.shouldShowSkeleton) {
-                showSkeletonLoading();
-            }
-        });
-    </script>
-
-    <?php
-    // Ajax呼び出し用の初期設定
-    // 初期表示専用のJavaScript設定を作成
-    $js_config = json_encode([
-        'cgiPath' => $cgiPath,
-        'hlsCgiPath' => $hlsCgiPath,
-        'bibiPath' => $bibiPath,
-        'publicDir' => $publicDir,
-        'themeDir' => '',
-        'currentPath' => $request_path,
-        'loginUser' => $_COOKIE['comistreamUser'] ?? '',
-        'hasSessionSortPrefs' => isset($_SESSION['dirSortPrefs']),
-        'currentSort' => $sort_by,
-        'currentOrder' => $sort_order,
-        'debugFlag' => $global_debug_flag
-    ]);
-    ?>
-
-    <script>
-        // JavaScript設定を設定
-        const comistreamConfig = <?php echo $js_config; ?>;
-
-        // Ajax でディレクトリ内容を取得するルン！
-        function loadDirectoryContent() {
-            debugLog('Loading directory content via Ajax...');
-            
-            // パフォーマンス測定開始（高速表示判定用）
-            const ajaxStartTime = performance.now();
-            const FAST_RENDER_THRESHOLD_MS = 100; // 100ms以下なら高速表示
-            
-            // パラメータを構築
-            const urlParams = new URLSearchParams(window.location.search);
-            const currentPath = window.location.pathname;
-            const viewmode = getCookie('viewmode') || 'list';
-            
-            // API URL を構築
-            const apiUrl = '/cgi-bin/dir_list_api.php';
-            const params = new URLSearchParams({
-                path: currentPath,
-                viewmode: viewmode
-            });
-            
-            // ソートパラメータがあれば追加
-            if (urlParams.get('sort')) params.set('sort', urlParams.get('sort'));
-            if (urlParams.get('order')) params.set('order', urlParams.get('order'));
-            
-            const fullApiUrl = apiUrl + '?' + params.toString();
-            debugLog('API URL:', fullApiUrl);
-            
-            // Ajax リクエスト実行
-            fetch(fullApiUrl, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json',
-                    'Cache-Control': 'no-cache'
-                },
-                credentials: 'same-origin'
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-                }
-                return response.json();
-            })
-            .then(data => {
-                // Ajax 応答時間を測定
-                const ajaxEndTime = performance.now();
-                const ajaxResponseTime = ajaxEndTime - ajaxStartTime;
-                const isFastRender = ajaxResponseTime <= FAST_RENDER_THRESHOLD_MS;
-                
-                // スケルトンタイマーをキャンセル（高速/通常どちらの場合も）
-                if (window._skeletonTimer) {
-                    clearTimeout(window._skeletonTimer);
-                    window._skeletonTimer = null;
-                    debugLog('DEBUG: Skeleton timer cancelled - response received in time');
-                }
-                
-                debugLog('API response received:', data, 'Response time:', ajaxResponseTime.toFixed(2) + 'ms', 'Fast render:', isFastRender);
-                
-                if (data.success) {
-                    // JavaScript設定を更新
-                    if (window.comistreamConfig) {
-                        window.comistreamConfig.currentSort = data.meta.sort_by;
-                        window.comistreamConfig.currentOrder = data.meta.sort_order;
-                    }
-                    
-                    // 高速表示 vs 通常表示（スケルトン）の判定
-                    if (isFastRender) {
-                        // 高速表示：スケルトンをスキップして直接表示
-                        debugLog('Fast render mode: rendering content directly');
-                        renderDirectoryContentFast(data.data, data.meta);
-                    } else {
-                        // 通常表示：スケルトンからの切り替え
-                        debugLog('Normal render mode: using skeleton transition');
-                        renderDirectoryContent(data.data, data.meta);
-                    }
-                    
-                    debugLog('Directory content loaded successfully. Items:', data.meta.total_items, 'Server process time:', data.meta.processing_time_ms + 'ms', 'Total response time:', ajaxResponseTime.toFixed(2) + 'ms');
-                } else {
-                    // エラー時の処理
-                    throw new Error(data.error ? data.error.message : 'Unknown API error');
-                }
-            })
-            .catch(error => {
-                // エラー時もスケルトンタイマーをキャンセル
-                if (window._skeletonTimer) {
-                    clearTimeout(window._skeletonTimer);
-                    window._skeletonTimer = null;
-                    debugLog('DEBUG: Skeleton timer cancelled due to error');
-                }
-                
-                console.error('Failed to load directory content:', error);
-                renderErrorMessage('ディレクトリの読み込みに失敗しました: ' + error.message);
-            });
-        }
-        
-        // ディレクトリ内容をレンダリング
-        function renderDirectoryContent(items, meta) {
-            const tbody = document.querySelector('#table-tbody');
-            const tableContainer = document.getElementById('indexlist');
-            
-            if (!tbody || !tableContainer) {
-                console.error('Required DOM elements not found');
-                return;
-            }
-            
-            // HTML構築
-            let htmlContent = '';
-            items.forEach(item => {
-                let rowClass = '';
-                if (item.is_parent) {
-                    rowClass = ' class="parent-dir-row"';
-                }
-                
-                htmlContent += '<tr' + rowClass + '>';
-                
-                // アイコンカラム
-                htmlContent += '<td class="indexcolicon">';
-                htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '">';
-                htmlContent += '<img src="' + escapeHtml(item.icon) + '" alt="[ICO]">';
-                htmlContent += '</a></td>';
-                
-                // 名前カラム
-                let nameContent = '';
-                let dataImageAttr = '';
-                let tdIdAttr = '';
-                let onclickAttr = '';
-                
-                // ファイルの場合の特別処理
-                if (!item.is_dir && !item.is_parent) {
-                    // プレビュー画像属性
-                    if (item.preview_image) {
-                        dataImageAttr = ' data-image="' + escapeHtml(item.preview_image) + '"';
-                    }
-                    // ID属性（ブックマーク用）
-                    tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
-                    // onclick ハンドラ
-                    onclickAttr = ' onclick="return linkhook(event)"';
-                    
-                    // カバービューでファイルの場合、表紙画像を追加
-                    const viewmode = getCookie('viewmode') || 'list';
-                    if (viewmode === 'cover' && item.cover_image) {
-                        nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
-                    }
-                }
-                
-                htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + '>';
-                htmlContent += nameContent;
-                htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
-                if (!item.is_dir && !item.is_parent) {
-                    htmlContent += ' id="' + escapeHtml(item.name) + '"';
-                }
-                htmlContent += onclickAttr + '>';
-                htmlContent += escapeHtml(item.name);
-                htmlContent += '</a></td>';
-                
-                // 最終更新日カラム
-                htmlContent += '<td class="indexcollastmod">' + escapeHtml(item.lastmod_formatted) + '</td>';
-                
-                // サイズカラム  
-                htmlContent += '<td class="indexcolsize">' + escapeHtml(item.size_formatted) + '</td>';
-                
-                htmlContent += '</tr>';
-            });
-            
-            // スケルトンが表示されているかどうかで処理を分ける
-            if (isSkeletonCurrentlyDisplayed()) {
-                debugLog('DEBUG: Normal render using skeleton transition');
-                hideSkeletonLoading(htmlContent);
-            } else {
-                debugLog('DEBUG: Normal render without skeleton (direct) - skeleton was not displayed in time');
-                // スケルトンが表示されていない場合は高速表示と同じ処理
-                tbody.innerHTML = htmlContent;
-                
-                // カバービューの中央寄せ計算
-                try {
-                    if (typeof updateCoverSideGutter === 'function') {
-                        updateCoverSideGutter();
-                        debugLog('DEBUG Normal render (direct): updateCoverSideGutter called');
-                    }
-                } catch (e) {
-                    console.error('ERROR Normal render (direct): updateCoverSideGutter failed:', e);
-                }
-                
-                tableContainer.classList.remove('skeleton-loading');
-                tbody.classList.add('actual-content');
-                tbody.style.opacity = '1';
-                
-                const footer = document.querySelector('.footer');
-                if (footer) {
-                    footer.style.opacity = '1';
-                }
-                
-                // 機能の再初期化
-                try {
-                    if (typeof reinitializeContentFeatures === 'function') {
-                        reinitializeContentFeatures();
-                    }
-                    if (typeof applyDirectoryCustomIcons === 'function') {
-                        applyDirectoryCustomIcons();
-                    }
-                    if (typeof reinitializePreviewFeatures === 'function') {
-                        reinitializePreviewFeatures();
-                    }
-                    if (typeof applyBookmarkCache === 'function') {
-                        applyBookmarkCache();
-                    }
-                    callGetBookmarkWhenReady();
-                    callGetHistoryWhenReady();
-                } catch (e) {
-                    console.error('ERROR Normal render (direct): Initialization failed:', e);
-                }
-            }
-        }
-        
-        // 高速表示用のディレクトリ内容レンダリング（スケルトンアニメーションなし）
-        function renderDirectoryContentFast(items, meta) {
-            const tbody = document.querySelector('#table-tbody');
-            const tableContainer = document.getElementById('indexlist');
-            
-            if (!tbody || !tableContainer) {
-                console.error('Required DOM elements not found');
-                return;
-            }
-            
-            // HTML構築（renderDirectoryContent()と同じロジック）
-            let htmlContent = '';
-            items.forEach(item => {
-                let rowClass = '';
-                if (item.is_parent) {
-                    rowClass = ' class="parent-dir-row"';
-                }
-                
-                htmlContent += '<tr' + rowClass + '>';
-                
-                // アイコンカラム
-                htmlContent += '<td class="indexcolicon">';
-                htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '">';
-                htmlContent += '<img src="' + escapeHtml(item.icon) + '" alt="[ICO]">';
-                htmlContent += '</a></td>';
-                
-                // 名前カラム
-                let nameContent = '';
-                let dataImageAttr = '';
-                let tdIdAttr = '';
-                let onclickAttr = '';
-                
-                // ファイルの場合の特別処理
-                if (!item.is_dir && !item.is_parent) {
-                    // プレビュー画像属性
-                    if (item.preview_image) {
-                        dataImageAttr = ' data-image="' + escapeHtml(item.preview_image) + '"';
-                    }
-                    // ID属性（ブックマーク用）
-                    tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
-                    // onclick ハンドラ
-                    onclickAttr = ' onclick="return linkhook(event)"';
-                    
-                    // カバービューでファイルの場合、表紙画像を追加
-                    const viewmode = getCookie('viewmode') || 'list';
-                    if (viewmode === 'cover' && item.cover_image) {
-                        nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
-                    }
-                }
-                
-                htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + '>';
-                htmlContent += nameContent;
-                htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
-                if (!item.is_dir && !item.is_parent) {
-                    htmlContent += ' id="' + escapeHtml(item.name) + '"';
-                }
-                htmlContent += onclickAttr + '>';
-                htmlContent += escapeHtml(item.name);
-                htmlContent += '</a></td>';
-                
-                // 最終更新日カラム
-                htmlContent += '<td class="indexcollastmod">' + escapeHtml(item.lastmod_formatted) + '</td>';
-                
-                // サイズカラム  
-                htmlContent += '<td class="indexcolsize">' + escapeHtml(item.size_formatted) + '</td>';
-                
-                htmlContent += '</tr>';
-            });
-            
-            // 高速表示：スケルトンをスキップして直接コンテンツ設定
-            debugLog('DEBUG Fast render: Setting content directly without skeleton animation');
-            
-            // コンテンツを直接設定
-            tbody.innerHTML = htmlContent;
-            
-            // カバービューの中央寄せ計算（コンテンツ設定直後に実行）
-            try {
-                if (typeof updateCoverSideGutter === 'function') {
-                    updateCoverSideGutter();
-                    debugLog('DEBUG Fast render: updateCoverSideGutter called');
-                }
-            } catch (e) {
-                console.error('ERROR Fast render: updateCoverSideGutter failed:', e);
-            }
-            
-            // スケルトンクラスを削除し、実際のコンテンツクラスを追加
-            tableContainer.classList.remove('skeleton-loading');
-            tbody.classList.add('actual-content');
-            tbody.style.opacity = '1'; // 即座に表示
-            
-            // フッターを表示
-            const footer = document.querySelector('.footer');
-            if (footer) {
-                footer.style.opacity = '1';
-            }
-            
-            // すべての機能を再初期化
-            try {
-                debugLog('DEBUG Fast render: Starting function initialization');
-                
-                if (typeof reinitializeContentFeatures === 'function') {
-                    reinitializeContentFeatures();
-                    debugLog('DEBUG Fast render: reinitializeContentFeatures completed');
-                } else {
-                    debugLog('WARNING Fast render: reinitializeContentFeatures not available');
-                }
-                
-                if (typeof applyDirectoryCustomIcons === 'function') {
-                    applyDirectoryCustomIcons();
-                    debugLog('DEBUG Fast render: applyDirectoryCustomIcons completed');
-                }
-                
-                if (typeof reinitializePreviewFeatures === 'function') {
-                    reinitializePreviewFeatures();
-                    debugLog('DEBUG Fast render: reinitializePreviewFeatures completed');
-                }
-                
-                // キャッシュ済み既読・お気に入りを即時反映
-                if (typeof applyBookmarkCache === 'function') {
-                    applyBookmarkCache();
-                    debugLog('DEBUG Fast render: applyBookmarkCache completed');
-                }
-                
-                // 読書進捗とお気に入り機能を呼び出し
-                callGetBookmarkWhenReady();
-                callGetHistoryWhenReady();
-                
-                debugLog('DEBUG Fast render: All initialization completed');
-            } catch (e) {
-                console.error('ERROR Fast render: Initialization failed:', e);
-            }
-        }
-        
-        // スケルトンが現在表示されているかチェック
-        function isSkeletonCurrentlyDisplayed() {
-            const tableContainer = document.getElementById('indexlist');
-            const tbody = document.querySelector('#table-tbody');
-            const skeletonRows = tbody ? tbody.querySelectorAll('.skeleton-row') : [];
-            
-            return tableContainer && 
-                   tableContainer.classList.contains('skeleton-loading') && 
-                   skeletonRows.length > 0;
-        }
-        
-        // エラーメッセージを表示
-        function renderErrorMessage(message) {
-            const tbody = document.querySelector('#table-tbody');
-            const tableContainer = document.getElementById('indexlist');
-            
-            if (!tbody || !tableContainer) return;
-            
-            const errorHtml = '<tr><td colspan="4" style="text-align: center; color: #d32f2f; padding: 20px;">' + escapeHtml(message) + '</td></tr>';
-            
-            // スケルトンが表示されているかどうかで処理を分ける
-            if (isSkeletonCurrentlyDisplayed()) {
-                debugLog('DEBUG: Error display using skeleton transition');
-                hideSkeletonLoading(errorHtml);
-            } else {
-                debugLog('DEBUG: Error display without skeleton (direct)');
-                // スケルトンが表示されていない場合は直接エラー表示
-                tbody.innerHTML = errorHtml;
-                tableContainer.classList.remove('skeleton-loading');
-                tbody.classList.add('actual-content');
-                tbody.style.opacity = '1';
-                
-                // フッターも表示
-                const footer = document.querySelector('.footer');
-                if (footer) {
-                    footer.style.opacity = '1';
-                }
-            }
-        }
-        
-        // HTMLエスケープ関数
-        function escapeHtml(text) {
-            if (text == null) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
-        // DOMContentLoaded時にAjax読み込み開始
-        document.addEventListener('DOMContentLoaded', function() {
-            // 高速表示判定のため、即座にAjax開始
-            debugLog('DEBUG: Starting Ajax immediately for fast render detection');
-            
-            // スケルトン表示を遅延（Ajax応答が遅い場合のみ表示）
-            const skeletonTimer = setTimeout(function() {
-                debugLog('DEBUG: Showing skeleton after delay (slow response)');
+        <script>
+            // ページ読み込み時にスケルトンを表示（高速モードの場合は後で制御）
+            window.shouldShowSkeleton = true; // デフォルトは表示
+            document.addEventListener('DOMContentLoaded', function() {
                 if (window.shouldShowSkeleton) {
                     showSkeletonLoading();
                 }
-            }, 150); // 150ms後にスケルトン表示（Ajax応答が遅い場合のみ）
-            
-            // スケルトンタイマーをグローバルに保存（Ajax応答時にキャンセルするため）
-            window._skeletonTimer = skeletonTimer;
-            
-            // Ajax即座開始
-            loadDirectoryContent();
-        });
-    </script>
+            });
+        </script>
 
-    <div id="actual-content" style="display: none;">
-    </div>
+        <?php
+        // Ajax呼び出し用の初期設定
+        // 初期表示専用のJavaScript設定を作成
+        $js_config = json_encode([
+            'cgiPath' => $cgiPath,
+            'hlsCgiPath' => $hlsCgiPath,
+            'bibiPath' => $bibiPath,
+            'publicDir' => $publicDir,
+            'themeDir' => '',
+            'currentPath' => $request_path,
+            'loginUser' => $_COOKIE['comistreamUser'] ?? '',
+            'hasSessionSortPrefs' => isset($_SESSION['dirSortPrefs']),
+            'currentSort' => $sort_by,
+            'currentOrder' => $sort_order,
+            'debugFlag' => $global_debug_flag,
+            'is_404_mode' => $is_404_mode
+        ]);
+        ?>
+
+        <script>
+            // JavaScript設定を設定
+            const comistreamConfig = <?php echo $js_config; ?>;
+
+            // Ajax でディレクトリ内容を取得するルン！
+            function loadDirectoryContent() {
+                debugLog('Loading directory content via Ajax...');
+
+                // パフォーマンス測定開始（高速表示判定用）
+                const ajaxStartTime = performance.now();
+                const FAST_RENDER_THRESHOLD_MS = 100; // 100ms以下なら高速表示
+
+                // パラメータを構築
+                const urlParams = new URLSearchParams(window.location.search);
+                const currentPath = window.location.pathname;
+                const viewmode = getCookie('viewmode') || 'list';
+
+                // API URL を構築
+                const apiUrl = '/cgi-bin/dir_list_api.php';
+                const params = new URLSearchParams({
+                    path: currentPath,
+                    viewmode: viewmode
+                });
+
+                // ソートパラメータがあれば追加
+                if (urlParams.get('sort')) params.set('sort', urlParams.get('sort'));
+                if (urlParams.get('order')) params.set('order', urlParams.get('order'));
+
+                const fullApiUrl = apiUrl + '?' + params.toString();
+                debugLog('API URL:', fullApiUrl);
+
+                // Ajax リクエスト実行
+                fetch(fullApiUrl, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Cache-Control': 'no-cache'
+                        },
+                        credentials: 'same-origin'
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        // Ajax 応答時間を測定
+                        const ajaxEndTime = performance.now();
+                        const ajaxResponseTime = ajaxEndTime - ajaxStartTime;
+                        const isFastRender = ajaxResponseTime <= FAST_RENDER_THRESHOLD_MS;
+
+                        // スケルトンタイマーをキャンセル（高速/通常どちらの場合も）
+                        if (window._skeletonTimer) {
+                            clearTimeout(window._skeletonTimer);
+                            window._skeletonTimer = null;
+                            debugLog('DEBUG: Skeleton timer cancelled - response received in time');
+                        }
+
+                        debugLog('API response received:', data, 'Response time:', ajaxResponseTime.toFixed(2) + 'ms', 'Fast render:', isFastRender);
+
+                        if (data.success) {
+                            // JavaScript設定を更新
+                            if (window.comistreamConfig) {
+                                window.comistreamConfig.currentSort = data.meta.sort_by;
+                                window.comistreamConfig.currentOrder = data.meta.sort_order;
+                            }
+
+                            // 高速表示 vs 通常表示（スケルトン）の判定
+                            if (isFastRender) {
+                                // 高速表示：スケルトンをスキップして直接表示
+                                debugLog('Fast render mode: rendering content directly');
+                                renderDirectoryContentFast(data.data, data.meta);
+                            } else {
+                                // 通常表示：スケルトンからの切り替え
+                                debugLog('Normal render mode: using skeleton transition');
+                                renderDirectoryContent(data.data, data.meta);
+                            }
+
+                            debugLog('Directory content loaded successfully. Items:', data.meta.total_items, 'Server process time:', data.meta.processing_time_ms + 'ms', 'Total response time:', ajaxResponseTime.toFixed(2) + 'ms');
+                        } else {
+                            // エラー時の処理
+                            throw new Error(data.error ? data.error.message : 'Unknown API error');
+                        }
+                    })
+                    .catch(error => {
+                        // エラー時もスケルトンタイマーをキャンセル
+                        if (window._skeletonTimer) {
+                            clearTimeout(window._skeletonTimer);
+                            window._skeletonTimer = null;
+                            debugLog('DEBUG: Skeleton timer cancelled due to error');
+                        }
+
+                        console.error('Failed to load directory content:', error);
+                        renderErrorMessage('ディレクトリの読み込みに失敗しました: ' + error.message);
+                    });
+            }
+
+            // ディレクトリ内容をレンダリング
+            function renderDirectoryContent(items, meta) {
+                const tbody = document.querySelector('#table-tbody');
+                const tableContainer = document.getElementById('indexlist');
+
+                if (!tbody || !tableContainer) {
+                    console.error('Required DOM elements not found');
+                    return;
+                }
+
+                // HTML構築
+                let htmlContent = '';
+                items.forEach(item => {
+                    let rowClass = '';
+                    if (item.is_parent) {
+                        rowClass = ' class="parent-dir-row"';
+                    }
+
+                    htmlContent += '<tr' + rowClass + '>';
+
+                    // アイコンカラム
+                    htmlContent += '<td class="indexcolicon">';
+                    htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '">';
+                    htmlContent += '<img src="' + escapeHtml(item.icon) + '" alt="[ICO]">';
+                    htmlContent += '</a></td>';
+
+                    // 名前カラム
+                    let nameContent = '';
+                    let dataImageAttr = '';
+                    let tdIdAttr = '';
+                    let onclickAttr = '';
+
+                    // ファイルの場合の特別処理
+                    if (!item.is_dir && !item.is_parent) {
+                        // プレビュー画像属性
+                        if (item.preview_image) {
+                            dataImageAttr = ' data-image="' + escapeHtml(item.preview_image) + '"';
+                        }
+                        // ID属性（ブックマーク用）
+                        tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
+                        // onclick ハンドラ
+                        onclickAttr = ' onclick="return linkhook(event)"';
+
+                        // カバービューでファイルの場合、表紙画像を追加
+                        const viewmode = getCookie('viewmode') || 'list';
+                        if (viewmode === 'cover' && item.cover_image) {
+                            nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
+                        }
+                    }
+
+                    htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + '>';
+                    htmlContent += nameContent;
+                    htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
+                    if (!item.is_dir && !item.is_parent) {
+                        htmlContent += ' id="' + escapeHtml(item.name) + '"';
+                    }
+                    htmlContent += onclickAttr + '>';
+                    htmlContent += escapeHtml(item.name);
+                    htmlContent += '</a></td>';
+
+                    // 最終更新日カラム
+                    htmlContent += '<td class="indexcollastmod">' + escapeHtml(item.lastmod_formatted) + '</td>';
+
+                    // サイズカラム
+                    htmlContent += '<td class="indexcolsize">' + escapeHtml(item.size_formatted) + '</td>';
+
+                    htmlContent += '</tr>';
+                });
+
+                // スケルトンが表示されているかどうかで処理を分ける
+                if (isSkeletonCurrentlyDisplayed()) {
+                    debugLog('DEBUG: Normal render using skeleton transition');
+                    hideSkeletonLoading(htmlContent);
+                } else {
+                    debugLog('DEBUG: Normal render without skeleton (direct) - skeleton was not displayed in time');
+                    // スケルトンが表示されていない場合は高速表示と同じ処理
+                    tbody.innerHTML = htmlContent;
+
+                    // カバービューの中央寄せ計算
+                    try {
+                        if (typeof updateCoverSideGutter === 'function') {
+                            updateCoverSideGutter();
+                            debugLog('DEBUG Normal render (direct): updateCoverSideGutter called');
+                        }
+                    } catch (e) {
+                        console.error('ERROR Normal render (direct): updateCoverSideGutter failed:', e);
+                    }
+
+                    tableContainer.classList.remove('skeleton-loading');
+                    tbody.classList.add('actual-content');
+                    tbody.style.opacity = '1';
+
+                    const footer = document.querySelector('.footer');
+                    if (footer) {
+                        footer.style.opacity = '1';
+                    }
+
+                    // 機能の再初期化
+                    try {
+                        if (typeof reinitializeContentFeatures === 'function') {
+                            reinitializeContentFeatures();
+                        }
+                        if (typeof applyDirectoryCustomIcons === 'function') {
+                            applyDirectoryCustomIcons();
+                        }
+                        if (typeof reinitializePreviewFeatures === 'function') {
+                            reinitializePreviewFeatures();
+                        }
+                        if (typeof applyBookmarkCache === 'function') {
+                            applyBookmarkCache();
+                        }
+                        callGetBookmarkWhenReady();
+                        callGetHistoryWhenReady();
+                    } catch (e) {
+                        console.error('ERROR Normal render (direct): Initialization failed:', e);
+                    }
+                }
+            }
+
+            // 高速表示用のディレクトリ内容レンダリング（スケルトンアニメーションなし）
+            function renderDirectoryContentFast(items, meta) {
+                const tbody = document.querySelector('#table-tbody');
+                const tableContainer = document.getElementById('indexlist');
+
+                if (!tbody || !tableContainer) {
+                    console.error('Required DOM elements not found');
+                    return;
+                }
+
+                // HTML構築（renderDirectoryContent()と同じロジック）
+                let htmlContent = '';
+                items.forEach(item => {
+                    let rowClass = '';
+                    if (item.is_parent) {
+                        rowClass = ' class="parent-dir-row"';
+                    }
+
+                    htmlContent += '<tr' + rowClass + '>';
+
+                    // アイコンカラム
+                    htmlContent += '<td class="indexcolicon">';
+                    htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '">';
+                    htmlContent += '<img src="' + escapeHtml(item.icon) + '" alt="[ICO]">';
+                    htmlContent += '</a></td>';
+
+                    // 名前カラム
+                    let nameContent = '';
+                    let dataImageAttr = '';
+                    let tdIdAttr = '';
+                    let onclickAttr = '';
+
+                    // ファイルの場合の特別処理
+                    if (!item.is_dir && !item.is_parent) {
+                        // プレビュー画像属性
+                        if (item.preview_image) {
+                            dataImageAttr = ' data-image="' + escapeHtml(item.preview_image) + '"';
+                        }
+                        // ID属性（ブックマーク用）
+                        tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
+                        // onclick ハンドラ
+                        onclickAttr = ' onclick="return linkhook(event)"';
+
+                        // カバービューでファイルの場合、表紙画像を追加
+                        const viewmode = getCookie('viewmode') || 'list';
+                        if (viewmode === 'cover' && item.cover_image) {
+                            nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
+                        }
+                    }
+
+                    htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + '>';
+                    htmlContent += nameContent;
+                    htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
+                    if (!item.is_dir && !item.is_parent) {
+                        htmlContent += ' id="' + escapeHtml(item.name) + '"';
+                    }
+                    htmlContent += onclickAttr + '>';
+                    htmlContent += escapeHtml(item.name);
+                    htmlContent += '</a></td>';
+
+                    // 最終更新日カラム
+                    htmlContent += '<td class="indexcollastmod">' + escapeHtml(item.lastmod_formatted) + '</td>';
+
+                    // サイズカラム
+                    htmlContent += '<td class="indexcolsize">' + escapeHtml(item.size_formatted) + '</td>';
+
+                    htmlContent += '</tr>';
+                });
+
+                // 高速表示：スケルトンをスキップして直接コンテンツ設定
+                debugLog('DEBUG Fast render: Setting content directly without skeleton animation');
+
+                // コンテンツを直接設定
+                tbody.innerHTML = htmlContent;
+
+                // カバービューの中央寄せ計算（コンテンツ設定直後に実行）
+                try {
+                    if (typeof updateCoverSideGutter === 'function') {
+                        updateCoverSideGutter();
+                        debugLog('DEBUG Fast render: updateCoverSideGutter called');
+                    }
+                } catch (e) {
+                    console.error('ERROR Fast render: updateCoverSideGutter failed:', e);
+                }
+
+                // スケルトンクラスを削除し、実際のコンテンツクラスを追加
+                tableContainer.classList.remove('skeleton-loading');
+                tbody.classList.add('actual-content');
+                tbody.style.opacity = '1'; // 即座に表示
+
+                // フッターを表示
+                const footer = document.querySelector('.footer');
+                if (footer) {
+                    footer.style.opacity = '1';
+                }
+
+                // すべての機能を再初期化
+                try {
+                    debugLog('DEBUG Fast render: Starting function initialization');
+
+                    if (typeof reinitializeContentFeatures === 'function') {
+                        reinitializeContentFeatures();
+                        debugLog('DEBUG Fast render: reinitializeContentFeatures completed');
+                    } else {
+                        debugLog('WARNING Fast render: reinitializeContentFeatures not available');
+                    }
+
+                    if (typeof applyDirectoryCustomIcons === 'function') {
+                        applyDirectoryCustomIcons();
+                        debugLog('DEBUG Fast render: applyDirectoryCustomIcons completed');
+                    }
+
+                    if (typeof reinitializePreviewFeatures === 'function') {
+                        reinitializePreviewFeatures();
+                        debugLog('DEBUG Fast render: reinitializePreviewFeatures completed');
+                    }
+
+                    // キャッシュ済み既読・お気に入りを即時反映
+                    if (typeof applyBookmarkCache === 'function') {
+                        applyBookmarkCache();
+                        debugLog('DEBUG Fast render: applyBookmarkCache completed');
+                    }
+
+                    // 読書進捗とお気に入り機能を呼び出し
+                    callGetBookmarkWhenReady();
+                    callGetHistoryWhenReady();
+
+                    debugLog('DEBUG Fast render: All initialization completed');
+                } catch (e) {
+                    console.error('ERROR Fast render: Initialization failed:', e);
+                }
+            }
+
+            // スケルトンが現在表示されているかチェック
+            function isSkeletonCurrentlyDisplayed() {
+                const tableContainer = document.getElementById('indexlist');
+                const tbody = document.querySelector('#table-tbody');
+                const skeletonRows = tbody ? tbody.querySelectorAll('.skeleton-row') : [];
+
+                return tableContainer &&
+                    tableContainer.classList.contains('skeleton-loading') &&
+                    skeletonRows.length > 0;
+            }
+
+            // エラーメッセージを表示
+            function renderErrorMessage(message) {
+                const tbody = document.querySelector('#table-tbody');
+                const tableContainer = document.getElementById('indexlist');
+
+                if (!tbody || !tableContainer) return;
+
+                const errorHtml = '<tr><td colspan="4" style="text-align: center; color: #d32f2f; padding: 20px;">' + escapeHtml(message) + '</td></tr>';
+
+                // スケルトンが表示されているかどうかで処理を分ける
+                if (isSkeletonCurrentlyDisplayed()) {
+                    debugLog('DEBUG: Error display using skeleton transition');
+                    hideSkeletonLoading(errorHtml);
+                } else {
+                    debugLog('DEBUG: Error display without skeleton (direct)');
+                    // スケルトンが表示されていない場合は直接エラー表示
+                    tbody.innerHTML = errorHtml;
+                    tableContainer.classList.remove('skeleton-loading');
+                    tbody.classList.add('actual-content');
+                    tbody.style.opacity = '1';
+
+                    // フッターも表示
+                    const footer = document.querySelector('.footer');
+                    if (footer) {
+                        footer.style.opacity = '1';
+                    }
+                }
+            }
+
+            // HTMLエスケープ関数
+            function escapeHtml(text) {
+                if (text == null) return '';
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            // 404モード用の空ディレクトリ表示関数
+            function renderEmptyDirectory() {
+                debugLog('DEBUG: Rendering empty directory for 404 mode');
+
+                const items = [];
+                const currentPath = comistreamConfig.currentPath;
+                const viewmode = getCookie('viewmode') || 'list';
+
+                // Parent Directoryを追加（ルート以外の場合）
+                if (currentPath !== '/' && currentPath !== '') {
+                    const parentPath = currentPath.replace(/\/[^\/]*\/?$/, '') || '/';
+                    const escapedParentPath = escapeProblematicChars(parentPath);
+                    const parentIconSrc = (viewmode === 'cover') ? '/theme/icons/blank.png' : '/theme/icons/folder-home.png';
+
+                    items.push({
+                        name: 'Parent Directory',
+                        is_dir: true,
+                        is_parent: true,
+                        size: -1,
+                        size_formatted: '-',
+                        lastmod: 0,
+                        lastmod_formatted: '',
+                        icon: parentIconSrc,
+                        href: parentPath,
+                        data_filepath: escapedParentPath
+                    });
+                }
+
+                // 空ディレクトリのメタ情報
+                const meta = {
+                    path: currentPath,
+                    total_items: items.length,
+                    directories: 0,
+                    files: 0,
+                    sort_by: comistreamConfig.currentSort,
+                    sort_order: comistreamConfig.currentOrder,
+                    processing_time_ms: 0,
+                    is_404_mode: true
+                };
+
+                // 高速表示で空ディレクトリを描画
+                renderDirectoryContentFast(items, meta);
+            }
+
+            // DOMContentLoaded時にAjax読み込み開始
+            document.addEventListener('DOMContentLoaded', function() {
+                if (comistreamConfig.is_404_mode) {
+                    // 404モードの場合、Ajaxを発行せず空ディレクトリを表示
+                    debugLog('DEBUG: 404 mode detected, rendering empty directory without Ajax');
+                    renderEmptyDirectory();
+                } else {
+                    // 高速表示判定のため、即座にAjax開始
+                    debugLog('DEBUG: Starting Ajax immediately for fast render detection');
+
+                    // スケルトン表示を遅延（Ajax応答が遅い場合のみ表示）
+                    const skeletonTimer = setTimeout(function() {
+                        debugLog('DEBUG: Showing skeleton after delay (slow response)');
+                        if (window.shouldShowSkeleton) {
+                            showSkeletonLoading();
+                        }
+                    }, 150); // 150ms後にスケルトン表示（Ajax応答が遅い場合のみ）
+
+                    // スケルトンタイマーをグローバルに保存（Ajax応答時にキャンセルするため）
+                    window._skeletonTimer = skeletonTimer;
+
+                    // Ajax即座開始
+                    loadDirectoryContent();
+                }
+            });
+        </script>
+
+        <div id="actual-content" style="display: none;">
+        </div>
 
     </div><!--/.wrapper-->
 
     <!-- Directory listing JavaScript functions (inlined to avoid iOS PWA cache issues) -->
     <script>
-    <?php readfile(__DIR__ . '/dir_list.js'); ?>
+        <?php readfile(__DIR__ . '/dir_list.js'); ?>
     </script>
 
     <!-- Footer content integrated from footer.html -->
     <div class="footer">
-      Comistream - Nihondo 2025<br>
+        Comistream - Nihondo 2025<br>
     </div>
     <!--/.footer-->
 
