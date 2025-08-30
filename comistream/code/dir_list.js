@@ -566,8 +566,27 @@ function toggleView() {
     }, 100);
   } else {
     // Cover -> List
+    debugLog("DEBUG toggleView: Preparing to switch to list view");
+
+    // CSS切り替え前にカスタムアイコンを事前にクリアしてちらつきを防ぐ
+    const clearCustomIconsImmediately = () => {
+      debugLog("DEBUG toggleView: Clearing custom icons immediately");
+      const dirAnchors = document.querySelectorAll('.indexcolname a[href$="/"]');
+      dirAnchors.forEach((anchor) => {
+        // カバービューのカスタムアイコンを即座にクリア
+        anchor.style.removeProperty("background-image");
+        anchor.style.removeProperty("background-size");
+        anchor.style.removeProperty("background-position");
+        anchor.style.removeProperty("background-repeat");
+      });
+    };
+
+    // 即座にカスタムアイコンをクリア
+    clearCustomIconsImmediately();
+
     document.cookie = "viewmode=list; path=/; SameSite=Strict";
     stylesheet.href = "/theme/style.css?2025080200";
+
     setTimeout(() => {
       debugLog("DEBUG toggleView: Switching to list view, calling functions...");
       debugLog("DEBUG toggleView: Before reinitializeContentFeatures");
@@ -591,7 +610,7 @@ function toggleView() {
       // ネットワークなしで既読/お気に入りを即時反映
       try { applyBookmarkCache(); } catch (e) { console.error(e); }
       debugLog("DEBUG toggleView: List view switch completed");
-    }, 100);
+    }, 50); // タイムアウトを50msに短縮
   }
 }
 
