@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ディレクトリリスティングで404の場合からのディレクトリ表示をとした
 - 文書PDFの表示速度向上
 - カバービューモードでの表紙横幅を159pxに拡大
+- リストビューモードでのクリック領域拡大
+- フルサイズモードのときには先読みページ数を増加
 
 ### 修正
 - Dockerfileにunrar追加

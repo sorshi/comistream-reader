@@ -2031,8 +2031,8 @@ function printHTML()
     if ($size === 'FULL') {
         $size_button_flag = $i18n->get('compressed'); // 切り換え先を表示
         $size_button_class = 'button raw';
-        // FULLサイズはモバイルネットワークではないと想定してプリロードページ数を倍に
-        $global_preload_pages *= 2;
+        // FULLサイズはモバイルネットワークではないと想定してプリロードページ数を4倍に
+        $global_preload_pages *= 4;
     } else {
         $size_button_flag = $i18n->get('full_size');
         $size_button_class = 'button cmp';

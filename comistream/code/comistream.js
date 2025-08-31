@@ -36,6 +36,7 @@ class PreCache {
   }
 
   async addOld(imageUrl) {
+    // 廃止予定旧コード
     let img = new Image();
     img.src = imageUrl;
     await new Promise((resolve) => (img.onload = resolve));
@@ -180,12 +181,17 @@ class PreCache {
     }
 
     // ページめくり速度に基づいて調整
+    let plusPageCacheRate = 1;
+    if(size === 'FULL') {
+      // ネットワークに余裕があるはずのフルサイズ時は先読み倍に
+      plusPageCacheRate = 2;
+    }
     if (averageTurnTime < 1000) {
-      this.size = 10;
+      this.size = 10 * plusPageCacheRate;
     } else if (averageTurnTime < 2000) {
-      this.size = 6;
+      this.size = 6 * plusPageCacheRate;
     } else {
-      this.size = 4;
+      this.size = 4 * plusPageCacheRate;
     }
     this.resize(this.size);
     debugLog("Preloading read speed initial " + this.size + " pages");
