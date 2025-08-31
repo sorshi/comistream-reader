@@ -252,6 +252,16 @@ var autoLightSplitModeViewPosition = "right"; // 横長画像のどっち側表�
 var xDown = null; // 2本指スワイプダウン検出用
 var yDown = null; // 2本指スワイプダウン検出用
 let globalDivImageUrl = "";
+var isPinching = false; // ピンチ操作中フラグ
+
+function isZoomed() {
+  // visualViewportが存在しない古いブラウザでは常にfalseを返す
+  if (typeof window.visualViewport === "undefined") {
+    return false;
+  }
+  // スケールが1より大きい場合にtrueを返す (誤差を考慮)
+  return window.visualViewport.scale > 1.05;
+}
 
 window.addEventListener("keydown", funcKey);
 
@@ -266,6 +276,27 @@ window.addEventListener(
 window.addEventListener(
   "touchstart",
   function (evt) {
+    const touches = evt.touches;
+    if (touches.length > 1) {
+      isPinching = true;
+      startX = -1;
+      endX = -1;
+      // 2本指スワイプの開始点を記録
+      xDown = touches[0].clientX;
+      yDown = touches[0].clientY;
+      return;
+    }
+
+    isPinching = false;
+    // 2本指スワイプ用の座標をリセット
+    xDown = null;
+    yDown = null;
+
+    if (isZoomed()) {
+      // 拡大中はデフォルトのタッチイベントを許可 (ダブルタップでのズーム解除など)
+      return;
+    }
+
     if (tapFlag) {
       evt.preventDefault();
     } else if (evt.changedTouches.length == 1) {
@@ -279,6 +310,25 @@ window.addEventListener(
 window.addEventListener(
   "touchend",
   function (evt) {
+    if (isPinching) {
+      if (evt.touches.length === 0) {
+        isPinching = false;
+      }
+      // ピンチ操作の終了なので、ページめくりやタップの処理は行わない
+      startX = -1;
+      endX = -1;
+      xDown = null;
+      yDown = null;
+      return;
+    }
+
+    if (isZoomed()) {
+      // 拡大中はページめくりやメニュー表示を無効化
+      startX = -1;
+      endX = -1;
+      return;
+    }
+
     if (startX != -1 && endX != -1) {
       if (startX - endX < 0) {
         leftward();
@@ -315,6 +365,34 @@ window.addEventListener(
 window.addEventListener(
   "touchmove",
   function (evt) {
+    // isPinching中も2本指スワイプは判定したいので、条件を変更
+    if (isZoomed()) return;
+
+    // 2本指スワイプの処理
+    if (evt.touches.length >= 2 && xDown !== null && yDown !== null) {
+      var xUp = evt.touches[0].clientX;
+      var yUp = evt.touches[0].clientY;
+
+      var xDiff = xDown - xUp;
+      var yDiff = yDown - yUp;
+
+      if (Math.abs(xDiff) < Math.abs(yDiff)) {
+        if (yDiff < -10) {
+          // 下向きスワイプ
+          /* 下向きスワイプ */
+          showInspector();
+          // 連続で発火しないようにリセット
+          xDown = null;
+          yDown = null;
+        }
+      }
+      return; // 2本指操作中は1本指の処理をしない
+    }
+
+    // ピンチ操作が始まっていたら1本指スワイプは無効
+    if (isPinching) return;
+
+    // 1本指スワイプの処理
     if (document.getElementById("contents").style.display == "block") {
       startX = -1;
       endX = -1;
@@ -328,6 +406,7 @@ window.addEventListener(
 window.addEventListener(
   "gesturechange",
   function (evt) {
+    isPinching = true; // ジェスチャー中はピンチ操作とみなす
     startX = -1;
     endX = -1;
   },
@@ -339,6 +418,7 @@ window.addEventListener("pagehide", saveCurrentPage);
 // 長押しでクイック見開きモード
 // https://github.com/john-doherty/long-press-event
 window.addEventListener("long-press", function (e) {
+  if (isPinching || isZoomed()) return;
   // stop the event from bubbling up
   e.preventDefault();
 
@@ -369,42 +449,44 @@ window.addEventListener("long-press", function (e) {
 });
 
 // 2本指スワイプダウン検出用
-document.addEventListener("touchstart", handleTouchStart, false);
-document.addEventListener("touchmove", handleTouchMove, false);
+// document.addEventListener("touchstart", handleTouchStart, false);
+// document.addEventListener("touchmove", handleTouchMove, false);
 
-function handleTouchStart(evt) {
-  if (evt.touches.length == 2) {
-    xDown = evt.touches[0].clientX;
-    yDown = evt.touches[0].clientY;
-  } else {
-    xDown = null;
-    yDown = null;
-  }
-}
+// function handleTouchStart(evt) {
+//   if (isPinching) return;
+//   if (evt.touches.length == 2) {
+//     xDown = evt.touches[0].clientX;
+//     yDown = evt.touches[0].clientY;
+//   } else {
+//     xDown = null;
+//     yDown = null;
+//   }
+// }
 
-function handleTouchMove(evt) {
-  if (!xDown || !yDown) {
-    return;
-  }
+// function handleTouchMove(evt) {
+//   if (isPinching) return;
+//   if (!xDown || !yDown) {
+//     return;
+//   }
 
-  var xUp = evt.touches[0].clientX;
-  var yUp = evt.touches[0].clientY;
+//   var xUp = evt.touches[0].clientX;
+//   var yUp = evt.touches[0].clientY;
 
-  var xDiff = xDown - xUp;
-  var yDiff = yDown - yUp;
+//   var xDiff = xDown - xUp;
+//   var yDiff = yDown - yUp;
 
-  if (Math.abs(xDiff) < Math.abs(yDiff)) {
-    if (yDiff > 0) {
-      /* 上向きスワイプ */
-    } else {
-      /* 下向きスワイプ */
-      showInspector();
-    }
-  }
-  /* 値リセット */
-  xDown = null;
-  yDown = null;
-}
+//   if (Math.abs(xDiff) < Math.abs(yDiff)) {
+//     if (yDiff > 0) {
+//       /* 上向きスワイプ */
+//     } else {
+//       /* 下向きスワイプ */
+//       showInspector();
+//     }
+//   }
+//   /* 値リセット */
+//   xDown = null;
+//   yDown = null;
+// }
 
 document.onmousemove = function () {
   // マウスを一定時間操作してない場合はカーソル非表示に
@@ -1036,6 +1118,8 @@ function backListPage() {
     document.mozCancelFullScreen();
   } else if (document.webkitCancelFullScreen) {
     document.webkitCancelFullScreen();
+  } else if (document.msExitFullscreen) {
+    document.msExitFullscreen();
   }
 
   if (window.history.length > 1) {
@@ -1102,6 +1186,8 @@ function toggleDirection() {
 }
 
 function funcKey(evt) {
+  if (isZoomed()) return; // 拡大表示中はキー操作によるページめくり等を無効化
+
   // 【ショートカット一覧】
   // ← + Shift : 次の章へ
   // ← + Control : 最終ページへ

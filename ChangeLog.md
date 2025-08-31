@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - カバービューモードでの表紙横幅を159pxに拡大
 - リストビューモードでのクリック領域拡大
 - フルサイズモードのときには先読みページ数を増加
+- スマホで画面を拡大しているときには移動と元サイズに戻す以外のすべての操作をロックして意図しない誤操作を防止
 
 ### 修正
 - Dockerfileにunrar追加
