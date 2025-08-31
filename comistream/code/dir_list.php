@@ -1096,8 +1096,8 @@ if ($is_404_mode) {
                         debugLog('API response received:', data, 'Response time:', ajaxResponseTime.toFixed(2) + 'ms', 'Fast render:', isFastRender);
 
                         if (data.success) {
-                            // クライアント側ソートを適用（ディレクトリとファイルを別々にソート）
-                            const sortedData = sortItemsWithSeparateDirsAndFiles(data.data, currentSortBy, currentSortOrder);
+                            // クライアント側ソートを適用（ディレクトリとファイルを混在ソート）
+                            const sortedData = sortItemsClientSide(data.data, currentSortBy, currentSortOrder);
 
                             // 高速表示 vs 通常表示（スケルトン）の判定
                             if (isFastRender) {

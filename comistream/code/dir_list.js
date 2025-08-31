@@ -235,13 +235,15 @@ function compareWithDakuten(strA, strB) {
   return strA.length - strB.length;
 }
 
-// クライアント側ソート関数
+// クライアント側ソート関数（ディレクトリとファイルを混在ソート）
 function sortItemsClientSide(items, sortBy, sortOrder) {
   if (!Array.isArray(items)) {
     return items;
   }
 
-  return items.sort((a, b) => {
+  const startTime = performance.now();
+
+  const result = items.sort((a, b) => {
     // Parent Directoryは常に先頭
     if (a.is_parent && !b.is_parent) return -1;
     if (!a.is_parent && b.is_parent) return 1;
@@ -279,6 +281,11 @@ function sortItemsClientSide(items, sortBy, sortOrder) {
     // 昇順/降順
     return sortOrder === 'asc' ? cmp : -cmp;
   });
+
+  const endTime = performance.now();
+  debugLog(`DEBUG sortItemsClientSide: completed in ${(endTime - startTime).toFixed(2)}ms`);
+
+  return result;
 }
 
 // ソート設定をlocalStorageから読み込み
@@ -289,9 +296,6 @@ function loadSortSettings() {
     if (currentPrefs) {
       currentSortBy = currentPrefs.sort || 'name';
       currentSortOrder = currentPrefs.order || 'asc';
-      debugLog('Loaded sort settings from localStorage:', currentSortBy, currentSortOrder);
-    } else {
-      debugLog('No sort settings found in localStorage for current path');
     }
   } catch (e) {
     console.warn('Failed to load sort settings from localStorage:', e);
@@ -311,7 +315,6 @@ function loadSortFromUrl() {
     if (sort && ['name', 'lastmod', 'size'].includes(sort) &&
         order && ['asc', 'desc'].includes(order)) {
       changeSort(sort, order);
-      debugLog('Loaded sort settings from URL:', sort, order);
       return true;
     }
   } catch (e) {
@@ -346,69 +349,7 @@ function applyCurrentSort(items) {
   return sortItemsClientSide(items, currentSortBy, currentSortOrder);
 }
 
-// ディレクトリとファイルを別々にソートしてから結合する関数
-function sortItemsWithSeparateDirsAndFiles(items, sortBy, sortOrder) {
-  if (!Array.isArray(items)) {
-    return items;
-  }
 
-  const startTime = performance.now();
-
-  // Parent Directory、ディレクトリ、ファイルを分離
-  const parentItems = items.filter(item => item.is_parent);
-  const dirItems = items.filter(item => item.is_dir && !item.is_parent);
-  const fileItems = items.filter(item => !item.is_dir && !item.is_parent);
-
-  debugLog(`DEBUG sortItemsWithSeparateDirsAndFiles: ${items.length} items (${parentItems.length} parent, ${dirItems.length} dirs, ${fileItems.length} files)`);
-
-  // 各グループをソート
-  const sortFunc = (a, b) => {
-    let valA, valB;
-
-    // ソート対象の値を取得
-    switch (sortBy) {
-      case 'name':
-        valA = normalizeKanaForSort(a.name || '');
-        valB = normalizeKanaForSort(b.name || '');
-        break;
-      case 'lastmod':
-        valA = a.lastmod || 0;
-        valB = b.lastmod || 0;
-        break;
-      case 'size':
-        valA = a.size || 0;
-        valB = b.size || 0;
-        break;
-      default:
-        valA = normalizeKanaForSort(a.name || '');
-        valB = normalizeKanaForSort(b.name || '');
-    }
-
-    // 比較
-    let cmp;
-    if (sortBy === 'name') {
-      cmp = compareWithDakuten(valA, valB);
-    } else {
-      cmp = valA < valB ? -1 : valA > valB ? 1 : 0;
-    }
-
-    // 昇順/降順
-    return sortOrder === 'asc' ? cmp : -cmp;
-  };
-
-  // ソート実行
-  parentItems.sort(sortFunc);
-  dirItems.sort(sortFunc);
-  fileItems.sort(sortFunc);
-
-  // 結合して返す
-  const result = [...parentItems, ...dirItems, ...fileItems];
-
-  const endTime = performance.now();
-  debugLog(`DEBUG sortItemsWithSeparateDirsAndFiles: completed in ${(endTime - startTime).toFixed(2)}ms`);
-
-  return result;
-}
 
 // DOM elements
 const modal = document.querySelector("#modal");
@@ -654,11 +595,8 @@ function toggleView() {
     }, 100);
   } else {
     // Cover -> List
-    debugLog("DEBUG toggleView: Preparing to switch to list view");
-
     // CSS切り替え前にカスタムアイコンを事前にクリアしてちらつきを防ぐ
     const clearCustomIconsImmediately = () => {
-      debugLog("DEBUG toggleView: Clearing custom icons immediately");
       const dirAnchors = document.querySelectorAll('.indexcolname a[href$="/"]');
       dirAnchors.forEach((anchor) => {
         // カバービューのカスタムアイコンを即座にクリア
@@ -676,28 +614,14 @@ function toggleView() {
     stylesheet.href = "/theme/style.css?2025080200";
 
     setTimeout(() => {
-      debugLog("DEBUG toggleView: Switching to list view, calling functions...");
-      debugLog("DEBUG toggleView: Before reinitializeContentFeatures");
-      try { debugIconVisibility(); } catch (e) { console.error(e); }
-
       try { reinitializeContentFeatures(); } catch (e) { console.error(e); }
-      debugLog("DEBUG toggleView: After reinitializeContentFeatures");
-      try { debugIconVisibility(); } catch (e) { console.error(e); }
-
       try { applyDirectoryCustomIcons(); } catch (e) { console.error(e); }
-      debugLog("DEBUG toggleView: After applyDirectoryCustomIcons");
-      try { debugIconVisibility(); } catch (e) { console.error(e); }
 
       // リストビューではプレビューを無効化
       try { clearPreviewEventListeners(); } catch (e) { console.error(e); }
       // 表紙画像を削除
       try { removeCoverImages(); } catch (e) { console.error(e); }
-      debugLog("DEBUG toggleView: After removeCoverImages");
-      try { debugIconVisibility(); } catch (e) { console.error(e); }
-
-      // ネットワークなしで既読/お気に入りを即時反映
       try { applyBookmarkCache(); } catch (e) { console.error(e); }
-      debugLog("DEBUG toggleView: List view switch completed");
     }, 50); // タイムアウトを50msに短縮
   }
 }
@@ -776,8 +700,6 @@ function toggleSortPanel() {
 
 // ヘッダーリンククリック時のソート処理（ページリロードなし・トグル動作）
 function handleHeaderSort(sortBy) {
-  debugLog('DEBUG handleHeaderSort called:', sortBy);
-  
   let sortOrder;
   
   if (currentSortBy === sortBy) {
@@ -799,9 +721,6 @@ function handleHeaderSort(sortBy) {
       sortOrder = 'asc';   // Nameなどは昇順が初期値
     }
   }
-  
-  debugLog('DEBUG handleHeaderSort determined order:', sortBy, sortOrder);
-  
   // ソート設定を更新
   changeSort(sortBy, sortOrder);
   
@@ -824,8 +743,6 @@ function handleHeaderSort(sortBy) {
 
 // ヘッダーのソート状態を示すCSSクラスを更新
 function updateHeaderSortClasses(currentSortBy, currentSortOrder) {
-  debugLog('DEBUG updateHeaderSortClasses called:', currentSortBy, currentSortOrder);
-  
   // 全てのヘッダーからソートクラスを削除
   const headerCells = document.querySelectorAll('th.indexcolname, th.indexcollastmod, th.indexcolsize');
   headerCells.forEach(cell => {
@@ -850,7 +767,6 @@ function updateHeaderSortClasses(currentSortBy, currentSortOrder) {
     const targetCell = document.querySelector(`th.${targetClass}`);
     if (targetCell) {
       targetCell.classList.add(`sort-${currentSortOrder}`);
-      debugLog('DEBUG updateHeaderSortClasses: Applied class', `sort-${currentSortOrder}`, 'to', targetClass);
     }
   }
 }
@@ -984,11 +900,7 @@ function applySortChangeCore() {
       }).filter(item => item !== null);
 
       // ソート適用（ディレクトリとファイルを別々にソートしてから結合）
-      debugLog('DEBUG applySortChangeCore: Starting client-side sort for', items.length, 'items');
-      const sortStartTime = performance.now();
-      const sortedItems = sortItemsWithSeparateDirsAndFiles(items, selectedSortBy, selectedSortOrder);
-      const sortEndTime = performance.now();
-      debugLog(`DEBUG applySortChangeCore: Sort completed in ${(sortEndTime - sortStartTime).toFixed(2)}ms`);
+      const sortedItems = sortItemsClientSide(items, selectedSortBy, selectedSortOrder);
 
       // DOMを再構築
       const parentRow = tbody.querySelector('.parent-dir-row');
@@ -1004,7 +916,6 @@ function applySortChangeCore() {
         tbody.appendChild(item.rowElement);
       });
 
-      debugLog('Applied client-side sort:', selectedSortBy, selectedSortOrder);
     }
   }
 }
@@ -1022,15 +933,9 @@ function initializeSortControls() {
 
   if (sortBySelect) {
     sortBySelect.value = currentSortBy;
-    debugLog("DEBUG sortBySelect updated to:", sortBySelect.value);
-  } else {
-    debugLog("DEBUG sortBySelect not found");
   }
   if (sortOrderSelect) {
     sortOrderSelect.value = currentSortOrder;
-    debugLog("DEBUG sortOrderSelect updated to:", sortOrderSelect.value);
-  } else {
-    debugLog("DEBUG sortOrderSelect not found");
   }
 
   // ヘッダーのCSSクラスも初期化
@@ -1040,11 +945,8 @@ function initializeSortControls() {
 function getBookmark() {
   // サーバからディレクトリ内の既読リストを取得（非同期）
   var pathName = comistreamConfig.currentPath;
-  debugLog("DEBUG getBookmark called, pathName:", pathName);
-
   (async function () {
     const requestUrl = cgiPath + "?mode=list&file=" + encodeURIComponent(pathName);
-    debugLog("DEBUG getBookmark request URL:", requestUrl);
 
     let listData = [];
     try {
@@ -1064,10 +966,7 @@ function getBookmark() {
       return;
     }
 
-    debugLog(
-      "DEBUG getBookmark parsed items:",
-      Array.isArray(listData) ? listData.length : -1
-    );
+
 
     var elementsFound = 0;
     var elementsUpdated = 0;
@@ -1103,21 +1002,11 @@ function getBookmark() {
       var isFavorite = !!(item.fav ?? item.favorite);
 
       var elm = document.getElementById(fileName);
-      debugLog(
-        "DEBUG getBookmark item",
-        j,
-        "- filename:",
-        fileName,
-        "element found:",
-        !!elm
-      );
+
 
       // 要素が見つからない場合は、類似するIDがないか調査
       if (!elm) {
-        debugLog(
-          "DEBUG Searching for similar elements for filename:",
-          fileName
-        );
+
         const allIndexColName = document.getElementsByClassName("indexcolname");
         for (
           let searchIdx = 0;
@@ -1128,18 +1017,7 @@ function getBookmark() {
           const searchText = searchElm.firstChild
             ? searchElm.firstChild.textContent
             : "no text";
-          debugLog(
-            "DEBUG Element",
-            searchIdx,
-            "- id:",
-            searchElm.id,
-            "text:",
-            searchText
-          );
           if (searchText === fileName) {
-            debugLog(
-              "DEBUG Found matching text but different ID! Setting correct ID..."
-            );
             searchElm.setAttribute("id", fileName);
             searchElm.id = fileName;
             elm = searchElm; // この要素を使用
@@ -1150,13 +1028,13 @@ function getBookmark() {
 
       if (elm) {
         elementsFound++;
-        debugLog("DEBUG Element structure check for:", fileName);
+
 
         // 既読リストとIDがマッチする場合、現在ページと最終ページを比較★
         if (currentPage > 0) {
           if (currentPage < maxPage) {
             // 読みかけ
-            debugLog("DEBUG Setting open icon for:", fileName);
+
             // <a>要素と<img>要素を確実に取得
             var iconLinkElements = elm.previousSibling
               ? elm.previousSibling.getElementsByTagName("a")
@@ -1175,7 +1053,7 @@ function getBookmark() {
             if (iconImgElement) {
               iconImgElement.src = iconPath + "open.png";
               elementsUpdated++;
-              debugLog("Successfully set open icon for:", fileName);
+
             } else {
               console.error(
                 "ERROR: Cannot find icon img element for:",
@@ -1184,7 +1062,7 @@ function getBookmark() {
             }
           } else {
             // 読み終わった（最終ページ0に設定されている）
-            debugLog("DEBUG Setting done icon for:", fileName);
+
             // <a>要素と<img>要素を確実に取得
             var iconLinkElements = elm.previousSibling
               ? elm.previousSibling.getElementsByTagName("a")
@@ -1203,7 +1081,7 @@ function getBookmark() {
             if (iconImgElement) {
               iconImgElement.src = iconPath + "done.png";
               elementsUpdated++;
-              debugLog("Successfully set done icon for:", fileName);
+
             } else {
               console.error(
                 "ERROR: Cannot find icon img element for:",
@@ -1213,13 +1091,13 @@ function getBookmark() {
           }
         }
         if (isFavorite) {
-          debugLog("DEBUG Setting favorite for:", fileName);
+
           if (elm.previousSibling) {
             elm.previousSibling.style.backgroundPosition = "5px";
             elm.previousSibling.style.backgroundImage =
               'url("' + iconPath + 'staron.png")';
             elementsUpdated++;
-            debugLog("Successfully set favorite for:", fileName);
+
           } else {
             console.error(
               "ERROR: Cannot set favorite - no previousSibling for:",
@@ -1229,23 +1107,11 @@ function getBookmark() {
         }
       } else if (fileName && fileName.trim()) {
         // 要素が見つからない場合のデバッグ情報
-        debugLog(
-          "DEBUG Element not found for filename:",
-          fileName,
-          "- Available IDs:",
-          Array.from(document.querySelectorAll(".indexcolname"))
-            .map((el) => el.id)
-            .slice(0, 10)
-        );
+
       }
     }
 
-    debugLog(
-      "DEBUG getBookmark completed - Elements found:",
-      elementsFound,
-      "Elements updated:",
-      elementsUpdated
-    );
+
   })();
 }
 
@@ -1316,12 +1182,7 @@ function applyBookmarkCache() {
       }
     });
 
-    debugLog(
-      "DEBUG applyBookmarkCache completed - Elements found:",
-      elementsFound,
-      "Elements updated:",
-      elementsUpdated
-    );
+
   } catch (e) {
     console.error("applyBookmarkCache failed:", e);
   }
@@ -1389,11 +1250,8 @@ function searchFavButton() {
 // 最後に開いたファイルの取得
 function getHistory() {
   var pathName = comistreamConfig.currentPath;
-  debugLog("DEBUG getHistory called, pathName:", pathName);
-
   var xmlHttp = new XMLHttpRequest();
   var requestUrl = cgiPath + "?mode=history&file=" + encodeURIComponent(pathName);
-  debugLog("DEBUG getHistory request URL:", requestUrl);
 
   xmlHttp.open("GET", requestUrl, false);
   try {
@@ -1403,25 +1261,15 @@ function getHistory() {
     return;
   }
 
-  debugLog("DEBUG getHistory response status:", xmlHttp.status);
-  debugLog(
-    "DEBUG getHistory response text length:",
-    xmlHttp.responseText.length
-  );
+
 
   if (xmlHttp.responseText) {
-    debugLog(
-      "DEBUG getHistory response text (first 200 chars):",
-      xmlHttp.responseText.substring(0, 200)
-    );
+
 
     // 履歴要素を更新
     const historyElement = document.getElementById("history");
     if (historyElement) {
       historyElement.innerHTML = xmlHttp.responseText;
-      debugLog("DEBUG getHistory updated history element");
-    } else {
-      debugLog("DEBUG getHistory: history element not found");
     }
   }
 }
@@ -1429,12 +1277,9 @@ function getHistory() {
 // 検索機能
 function search() {
   var textbox = document.searchform.textbox.value;
-  debugLog("DEBUG search called with query:", textbox);
-
   var favOnly = document.getElementById("favbutton").style.backgroundImage
     ? true
     : false;
-  debugLog("DEBUG search favOnly:", favOnly);
 
   // 全ての行を取得
   const tableBody = document.querySelector("#table-tbody");
@@ -1477,12 +1322,12 @@ function search() {
     if (shouldShow) visibleCount++;
   });
 
-  debugLog("DEBUG search completed, visible items:", visibleCount);
+
 }
 
 // プレビュー機能関連
 function showPreview(imageSrc, element) {
-  debugLog("DEBUG showPreview called with:", imageSrc);
+
 
   if (!modal || !modalImage) {
     console.error("Modal elements not found");
@@ -1515,7 +1360,7 @@ function escapeProblematicChars(filepath) {
 
 // 表紙画像を動的に追加する関数（リスト→カバービュー切り替え時）
 function addCoverImages() {
-  debugLog("DEBUG addCoverImages called");
+
   
   // 全てのファイル行を取得（parent-dir-rowは除外）
   const tableBody = document.querySelector("#table-tbody");
@@ -1533,13 +1378,11 @@ function addCoverImages() {
     const isDirectory = dataFilepath && dataFilepath.endsWith("/");
     
     if (isDirectory) {
-      debugLog("DEBUG addCoverImages: Skipping directory:", dataFilepath);
       return;
     }
     
     // 既に表紙画像が存在する場合はスキップ
     if (nameCell.querySelector("img")) {
-      debugLog("DEBUG addCoverImages: Cover image already exists for:", dataFilepath);
       return;
     }
     
@@ -1562,15 +1405,15 @@ function addCoverImages() {
     nameCell.insertBefore(img, anchor);
     addedCount++;
     
-    debugLog("DEBUG addCoverImages: Added cover image for:", dataFilepath);
+
   });
   
-  debugLog("DEBUG addCoverImages completed, added:", addedCount);
+
 }
 
 // 表紙画像を削除する関数（カバー→リストビュー切り替え時）
 function removeCoverImages() {
-  debugLog("DEBUG removeCoverImages called");
+
 
   const tableBody = document.querySelector("#table-tbody");
   const coverImages = tableBody.querySelectorAll(".indexcolname img");
@@ -1581,7 +1424,7 @@ function removeCoverImages() {
     removedCount++;
   });
 
-  debugLog("DEBUG removeCoverImages completed, removed:", removedCount);
+
 }
 
 // 表紙画像パスを生成する関数（PHP側の処理と同等）
@@ -1597,55 +1440,30 @@ function generateCoverImagePath(rawFilepath) {
   // 表紙画像URLを生成
   const coverImageUrl = '/theme/covers' + escapedCoverPath;
   
-  debugLog("DEBUG generateCoverImagePath:", rawFilepath, "->", coverImageUrl);
+
   return coverImageUrl;
 }
 
 // デバッグ関数：アイコンの状態を確認
 function debugIconVisibility() {
-  debugLog("DEBUG debugIconVisibility called");
-
   const iconCells = document.querySelectorAll("#table-tbody td.indexcolicon");
   const nameCells = document.querySelectorAll("#table-tbody td.indexcolname");
 
-  debugLog("DEBUG Icon cells found:", iconCells.length);
-  debugLog("DEBUG Name cells found:", nameCells.length);
 
-  iconCells.forEach((cell, index) => {
-    const img = cell.querySelector("img");
-    if (img) {
-      debugLog(`DEBUG Icon ${index}: src=${img.src}, display=${img.style.display}, visibility=${img.style.visibility}, opacity=${img.style.opacity}`);
-    } else {
-      debugLog(`DEBUG Icon ${index}: No img element found`);
-    }
-  });
-
-  nameCells.forEach((cell, index) => {
-    const imgs = cell.querySelectorAll("img");
-    if (imgs.length > 0) {
-      debugLog(`DEBUG Name cell ${index}: Found ${imgs.length} images`);
-      imgs.forEach((img, imgIndex) => {
-        debugLog(`DEBUG Name cell ${index} img ${imgIndex}: alt=${img.alt}, display=${img.style.display}`);
-      });
-    }
-  });
 }
 
 // カスタムディレクトリアイコン適用（カバービュー時に /theme/covers/<path>/index.webp を背景に設定）
 function applyDirectoryCustomIcons() {
-  debugLog("DEBUG applyDirectoryCustomIcons called");
-
   const imgBasePath = location.origin + "/theme/covers/";
   const stylesheet = document.getElementById("stylesheet");
   const isCoverView = stylesheet && /style_cover\.css/.test(stylesheet.href || "");
 
   const dirAnchors = document.querySelectorAll('.indexcolname a[href$="/"]');
-  debugLog("DEBUG applyDirectoryCustomIcons: isCoverView =", isCoverView, ", dirAnchors =", dirAnchors.length);
 
   dirAnchors.forEach(function (anchor, index) {
     // リストビューでは通常のフォルダアイコンを表示（背景はクリア）
     if (!isCoverView) {
-      debugLog(`DEBUG applyDirectoryCustomIcons: Processing directory ${index} for list view`);
+
       anchor.style.removeProperty("background-image");
       anchor.style.removeProperty("background-size");
       anchor.style.removeProperty("background-position");
@@ -1653,17 +1471,14 @@ function applyDirectoryCustomIcons() {
 
       const iconImg = anchor.closest("tr")?.querySelector(".indexcolicon img");
       if (iconImg) {
-        debugLog(`DEBUG applyDirectoryCustomIcons: Found icon img for directory ${index}, setting styles`);
+
         iconImg.style.display = "";
         iconImg.style.visibility = "";
         iconImg.style.opacity = "";
         // アイコンsrcを正しく設定
         if (!iconImg.src || iconImg.src.includes("blank.png")) {
-          debugLog(`DEBUG applyDirectoryCustomIcons: Setting correct icon src for directory ${index}`);
           iconImg.src = iconPath + "folder.png";
         }
-      } else {
-        debugLog(`DEBUG applyDirectoryCustomIcons: No icon img found for directory ${index}`);
       }
       return;
     }
@@ -1722,13 +1537,13 @@ function applyDirectoryCustomIcons() {
 
 // コンテンツ機能の再初期化
 function reinitializeContentFeatures() {
-  debugLog("DEBUG reinitializeContentFeatures called");
+
 
   // 検索機能の再初期化
   const searchForm = document.searchform;
   if (searchForm && searchForm.textbox) {
     searchForm.textbox.addEventListener("input", search);
-    debugLog("DEBUG Search functionality reinitialized");
+
   }
 
   // ソート設定の再初期化
@@ -1739,9 +1554,6 @@ function reinitializeContentFeatures() {
   if (favButton) {
     if (!favButton.getAttribute("onclick")) {
       favButton.addEventListener("click", searchFavButton);
-      debugLog("DEBUG Favorite button bound via addEventListener");
-    } else {
-      debugLog("DEBUG Favorite button uses inline onclick; skipping addEventListener");
     }
   }
 
@@ -1755,7 +1567,7 @@ function reinitializeContentFeatures() {
         boundCount++;
       }
     });
-    debugLog("DEBUG Favorite toggle bound on icon cells:", boundCount);
+
   } catch (e) {
     console.error("ERROR binding favorite toggle:", e);
   }
@@ -1771,35 +1583,23 @@ function reinitializeContentFeatures() {
 
 // プレビュー機能の再初期化
 function reinitializePreviewFeatures() {
-  debugLog("DEBUG reinitializePreviewFeatures called");
-
   // data-image属性はdir_list.phpで既に設定されているため、ここではイベントリスナーのみ設定
   const colname = document.getElementsByClassName("indexcolname");
-  debugLog(
-    "DEBUG reinitializePreviewFeatures found",
-    colname.length,
-    "elements"
-  );
 
   // デバッグ：data-image属性が設定されているか確認
   for (let i = 2; i < Math.min(colname.length, 5); i++) {
     // 最初の数個だけチェック
     const dataImage = colname[i].getAttribute("data-image");
-    debugLog(`DEBUG data-image check [${i}]:`, dataImage);
+
   }
 
   // マウスイベントリスナーを再設定（カバービューモードの場合のみ）
   const stylesheet = document.getElementById("stylesheet");
   const isCoverView = stylesheet && stylesheet.href.match(/style_cover\.css/);
-  debugLog(
-    "DEBUG isCoverView:",
-    isCoverView,
-    "hasHover:",
-    window.matchMedia("(any-hover:hover)").matches
-  );
+
 
   if (window.matchMedia("(any-hover:hover)").matches && isCoverView) {
-    debugLog("DEBUG Setting up mouse events for preview");
+
     addMouseOverEvent();
     addMouseOutEvent();
   }
@@ -1818,11 +1618,7 @@ function reinitializePreviewFeatures() {
     }
   });
 
-  debugLog(
-    "DEBUG Preview features reinitialized for",
-    previewElements.length,
-    "elements"
-  );
+
 
   // カバービューの左右ガターを再計算
   try {
@@ -1863,7 +1659,7 @@ function clearPreviewEventListeners() {
 // プレビュー画像表示（マウスオーバー）
 function addMouseOverEvent() {
   const cover = document.getElementsByClassName("indexcolname");
-  debugLog("DEBUG addMouseOverEvent called, found", cover.length, "elements");
+
 
   for (let i = 0; i < cover.length; i++) {
     // 既存のイベントリスナーがある場合は削除
@@ -1875,7 +1671,6 @@ function addMouseOverEvent() {
     const dataImage = cover[i].getAttribute("data-image");
     if (i >= 2 && i < 5) {
       // 最初の数個だけログ出力
-      debugLog(`DEBUG addMouseOverEvent [${i}]: data-image="${dataImage}"`);
     }
 
     // 新しいイベントハンドラーを作成
@@ -1895,7 +1690,7 @@ function addMouseOverEvent() {
           e.currentTarget._previewHideTimer = null;
         }
 
-        debugLog("DEBUG hover preview - imageSrc:", imageSrc);
+
 
         if (typeof imageSrc !== "undefined" && imageSrc.length > 0) {
           // 150ms遅延してからプレビューを表示
@@ -1956,7 +1751,7 @@ function addMouseOverEvent() {
               modal.style.display = "block";
             };
             modalImage.onerror = function () {
-              debugLog("DEBUG hover preview - image load failed:", imageSrc);
+
             };
           }, 150); // 150ms遅延
         }
@@ -1991,7 +1786,7 @@ function addMouseOutEvent() {
       e.currentTarget._previewHideTimer = setTimeout(function () {
         if (modal) {
           modal.style.display = "none";
-          debugLog("DEBUG mouseout preview hidden");
+
         }
       }, 100); // 100ms遅延
     };
@@ -2005,7 +1800,7 @@ function addMouseOutEvent() {
 
 // 初期化関数
 function initializeDirectoryListing() {
-  debugLog("DEBUG initializeDirectoryListing called");
+
 
   // Long press script loading
   loadLongPressScript();
@@ -2023,13 +1818,13 @@ function initializeDirectoryListing() {
     // カスタムディレクトリアイコンの適用（遅延実行）
     setTimeout(applyDirectoryCustomIcons, 500);
 
-    debugLog("DEBUG Directory listing initialization completed");
+    debugLog("Directory listing initialized");
   }, 100);
 }
 
 // DOMContentLoaded event listener
 document.addEventListener("DOMContentLoaded", function () {
-  debugLog("DEBUG DOMContentLoaded event fired");
+
   initializeDirectoryListing();
   try {
     updateCoverSideGutter();
