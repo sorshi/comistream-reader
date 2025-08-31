@@ -21,9 +21,10 @@ let currentSortOrder = 'asc';
 let currentPath = window.location.pathname;
 
 // Intl.Collator for natural sorting with kana normalization
+// macOSのFinderと同じような濁点・半濁点順序のため sensitivity を 'accent' に変更
 const collator = new Intl.Collator('ja', {
   numeric: true,
-  sensitivity: 'base',
+  sensitivity: 'accent', // 濁点・半濁点を区別するためbaseからaccentに変更
   ignorePunctuation: true,
   caseFirst: 'upper'
 });
@@ -150,6 +151,34 @@ function convertWidth(str) {
   return result;
 }
 
+// 濁点・半濁点の順序を制御するためのマッピング
+const dakutenOrder = {
+  // ハ行
+  'は': '1', 'ば': '2', 'ぱ': '3',
+  'ひ': '1', 'び': '2', 'ぴ': '3',
+  'ふ': '1', 'ぶ': '2', 'ぷ': '3',
+  'へ': '1', 'べ': '2', 'ぺ': '3',
+  'ほ': '1', 'ぼ': '2', 'ぽ': '3',
+  // カ行
+  'か': '1', 'が': '2',
+  'き': '1', 'ぎ': '2',
+  'く': '1', 'ぐ': '2',
+  'け': '1', 'げ': '2',
+  'こ': '1', 'ご': '2',
+  // サ行
+  'さ': '1', 'ざ': '2',
+  'し': '1', 'じ': '2',
+  'す': '1', 'ず': '2',
+  'せ': '1', 'ぜ': '2',
+  'そ': '1', 'ぞ': '2',
+  // タ行
+  'た': '1', 'だ': '2',
+  'ち': '1', 'ぢ': '2',
+  'つ': '1', 'づ': '2',
+  'て': '1', 'で': '2',
+  'と': '1', 'ど': '2'
+};
+
 // JavaScript版のnormalize_kana_for_sort関数
 function normalizeKanaForSort(str) {
   if (!str || str === '') {
@@ -174,6 +203,36 @@ function normalizeKanaForSort(str) {
     console.warn('normalizeKanaForSort error:', e);
     return str.toLowerCase();
   }
+}
+
+// 濁点・半濁点を考慮したカスタム比較関数
+function compareWithDakuten(strA, strB) {
+  // 最初にIntl.Collatorで基本比較
+  const basicCompare = collator.compare(strA, strB);
+  
+  // 基本比較で同じ場合のみ、濁点・半濁点の詳細比較を行う
+  if (basicCompare !== 0) {
+    return basicCompare;
+  }
+  
+  // 文字単位で濁点・半濁点の順序を比較
+  const minLength = Math.min(strA.length, strB.length);
+  for (let i = 0; i < minLength; i++) {
+    const charA = strA[i];
+    const charB = strB[i];
+    
+    if (charA !== charB) {
+      const orderA = dakutenOrder[charA] || '1';
+      const orderB = dakutenOrder[charB] || '1';
+      
+      if (orderA !== orderB) {
+        return orderA.localeCompare(orderB);
+      }
+    }
+  }
+  
+  // 長さで最終比較
+  return strA.length - strB.length;
 }
 
 // クライアント側ソート関数
@@ -212,7 +271,7 @@ function sortItemsClientSide(items, sortBy, sortOrder) {
     // 比較
     let cmp;
     if (sortBy === 'name') {
-      cmp = collator.compare(valA, valB);
+      cmp = compareWithDakuten(valA, valB);
     } else {
       cmp = valA < valB ? -1 : valA > valB ? 1 : 0;
     }
@@ -328,7 +387,7 @@ function sortItemsWithSeparateDirsAndFiles(items, sortBy, sortOrder) {
     // 比較
     let cmp;
     if (sortBy === 'name') {
-      cmp = collator.compare(valA, valB);
+      cmp = compareWithDakuten(valA, valB);
     } else {
       cmp = valA < valB ? -1 : valA > valB ? 1 : 0;
     }
