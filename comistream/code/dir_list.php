@@ -439,7 +439,7 @@ $global_debug_flag = isset($global_debug_flag) ? $global_debug_flag : false;
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
     ? '/theme/style_cover.css?2025080200'
-    : '/theme/style.css?2025080200';
+    : '/theme/style.css?2025083100';
 
 header('Content-Type: text/html; charset=utf-8');
 
@@ -1162,6 +1162,7 @@ if ($is_404_mode) {
                     let dataImageAttr = '';
                     let tdIdAttr = '';
                     let onclickAttr = '';
+                    let tdOnclickAttr = '';
 
                     // ファイルの場合の特別処理
                     if (!item.is_dir && !item.is_parent) {
@@ -1171,17 +1172,26 @@ if ($is_404_mode) {
                         }
                         // ID属性（ブックマーク用）
                         tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
-                        // onclick ハンドラ
-                        onclickAttr = ' onclick="return linkhook(event)"';
+                        
+                        // viewmodeを取得してクリック領域を決定
+                        const viewmode = getCookie('viewmode') || 'list';
+                        
+                        if (viewmode === 'list') {
+                            // リストビューの場合：tdにクリックハンドラを設定（クリック領域拡張）
+                            tdOnclickAttr = ' onclick="return linkhook(event)" style="cursor: pointer;"';
+                            onclickAttr = ''; // aタグからは除去
+                        } else {
+                            // カバービューの場合：従来通りaタグにクリックハンドラ
+                            onclickAttr = ' onclick="return linkhook(event)"';
+                        }
 
                         // カバービューでファイルの場合、表紙画像を追加
-                        const viewmode = getCookie('viewmode') || 'list';
                         if (viewmode === 'cover' && item.cover_image) {
                             nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
                         }
                     }
 
-                    htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + '>';
+                    htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + tdOnclickAttr + '>';
                     htmlContent += nameContent;
                     htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
                     if (!item.is_dir && !item.is_parent) {
@@ -1283,6 +1293,7 @@ if ($is_404_mode) {
                     let dataImageAttr = '';
                     let tdIdAttr = '';
                     let onclickAttr = '';
+                    let tdOnclickAttr = '';
 
                     // ファイルの場合の特別処理
                     if (!item.is_dir && !item.is_parent) {
@@ -1292,17 +1303,26 @@ if ($is_404_mode) {
                         }
                         // ID属性（ブックマーク用）
                         tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
-                        // onclick ハンドラ
-                        onclickAttr = ' onclick="return linkhook(event)"';
+                        
+                        // viewmodeを取得してクリック領域を決定
+                        const viewmode = getCookie('viewmode') || 'list';
+                        
+                        if (viewmode === 'list') {
+                            // リストビューの場合：tdにクリックハンドラを設定（クリック領域拡張）
+                            tdOnclickAttr = ' onclick="return linkhook(event)" style="cursor: pointer;"';
+                            onclickAttr = ''; // aタグからは除去
+                        } else {
+                            // カバービューの場合：従来通りaタグにクリックハンドラ
+                            onclickAttr = ' onclick="return linkhook(event)"';
+                        }
 
                         // カバービューでファイルの場合、表紙画像を追加
-                        const viewmode = getCookie('viewmode') || 'list';
                         if (viewmode === 'cover' && item.cover_image) {
                             nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
                         }
                     }
 
-                    htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + '>';
+                    htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + tdOnclickAttr + '>';
                     htmlContent += nameContent;
                     htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
                     if (!item.is_dir && !item.is_parent) {

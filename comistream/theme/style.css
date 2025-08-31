@@ -231,6 +231,9 @@ tr.indexhead:hover{
   td.indexcolicon:hover {
     background-position-x: -20px;
   }
+  td.indexcolname[onclick]:hover {
+    background-color: transparent;
+  }
 }
 
 /* table header */
@@ -282,6 +285,15 @@ td.indexcolicon {
 }
 td.indexcolicon:hover{
   background-position-x:5px;
+}
+
+/* リストビューでのクリック可能領域を明確に示すホバー効果 */
+td.indexcolname[onclick] {
+  cursor: pointer;
+}
+td.indexcolname[onclick]:hover {
+  background-color: rgba(119, 153, 221, 0.1);
+  transition: background-color 0.2s ease;
 }
 .indexcolname img{
   display:none;

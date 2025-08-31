@@ -463,40 +463,67 @@ function setupLongPressHandler() {
 }
 
 function openFileMenu(e) {
+  // リストビューでtdからクリックされた場合は内部のaタグを探す
+  var targetElement = e.target;
+  if (targetElement.tagName === 'TD' && targetElement.classList.contains('indexcolname')) {
+    var anchorElement = targetElement.querySelector('a');
+    if (anchorElement) {
+      targetElement = anchorElement;
+    }
+  }
+
   // data-filepath属性から正確なファイルパスを取得（#文字対応）
-  var fileLink = getCleanFilePath(e.target);
+  var fileLink = getCleanFilePath(targetElement);
 
   // URLパラメータ用にエンコード
   fileLink = encodeURIComponent(fileLink)
     .replaceAll("&", "%26")
     .replaceAll("=", "%3D");
 
-  document.getElementById("newname").value = e.target.innerText;
-  document.getElementById("orgname").value = e.target.innerText;
+  document.getElementById("newname").value = targetElement.innerText;
+  document.getElementById("orgname").value = targetElement.innerText;
   document.getElementById("fileLink").value = fileLink;
   document.getElementById("filemenu").style.display = "block";
   document.getElementById("filemenu").style.top = e.pageY + "px";
 }
 
 function openBookDetailMenu(e) {
+  // リストビューでtdからクリックされた場合は内部のaタグを探す
+  var targetElement = e.target;
+  if (targetElement.tagName === 'TD' && targetElement.classList.contains('indexcolname')) {
+    var anchorElement = targetElement.querySelector('a');
+    if (anchorElement) {
+      targetElement = anchorElement;
+    }
+  }
+
   // data-filepath属性から正確なファイルパスを取得（#文字対応）
-  var fileLink = getCleanFilePath(e.target);
+  var fileLink = getCleanFilePath(targetElement);
 
   // URLパラメータ用にエンコード
   fileLink = encodeURIComponent(fileLink)
     .replaceAll("&", "%26")
     .replaceAll("=", "%3D");
 
-  document.getElementById("fileA").value = e.target.innerText;
-  document.getElementById("fileB").value = e.target.innerText;
+  document.getElementById("fileA").value = targetElement.innerText;
+  document.getElementById("fileB").value = targetElement.innerText;
   document.getElementById("detailFileLink").value = fileLink;
   document.getElementById("bookdetail").style.display = "block";
   document.getElementById("bookdetail").style.top = e.pageY + "px";
 }
 
 function linkhook(e) {
+  // リストビューでtdからクリックされた場合は内部のaタグを探す
+  var targetElement = e.target;
+  if (targetElement.tagName === 'TD' && targetElement.classList.contains('indexcolname')) {
+    var anchorElement = targetElement.querySelector('a');
+    if (anchorElement) {
+      targetElement = anchorElement;
+    }
+  }
+
   // data-filepath属性から正確なファイルパスを取得（#文字対応）
-  var fileLink = getCleanFilePath(e.target);
+  var fileLink = getCleanFilePath(targetElement);
 
   // URLパラメータ用にエンコード
   fileLink = encodeURIComponent(fileLink)
@@ -513,15 +540,16 @@ function linkhook(e) {
 
   // 画像ファイルはそのままブラウザで開く（リーダーは起動しない）
   if (
-    e.target.href &&
-    e.target.href.match(/\.(jpe?g|png|gif|webp|avif|bmp|svg|tiff?|heic|heif)$/i)
+    targetElement.href &&
+    targetElement.href.match(/\.(jpe?g|png|gif|webp|avif|bmp|svg|tiff?|heic|heif)$/i)
   ) {
     return true; // onclick="return linkhook(event)" のため true でデフォルト遷移
   }
 
   // 音楽ファイルの場合
   if (
-    e.target.href.match(/\.(mp3|m4a|aac|flac|aiff|aif|wav|wave|ogg|oga|wma)$/i)
+    targetElement.href &&
+    targetElement.href.match(/\.(mp3|m4a|aac|flac|aiff|aif|wav|wave|ogg|oga|wma)$/i)
   ) {
     e.preventDefault();
     // 音楽プレイヤーを開く
@@ -532,7 +560,7 @@ function linkhook(e) {
       location.origin +
       musicPlayerHref +
       ">" +
-      e.target.innerText +
+      targetElement.innerText +
       "</a>";
     location.href = musicPlayerHref;
     return false;
@@ -540,19 +568,20 @@ function linkhook(e) {
 
   // ファイル種別に応じた処理を追加
   if (
-    e.target.href.match(/\.(m2t|ts|iso|mp4|m4v|avi|mkv|wmv|mpg|m2p|webm)$/i)
+    targetElement.href &&
+    targetElement.href.match(/\.(m2t|ts|iso|mp4|m4v|avi|mkv|wmv|mpg|m2p|webm)$/i)
   ) {
     // 動画ファイルの場合
     if (loginuser == "" || loginuser == null || loginuser == "guest") {
       // 未ログインやゲストはHLS不許可
-      location.href = e.target.href;
+      location.href = targetElement.href;
     } else {
       if (
-        e.target.href.match(/\.mp4$/i) &&
+        targetElement.href.match(/\.mp4$/i) &&
         document.getElementById("rawMode").classList.contains("raw")
       ) {
         // mp4で圧縮モードrawの場合そのまま
-        location.href = e.target.href;
+        location.href = targetElement.href;
       } else {
         debugLog("LOGINED loginuser:" + loginuser);
         var openHref = hlsCgiPath + "?file=" + fileLink + "&mode=open";
@@ -561,14 +590,14 @@ function linkhook(e) {
           location.origin +
           openHref +
           ">" +
-          e.target.innerText +
+          targetElement.innerText +
           "</a>";
         location.href = openHref;
       }
     }
-  } else if (e.target.href.match(/\.(zip|cbz|rar|cbr|7z|cb7|pdf)$/i)) {
+  } else if (targetElement.href && targetElement.href.match(/\.(zip|cbz|rar|cbr|7z|cb7|pdf)$/i)) {
     // 書籍アーカイブの場合
-    e.target.parentNode.parentNode.firstChild.firstChild.firstChild.src =
+    targetElement.parentNode.parentNode.firstChild.firstChild.firstChild.src =
       iconPath + "open.png";
     var openHref = cgiPath + "?file=" + fileLink + "&mode=open";
     if (document.getElementById("rawMode").classList.contains("raw")) {
@@ -580,12 +609,12 @@ function linkhook(e) {
       location.origin +
       openHref +
       ">" +
-      e.target.innerText +
+      targetElement.innerText +
       "</a>";
     location.href = openHref;
-  } else if (e.target.href.match(/\.epub$/i)) {
+  } else if (targetElement.href && targetElement.href.match(/\.epub$/i)) {
     // ePubの場合
-    e.target.parentNode.parentNode.firstChild.firstChild.firstChild.src =
+    targetElement.parentNode.parentNode.firstChild.firstChild.firstChild.src =
       iconPath + "open.png";
     var openHref = bibiPath + "?book=" + publicDir + "/" + fileLink;
     document.getElementById("history").innerHTML =
@@ -593,7 +622,7 @@ function linkhook(e) {
       location.origin +
       openHref +
       ">" +
-      e.target.innerText +
+      targetElement.innerText +
       "</a>";
     location.href = openHref;
   } else {
