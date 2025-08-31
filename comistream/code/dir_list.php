@@ -989,8 +989,10 @@ if ($is_404_mode) {
                             if ($current_sort_by === $sort_key) {
                                 $class .= ' sort-' . $current_sort_order;
                             }
-                            $url = '?path=' . rawurlencode($request_path) . '&sort=' . $sort_key . '&order=' . $order;
-                            echo '<th class="' . $class . '"><a href="' . htmlspecialchars($url) . '">' . $title . '</a></th>';
+                            // JavaScriptベースのソート処理に変更（ページリロードなし）
+                            // ソート項目のみを渡し、順序はJavaScript側でトグル処理
+                            $onclick = 'handleHeaderSort(\'' . $sort_key . '\'); return false;';
+                            echo '<th class="' . $class . '"><a href="javascript:void(0)" onclick="' . $onclick . '">' . $title . '</a></th>';
                         }
                         print_sort_header('Name', 'name', $sort_by, $sort_order, $request_path);
                         print_sort_header('Last modified', 'lastmod', $sort_by, $sort_order, $request_path);

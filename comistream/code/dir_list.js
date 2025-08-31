@@ -745,6 +745,87 @@ function toggleSortPanel() {
   }
 }
 
+// ヘッダーリンククリック時のソート処理（ページリロードなし・トグル動作）
+function handleHeaderSort(sortBy) {
+  debugLog('DEBUG handleHeaderSort called:', sortBy);
+  
+  let sortOrder;
+  
+  if (currentSortBy === sortBy) {
+    // 現在のソート対象と同じカラムがクリックされた場合は逆順にする
+    sortOrder = (currentSortOrder === 'asc') ? 'desc' : 'asc';
+  } else {
+    // 異なるカラムがクリックされた場合の処理
+    if (sortBy === 'lastmod') {
+      // 更新日時順への切り替えは常に降順から開始
+      sortOrder = 'desc';
+      
+      // デフォルトの名前順・昇順から更新日時順への切り替えをログ出力
+      if (currentSortBy === 'name' && currentSortOrder === 'asc') {
+        debugLog("INFO: Switching from default name/asc to lastmod/desc");
+      }
+    } else if (sortBy === 'size') {
+      sortOrder = 'desc';  // Sizeは降順が初期値
+    } else {
+      sortOrder = 'asc';   // Nameなどは昇順が初期値
+    }
+  }
+  
+  debugLog('DEBUG handleHeaderSort determined order:', sortBy, sortOrder);
+  
+  // ソート設定を更新
+  changeSort(sortBy, sortOrder);
+  
+  // ソートパネルのselect要素も同期更新
+  const sortBySelect = document.getElementById("sortBy");
+  const sortOrderSelect = document.getElementById("sortOrder");
+  if (sortBySelect) {
+    sortBySelect.value = sortBy;
+  }
+  if (sortOrderSelect) {
+    sortOrderSelect.value = sortOrder;
+  }
+  
+  // ヘッダーのCSSクラスを更新
+  updateHeaderSortClasses(sortBy, sortOrder);
+  
+  // applySortChange()と同じソート処理を実行
+  applySortChangeCore();
+}
+
+// ヘッダーのソート状態を示すCSSクラスを更新
+function updateHeaderSortClasses(currentSortBy, currentSortOrder) {
+  debugLog('DEBUG updateHeaderSortClasses called:', currentSortBy, currentSortOrder);
+  
+  // 全てのヘッダーからソートクラスを削除
+  const headerCells = document.querySelectorAll('th.indexcolname, th.indexcollastmod, th.indexcolsize');
+  headerCells.forEach(cell => {
+    cell.classList.remove('sort-asc', 'sort-desc');
+  });
+  
+  // 現在のソート項目にクラスを追加
+  let targetClass = '';
+  switch (currentSortBy) {
+    case 'name':
+      targetClass = 'indexcolname';
+      break;
+    case 'lastmod':
+      targetClass = 'indexcollastmod';
+      break;
+    case 'size':
+      targetClass = 'indexcolsize';
+      break;
+  }
+  
+  if (targetClass) {
+    const targetCell = document.querySelector(`th.${targetClass}`);
+    if (targetCell) {
+      targetCell.classList.add(`sort-${currentSortOrder}`);
+      debugLog('DEBUG updateHeaderSortClasses: Applied class', `sort-${currentSortOrder}`, 'to', targetClass);
+    }
+  }
+}
+
 // ソート設定適用
 function applySortChange() {
   const sortBySelect = document.getElementById("sortBy");
@@ -783,6 +864,19 @@ function applySortChange() {
 
   // ソート設定を変更
   changeSort(selectedSortBy, selectedSortOrder);
+
+  // ヘッダーのCSSクラスを更新
+  updateHeaderSortClasses(selectedSortBy, selectedSortOrder);
+
+  // 実際のソート処理を実行
+  applySortChangeCore();
+}
+
+// 共通のソート処理実行部分
+function applySortChangeCore() {
+  // 現在のソート設定を取得（既にグローバル変数が更新されている）
+  const selectedSortBy = currentSortBy;
+  const selectedSortOrder = currentSortOrder;
 
   // 現在のデータを再ソートして表示
   const tbody = document.querySelector('#table-tbody');
@@ -861,11 +955,11 @@ function applySortChange() {
       }).filter(item => item !== null);
 
       // ソート適用（ディレクトリとファイルを別々にソートしてから結合）
-      debugLog('DEBUG applySortChange: Starting client-side sort for', items.length, 'items');
+      debugLog('DEBUG applySortChangeCore: Starting client-side sort for', items.length, 'items');
       const sortStartTime = performance.now();
       const sortedItems = sortItemsWithSeparateDirsAndFiles(items, selectedSortBy, selectedSortOrder);
       const sortEndTime = performance.now();
-      debugLog(`DEBUG applySortChange: Sort completed in ${(sortEndTime - sortStartTime).toFixed(2)}ms`);
+      debugLog(`DEBUG applySortChangeCore: Sort completed in ${(sortEndTime - sortStartTime).toFixed(2)}ms`);
 
       // DOMを再構築
       const parentRow = tbody.querySelector('.parent-dir-row');
@@ -909,6 +1003,9 @@ function initializeSortControls() {
   } else {
     debugLog("DEBUG sortOrderSelect not found");
   }
+
+  // ヘッダーのCSSクラスも初期化
+  updateHeaderSortClasses(currentSortBy, currentSortOrder);
 }
 
 function getBookmark() {
