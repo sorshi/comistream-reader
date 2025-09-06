@@ -253,6 +253,8 @@ var xDown = null; // 2本指スワイプダウン検出用
 var yDown = null; // 2本指スワイプダウン検出用
 let globalDivImageUrl = "";
 var isPinching = false; // ピンチ操作中フラグ
+var originalViewportContent = ""; // To store the original viewport meta tag content
+// const isAndroid = /Android/i.test(navigator.userAgent);
 
 function isZoomed() {
   // visualViewportが存在しない古いブラウザでは常にfalseを返す
@@ -268,6 +270,10 @@ window.addEventListener("keydown", funcKey);
 window.addEventListener(
   "load",
   function () {
+    const viewport = document.querySelector('meta[name="viewport"]');
+    if (viewport) {
+      originalViewportContent = viewport.getAttribute("content");
+    }
     setTimeout(scrollTo, 0, 0, 1);
   },
   false
@@ -291,11 +297,6 @@ window.addEventListener(
     // 2本指スワイプ用の座標をリセット
     xDown = null;
     yDown = null;
-
-    if (isZoomed()) {
-      // 拡大中はデフォルトのタッチイベントを許可 (ダブルタップでのズーム解除など)
-      return;
-    }
 
     if (tapFlag) {
       evt.preventDefault();
@@ -322,17 +323,10 @@ window.addEventListener(
       return;
     }
 
-    if (isZoomed()) {
-      // 拡大中はページめくりやメニュー表示を無効化
-      startX = -1;
-      endX = -1;
-      return;
-    }
-
     if (startX != -1 && endX != -1) {
-      if (startX - endX < 0) {
+      if (startX - endX < -50) {
         leftward();
-      } else if (startX - endX > 0) {
+      } else if (startX - endX > 50) {
         rightward();
       }
     } else {
@@ -366,7 +360,7 @@ window.addEventListener(
   "touchmove",
   function (evt) {
     // isPinching中も2本指スワイプは判定したいので、条件を変更
-    if (isZoomed()) return;
+    // if (isZoomed()) return; // 拡大中のスワイプを許可するためコメントアウト
 
     // 2本指スワイプの処理
     if (evt.touches.length >= 2 && xDown !== null && yDown !== null) {
@@ -559,6 +553,28 @@ window.onfocus = function () {
 
 // 以下関数定義
 
+function resetZoom() {
+  const viewport = document.querySelector('meta[name="viewport"]');
+  if (viewport && originalViewportContent) {
+    // ページめくり時にズームをリセットします (Android向け)
+    // maximum-scale=1.0 を設定することで、ブラウザにズームを解除させます。
+    viewport.setAttribute(
+      "content",
+      "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    );
+
+    // スクロールすることで再描画/リフローを強制します。
+    // これにより、ビューポートの変更が適用されることがあります。
+    window.scrollTo(0, 0);
+
+    // requestAnimationFrame を使用して、ブラウザが変更を適用するのを待ってから
+    // 元のビューポートの content 属性を復元します。
+    requestAnimationFrame(() => {
+      viewport.setAttribute("content", originalViewportContent);
+    });
+  }
+}
+
 function saveCurrentPage() {
   // ページ離脱時に最終ページ保存
   let localPage = page;
@@ -587,11 +603,17 @@ function jump() {
 }
 
 function leftward() {
+  if (isZoomed()) {
+    resetZoom();
+  }
   if (direction == "left") next();
   else back();
 }
 
 function rightward() {
+  if (isZoomed()) {
+    resetZoom();
+  }
   if (direction == "left") back();
   else next();
 }
