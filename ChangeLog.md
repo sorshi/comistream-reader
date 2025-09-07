@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - リストビューモードでのクリック領域拡大
 - フルサイズモードのときには先読みページ数を増加
 - スマホで画面を拡大しているときには移動と元サイズに戻す以外のすべての操作をロックして意図しない誤操作を防止
+- インスペクターオープン/クローズの操作を二本指下スワイプからTOCメニューのiアイコンに変更
 
 ### 修正
 - Dockerfileにunrar追加

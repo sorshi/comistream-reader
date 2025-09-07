@@ -435,6 +435,22 @@ input[type="range"]::-moz-range-thumb {
   stroke: #fff; /* アイコンの色 */
 }
 
+/* インスペクターアイコンボタン用のスタイル */
+.inspector-icon-button {
+  cursor: pointer; /* クリック可能なカーソル */
+  display: inline-block; /* 他の要素と並べる */
+  vertical-align: middle; /* 他のボタンと縦位置を合わせる */
+  margin-left: 5px; /* 左側のマージン */
+  padding: 3px; /* アイコン周りの余白を小さく */
+  line-height: 1; /* 行の高さをアイコンに合わせる */
+}
+
+.inspector-icon-button svg {
+  width: 18px; /* アイコンの幅 */
+  height: 18px; /* アイコンの高さ */
+  stroke: #fff; /* アイコンの色 */
+}
+
 /* 続刊・関連書籍表示用のスタイル */
 #suggest {
   display: none; /* 初期状態は非表示 */

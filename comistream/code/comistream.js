@@ -267,6 +267,7 @@ function isZoomed() {
 
 window.addEventListener("keydown", funcKey);
 
+
 window.addEventListener(
   "load",
   function () {
@@ -274,6 +275,7 @@ window.addEventListener(
     if (viewport) {
       originalViewportContent = viewport.getAttribute("content");
     }
+
     setTimeout(scrollTo, 0, 0, 1);
   },
   false
@@ -293,7 +295,7 @@ window.addEventListener(
       return;
     }
 
-    isPinching = false;
+    // isPinching = false; // ここではリセットしない
     // 2本指スワイプ用の座標をリセット
     xDown = null;
     yDown = null;
@@ -359,6 +361,8 @@ window.addEventListener(
 window.addEventListener(
   "touchmove",
   function (evt) {
+    if (isPinching) return; // ピンチ操作中はスワイプさせない
+
     // isPinching中も2本指スワイプは判定したいので、条件を変更
     // if (isZoomed()) return; // 拡大中のスワイプを許可するためコメントアウト
 
@@ -371,14 +375,14 @@ window.addEventListener(
       var yDiff = yDown - yUp;
 
       if (Math.abs(xDiff) < Math.abs(yDiff)) {
-        if (yDiff < -10) {
-          // 下向きスワイプ
-          /* 下向きスワイプ */
-          showInspector();
-          // 連続で発火しないようにリセット
-          xDown = null;
-          yDown = null;
-        }
+        // if (yDiff < -10) {
+        //   // 下向きスワイプ
+        //   /* 下向きスワイプ */
+        //   showInspector();
+        //   // 連続で発火しないようにリセット
+        //   xDown = null;
+        //   yDown = null;
+        // }
       }
       return; // 2本指操作中は1本指の処理をしない
     }
@@ -556,22 +560,17 @@ window.onfocus = function () {
 function resetZoom() {
   const viewport = document.querySelector('meta[name="viewport"]');
   if (viewport && originalViewportContent) {
-    // ページめくり時にズームをリセットします (Android向け)
-    // maximum-scale=1.0 を設定することで、ブラウザにズームを解除させます。
-    viewport.setAttribute(
-      "content",
-      "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
-    );
+    // maximum-scale=1.0 を一瞬でも適用すると Android でピンチが永久無効になるバグ回避ルン
+    // initial-scale のみを指定して強制再レイアウトし、その後元に戻すルン☆
+    viewport.setAttribute('content', 'width=device-width, initial-scale=1.0');
 
-    // スクロールすることで再描画/リフローを強制します。
-    // これにより、ビューポートの変更が適用されることがあります。
+    // 位置をリセット
     window.scrollTo(0, 0);
 
-    // requestAnimationFrame を使用して、ブラウザが変更を適用するのを待ってから
-    // 元のビューポートの content 属性を復元します。
-    requestAnimationFrame(() => {
-      viewport.setAttribute("content", originalViewportContent);
-    });
+    // 元の viewport 設定に戻す（短い遅延を入れてレイアウトを安定させる）
+    setTimeout(() => {
+      viewport.setAttribute('content', originalViewportContent);
+    }, 50);
   }
 }
 

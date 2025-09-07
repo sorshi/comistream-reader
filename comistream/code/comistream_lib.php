@@ -2199,24 +2199,27 @@ $contents_css
 
 <div class="contents" id="contents">
     <div>
-        <img src="$themeDir/theme/icons/close.png" alt="{$i18n->get('alt_close_button')}" class="close" onclick="document.getElementById('contents').style.display='none'">
-        <span class="button button-close" onclick="backListPage();">{$i18n->get('back')}</span>
-        <span id="rawMode" class="$size_button_class button-mode" onclick="toggleRaw();">$size_button_flag</span>
-        <span id="single" class="button button-mode" onclick="single()">{$i18n->get('single_page')}</span>
-        <span id="spread" class="button button-mode" onclick="spread()">{$i18n->get('spread_page')}</span>
-        <span class="button button-mode" onclick="fixSpreadPage()">{$i18n->get('spread_fix')}</span>
-        <span class="button button-mode" id="direction" onclick="toggleDirection()">{$i18n->get('direction')}</span>
-        <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()">{$i18n->get('fullscreen')}</span>
-        <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()">$split_button_text</span>
-        $langSelectorHtml
-        <span class="clock-icon-button" id="clockToggleButton" onclick="toggleClock()"><i data-feather="clock"></i></span>
+        <div class="toc-buttons">
+            <img src="$themeDir/theme/icons/close.png" alt="{$i18n->get('alt_close_button')}" class="close" onclick="document.getElementById('contents').style.display='none'">
+            <span class="button button-close" onclick="backListPage();">{$i18n->get('back')}</span>
+            <span id="rawMode" class="$size_button_class button-mode" onclick="toggleRaw();">$size_button_flag</span>
+            <span id="single" class="button button-mode" onclick="single()">{$i18n->get('single_page')}</span>
+            <span id="spread" class="button button-mode" onclick="spread()">{$i18n->get('spread_page')}</span>
+            <span class="button button-mode" onclick="fixSpreadPage()">{$i18n->get('spread_fix')}</span>
+            <span class="button button-mode" id="direction" onclick="toggleDirection()">{$i18n->get('direction')}</span>
+            <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()">{$i18n->get('fullscreen')}</span>
+            <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()">$split_button_text</span>
+            $langSelectorHtml
+            <span class="clock-icon-button" id="clockToggleButton" onclick="toggleClock()"><i data-feather="clock"></i></span>
+            <span class="inspector-icon-button" id="inspectorToggleButton" onclick="showInspector()"><i data-feather="info"></i></span>
+        </div>
+        <div style="clear:both;">
+            <div class="bookName">$bookName</div>
+            <input id="slider" type="range" value="$maxPage" min="1" max="$maxPage" step="1" /><span id="value" class="value">1</span>
+        </div>
+        <hr>
+        <div class="toclist">$contents</div>
     </div>
-    <div style="clear:both;">
-        <div class="bookName">$bookName</div>
-        <input id="slider" type="range" value="$maxPage" min="1" max="$maxPage" step="1" /><span id="value" class="value">1</span>
-    </div>
-    <hr>
-    <div class="toclist">$contents</div>
 </div>
 
 <div id="suggest" hidden >

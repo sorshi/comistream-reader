@@ -1164,7 +1164,7 @@ if ($is_404_mode) {
                     let onclickAttr = '';
                     let tdOnclickAttr = '';
 
-                    // ファイルの場合の特別処理
+                    // ファイル専用の特別処理
                     if (!item.is_dir && !item.is_parent) {
                         // プレビュー画像属性
                         if (item.preview_image) {
@@ -1172,22 +1172,36 @@ if ($is_404_mode) {
                         }
                         // ID属性（ブックマーク用）
                         tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
-                        
-                        // viewmodeを取得してクリック領域を決定
-                        const viewmode = getCookie('viewmode') || 'list';
-                        
-                        if (viewmode === 'list') {
-                            // リストビューの場合：tdにクリックハンドラを設定（クリック領域拡張）
-                            tdOnclickAttr = ' onclick="return linkhook(event)" style="cursor: pointer;"';
-                            onclickAttr = ''; // aタグからは除去
-                        } else {
-                            // カバービューの場合：従来通りaタグにクリックハンドラ
-                            onclickAttr = ' onclick="return linkhook(event)"';
-                        }
 
                         // カバービューでファイルの場合、表紙画像を追加
+                        const viewmode = getCookie('viewmode') || 'list';
                         if (viewmode === 'cover' && item.cover_image) {
                             nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
+                        }
+                    }
+
+                    // Parent Directory以外のクリック領域拡張処理
+                    if (!item.is_parent) {
+                        // viewmodeを取得してクリック領域を決定
+                        const viewmode = getCookie('viewmode') || 'list';
+
+                        if (viewmode === 'list') {
+                            // リストビューの場合：tdにクリックハンドラを設定（クリック領域拡張）
+                            if (item.is_dir) {
+                                // ディレクトリ：内部のaタグのhrefを取得して遷移
+                                tdOnclickAttr = ' onclick="var link = this.querySelector(\'a\'); if (link) { window.location.href = link.href; } return false;" style="cursor: pointer;"';
+                            } else {
+                                // ファイル：linkhookを使用
+                                tdOnclickAttr = ' onclick="return linkhook(event)" style="cursor: pointer;"';
+                            }
+                            onclickAttr = ''; // aタグからは除去
+                        } else {
+                            // カバービューの場合
+                            if (!item.is_dir) {
+                                // ファイルの場合のみlinkhookを設定
+                                onclickAttr = ' onclick="return linkhook(event)"';
+                            }
+                            // ディレクトリの場合はonclickAttrは空のまま（デフォルトのリンク動作）
                         }
                     }
 
@@ -1295,7 +1309,7 @@ if ($is_404_mode) {
                     let onclickAttr = '';
                     let tdOnclickAttr = '';
 
-                    // ファイルの場合の特別処理
+                    // ファイル専用の特別処理
                     if (!item.is_dir && !item.is_parent) {
                         // プレビュー画像属性
                         if (item.preview_image) {
@@ -1303,22 +1317,36 @@ if ($is_404_mode) {
                         }
                         // ID属性（ブックマーク用）
                         tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
-                        
-                        // viewmodeを取得してクリック領域を決定
-                        const viewmode = getCookie('viewmode') || 'list';
-                        
-                        if (viewmode === 'list') {
-                            // リストビューの場合：tdにクリックハンドラを設定（クリック領域拡張）
-                            tdOnclickAttr = ' onclick="return linkhook(event)" style="cursor: pointer;"';
-                            onclickAttr = ''; // aタグからは除去
-                        } else {
-                            // カバービューの場合：従来通りaタグにクリックハンドラ
-                            onclickAttr = ' onclick="return linkhook(event)"';
-                        }
 
                         // カバービューでファイルの場合、表紙画像を追加
+                        const viewmode = getCookie('viewmode') || 'list';
                         if (viewmode === 'cover' && item.cover_image) {
                             nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
+                        }
+                    }
+
+                    // Parent Directory以外のクリック領域拡張処理
+                    if (!item.is_parent) {
+                        // viewmodeを取得してクリック領域を決定
+                        const viewmode = getCookie('viewmode') || 'list';
+
+                        if (viewmode === 'list') {
+                            // リストビューの場合：tdにクリックハンドラを設定（クリック領域拡張）
+                            if (item.is_dir) {
+                                // ディレクトリ：内部のaタグのhrefを取得して遷移
+                                tdOnclickAttr = ' onclick="var link = this.querySelector(\'a\'); if (link) { window.location.href = link.href; } return false;" style="cursor: pointer;"';
+                            } else {
+                                // ファイル：linkhookを使用
+                                tdOnclickAttr = ' onclick="return linkhook(event)" style="cursor: pointer;"';
+                            }
+                            onclickAttr = ''; // aタグからは除去
+                        } else {
+                            // カバービューの場合
+                            if (!item.is_dir) {
+                                // ファイルの場合のみlinkhookを設定
+                                onclickAttr = ' onclick="return linkhook(event)"';
+                            }
+                            // ディレクトリの場合はonclickAttrは空のまま（デフォルトのリンク動作）
                         }
                     }
 
