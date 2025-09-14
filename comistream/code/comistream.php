@@ -278,6 +278,15 @@ if ($mode === 'delete' && !empty($orgname)) {
     outputPage();
     exit(0);
 } elseif ($mode === 'open' && !empty($file)) {
+    // ファイルオープン
+    $originalFile = $file; // 元のファイル名を保存
+    
+    // EPUBファイルの場合は特別処理
+    if (preg_match('/\.epub$/i', $originalFile)) {
+        handleEpubOpen();
+        exit(0);
+    }
+    
     // if (isset($pageGenerator)) {
     //     // 明示的設定がある場合はその値を採用
     //     // セキュリティ確保のため、明示的設定値が1か0以外の場合はデフォルトの0とする
@@ -296,8 +305,6 @@ if ($mode === 'delete' && !empty($orgname)) {
     //     $_SESSION['pageGenerator'] = 0;
     //     writelog("INFO session pageGenerator set to default: 0");
     // }
-    // ファイルオープン
-    $originalFile = $file; // 元のファイル名を保存
     list($escapedFile, $coverFile, $previewFile) = openPage();
 
     // PDFファイルかつテキストPDFの場合はブラウザ内蔵PDFビューアーを使用

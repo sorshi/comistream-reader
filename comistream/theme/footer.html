@@ -141,9 +141,9 @@ function linkhook(e) {
     document.getElementById("history").innerHTML = "<a class=\"history_book\" href="+location.origin+openHref+">"+e.target.innerText+"</a>"
     location.href = openHref;
   }else if( e.target.href.match(/\.epub$/i ) ){
-    // ePubの場合
+    // ePubの場合（comistream.php経由で処理）
     e.target.parentNode.parentNode.firstChild.firstChild.firstChild.src = iconPath+"open.png";
-    var openHref = bibiPath + "?book=" + publicDir + "/" + fileLink;
+    var openHref = cgiPath + "?mode=open&file=" + fileLink;
     document.getElementById("history").innerHTML = "<a class=\"history_book\" href="+location.origin+openHref+">"+e.target.innerText+"</a>"
     location.href = openHref;
   }else{

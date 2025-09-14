@@ -5106,4 +5106,138 @@ HTML;
     writelog("DEBUG printPdfViewerHTML() done for text PDF: $bookName");
 } //end function printPdfViewerHTML
 
+
+##### EPUB処理 ######################################################################
+/**
+ * EPUBファイルを開く処理
+ * ファイルサイズに応じて直接bibiで開くか、事前展開してからbibiで開くかを決定
+ */
+function handleEpubOpen()
+{
+    global $conf, $file, $sharePath, $cacheDir, $md5cmd, $publicDir, $p7zip;
+
+    writelog("DEBUG handleEpubOpen() start for file: $file");
+
+    // ファイルパスの処理
+    $file = preg_replace('/\.\.\//', '', $file);
+    $file = str_replace('+', '%2B', $file);
+    $file = urldecode($file);
+    $epubFile = "$sharePath/$file";
+
+    // ファイル存在チェック
+    if (!file_exists($epubFile)) {
+        writelog("ERROR handleEpubOpen() file not found: $epubFile");
+        errorExit('file_not_found');
+    }
+
+    // ファイルサイズをチェック（5MB = 5 * 1024 * 1024 bytes）
+    $fileSize = filesize($epubFile);
+    $fileSizeMB = $fileSize / (1024 * 1024);
+    writelog("DEBUG handleEpubOpen() file size: $fileSizeMB MB");
+
+    // 5MB未満の場合は従来通り直接bibiで開く
+    if ($fileSize < 5 * 1024 * 1024) {
+        $encodedFilePath = rawurlencode($publicDir . '/' . $file);
+        $bibiUrl = "/bibi/?book=" . $encodedFilePath;
+        writelog("DEBUG handleEpubOpen() small file, redirecting directly to bibi: $bibiUrl");
+
+        // 直接Bibiは積極的にキャッシュ
+        header('Cache-Control: private, max-age=86400');
+        header("Location: $bibiUrl", true, 302);
+        exit(0);
+    }
+
+    // ファイルハッシュを生成
+    $command_list = sprintf(
+        "echo %s | %s | awk '{print \$1}'",
+        escapeshellarg($epubFile),
+        $md5cmd
+    );
+    $fileHash = shell_exec($command_list);
+    $fileHash = trim($fileHash);
+
+    if (empty($fileHash)) {
+        writelog("ERROR handleEpubOpen() md5 hash failed: $epubFile");
+        errorExit('file_processing_failed');
+    }
+
+    writelog("DEBUG handleEpubOpen() file hash: $fileHash");
+
+    // キャッシュディレクトリパス
+    $epubCacheDir = $cacheDir . '/' . $fileHash;
+
+    // キャッシュが既に存在するかチェック
+    // && file_exists($epubCacheDir . '/container.xml')
+    if (is_dir($epubCacheDir)) {
+        writelog("DEBUG handleEpubOpen() cache already exists, skipping extraction");
+    } else {
+        // キャッシュディレクトリがない場合は古いシンボリックリンクがあるかもしれないから削除
+        // シンボリックリンクのパスを設定
+        $webRoot = $conf['webRoot'] ?? '/home/dmng/public';
+        $symlinkPath = $webRoot . '/theme/bibi/' . $fileHash;
+        if (is_link($symlinkPath) && is_dir($symlinkPath)) {
+            unlink($symlinkPath);
+            writelog("DEBUG handleEpubOpen() old symlink removed: $symlinkPath");
+        }
+        // キャッシュディレクトリを作成
+        if (!chkAndMakeDir($epubCacheDir)) {
+            writelog("ERROR handleEpubOpen() failed to create cache directory: $epubCacheDir");
+            errorExit('mkdir_failed', 'cache_dir_creation_failed');
+        }
+
+        writelog("DEBUG handleEpubOpen() extracting EPUB to cache: $epubCacheDir");
+
+        // 7zipを使ってEPUBファイルを展開
+        $cmd = $p7zip . " x -o\"$epubCacheDir\" \"$epubFile\"";
+        exec($cmd, $output, $return_var);
+
+        if ($return_var !== 0) {
+            writelog("ERROR handleEpubOpen() failed to extract EPUB: $cmd");
+            // 失敗したキャッシュディレクトリを削除
+            if (is_dir($epubCacheDir)) {
+                exec("rm -rf " . escapeshellarg($epubCacheDir));
+            }
+            errorExit('file_processing_failed');
+        }
+
+        writelog("DEBUG handleEpubOpen() EPUB extracted successfully");
+    }
+
+    // シンボリックリンクのパスを設定
+    $webRoot = $conf['webRoot'] ?? '/home/dmng/public';
+    $symlinkPath = $webRoot . '/theme/bibi/' . $fileHash;
+
+    // シンボリックリンクが存在しない場合は作成
+    if (!is_link($symlinkPath) && !is_dir($symlinkPath)) {
+        // 親ディレクトリを作成
+        $symlinkDir = dirname($symlinkPath);
+        if (!is_dir($symlinkDir)) {
+            if (!mkdir($symlinkDir, 0755, true)) {
+                writelog("ERROR handleEpubOpen() failed to create symlink directory: $symlinkDir");
+                errorExit('mkdir_failed');
+            }
+        }
+
+        // シンボリックリンクを作成
+        if (!symlink($epubCacheDir, $symlinkPath)) {
+            writelog("ERROR handleEpubOpen() failed to create symlink: $epubCacheDir -> $symlinkPath");
+            errorExit('symlink_failed');
+        }
+
+        writelog("DEBUG handleEpubOpen() symlink created: $symlinkPath");
+    }
+
+    // bibiにリダイレクト
+    $bibiUrl = "/bibi/?book=/theme/bibi/$fileHash";
+    writelog("DEBUG handleEpubOpen() redirecting to bibi: $bibiUrl");
+
+    // URLを覚えないようにキャッシュヘッダを設定
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Cache-Control: post-check=0, pre-check=0', false);
+    header('Pragma: no-cache');
+    header('Expires: Mon, 26 Jul 1997 05:00:00 GMT');
+    header("Location: $bibiUrl", true, 302);
+    exit(0);
+} //end function handleEpubOpen
+
 ?>

@@ -554,10 +554,10 @@ function linkhook(e) {
       "</a>";
     location.href = openHref;
   } else if (targetElement.href && targetElement.href.match(/\.epub$/i)) {
-    // ePubの場合
+    // ePubの場合（comistream.php経由で処理）
     targetElement.parentNode.parentNode.firstChild.firstChild.firstChild.src =
       iconPath + "open.png";
-    var openHref = bibiPath + "?book=" + publicDir + "/" + fileLink;
+    var openHref = cgiPath + "?mode=open&file=" + fileLink;
     document.getElementById("history").innerHTML =
       '<a class="history_book" href=' +
       location.origin +
