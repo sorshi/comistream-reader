@@ -70,6 +70,18 @@ if [[ "$comistream_tmp_dir_root" =~ ^/dev/shm/.* ]]; then
 fi
 
 
+# /theme/bibi/以下の切れたシンボリックリンクを削除
+webRoot=$(sqlite3 "$dbfile" "SELECT value FROM system_config WHERE key='webRoot';")
+bibi_dir="${webRoot}/theme/bibi"
+if [ -d "$bibi_dir" ]; then
+    logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.debug "Cleaning up broken symlinks in $bibi_dir"
+    # 切れたシンボリックリンクを検出・削除
+    find "$bibi_dir" -mindepth 1 -maxdepth 1 -type l ! -e -exec rm -f {} +
+    logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.debug "Broken symlinks cleanup completed in $bibi_dir"
+else
+    logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.info "Bibi directory not found: $bibi_dir"
+fi
+
 # キャッシュディレクトリのサイズ管理
 cache_limit_size=$(sqlite3 "$dbfile" "SELECT value FROM system_config WHERE key='pushoutCacheLimitSize';")
 cache_limit_days=$(sqlite3 "$dbfile" "SELECT value FROM system_config WHERE key='pushoutCacheLimitDays';")
