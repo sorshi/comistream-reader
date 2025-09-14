@@ -421,6 +421,8 @@ class MusicPlayer {
     }
 
     nextTrack() {
+        console.log('nextTrack() called, current index:', this.currentIndex, 'repeatMode:', this.repeatMode, 'isShuffled:', this.isShuffled);
+        
         if (this.isShuffled) {
             // シャッフルモード
             this.currentIndex = Math.floor(Math.random() * this.musicFiles.length);
@@ -430,13 +432,18 @@ class MusicPlayer {
             } else if (this.repeatMode === 1) { // repeat all
                 this.currentIndex = 0;
             } else {
-                if (this.repeatMode !== 2) { // repeat oneでなければ停止
+                // デフォルト状態（repeatMode = 0）でも最初の曲に戻って連続再生
+                if (this.repeatMode === 0) {
+                    this.currentIndex = 0;
+                } else if (this.repeatMode !== 2) { // repeat oneでなければ停止
+                    console.log('Stopping playback - no repeat mode');
                     this.pause();
                     return;
                 }
             }
         }
         
+        console.log('Moving to track index:', this.currentIndex);
         this.loadCurrentTrack();
         if (this.isPlaying) {
             this.play();
@@ -444,11 +451,15 @@ class MusicPlayer {
     }
 
     onTrackEnded() {
+        console.log('Track ended, repeatMode:', this.repeatMode);
         if (this.repeatMode === 2) { // repeat one
             this.audioPlayer.currentTime = 0;
             this.play();
         } else {
             this.nextTrack();
+            // 楽曲終了からの自動進行時は必ず再生を開始する
+            console.log('Auto-advancing to next track, currentIndex:', this.currentIndex);
+            this.play();
         }
     }
 
