@@ -238,6 +238,7 @@ var tapFlag = false;
 var timer;
 var fixPage = 0;
 var startX, endX;
+var startY, endY; // 親指上スワイプ用Y座標
 var isSkipPageFwdFlag = false;
 var unixtime = 0;
 var timeout = null;
@@ -304,7 +305,9 @@ window.addEventListener(
       evt.preventDefault();
     } else if (evt.changedTouches.length == 1) {
       startX = evt.touches[0].pageX;
+      startY = evt.touches[0].pageY; // 親指上スワイプ用Y座標記録
       endX = -1;
+      endY = -1;
     }
   },
   { passive: false }
@@ -320,15 +323,25 @@ window.addEventListener(
       // ピンチ操作の終了なので、ページめくりやタップの処理は行わない
       startX = -1;
       endX = -1;
+      startY = -1;
+      endY = -1;
       xDown = null;
       yDown = null;
       return;
     }
 
-    if (startX != -1 && endX != -1) {
-      if (startX - endX < -50) {
+    if (startX != -1 && endX != -1 && startY != -1 && endY != -1) {
+      let deltaX = startX - endX;
+      let deltaY = startY - endY;
+      
+      // 親指上スワイプ判定（画面下半分での上向きスワイプ）
+      if (startY > window.innerHeight / 2 && deltaY > 50 && Math.abs(deltaX) < 30) {
+        // 画面下半分で開始し、上向きスワイプ（50px以上）かつ横移動が少ない（30px未満）
+        debugLog("Thumb up swipe detected: startY=" + startY + " deltaY=" + deltaY + " deltaX=" + deltaX);
+        next(); // ページ送り
+      } else if (deltaX < -50) {
         leftward();
-      } else if (startX - endX > 50) {
+      } else if (deltaX > 50) {
         rightward();
       }
     } else {
@@ -353,6 +366,8 @@ window.addEventListener(
     if (document.getElementById("modal").style.display !== "block") {
       startX = -1;
       endX = -1;
+      startY = -1;
+      endY = -1;
     }
   },
   { passive: false }
@@ -394,8 +409,11 @@ window.addEventListener(
     if (document.getElementById("contents").style.display == "block") {
       startX = -1;
       endX = -1;
+      startY = -1;
+      endY = -1;
     } else {
       endX = evt.touches[0].pageX;
+      endY = evt.touches[0].pageY; // 親指上スワイプ用Y座標更新
     }
   },
   { passive: false }
@@ -407,6 +425,8 @@ window.addEventListener(
     isPinching = true; // ジェスチャー中はピンチ操作とみなす
     startX = -1;
     endX = -1;
+    startY = -1;
+    endY = -1;
   },
   { passive: false }
 );

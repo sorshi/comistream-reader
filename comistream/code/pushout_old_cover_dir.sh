@@ -8,7 +8,7 @@
 #   make_image_run.shを実行したユーザー(apacheやwww-dataなど)と同一のユーザーで実行してください。
 #
 # 使用方法:
-#   ./nestedExtracter.sh <アーカイブファイル> [出力ディレクトリ]
+#   ./pushout_old_cover_dir.sh
 #
 #
 # 作成者: Comistream Project
@@ -21,7 +21,7 @@
 # 設定
 dbfile=$(realpath "$(dirname "$0")/../data/db/comistream.sqlite")
 if [ ! -f "$dbfile" ]; then
-    logger -t "comistream make_preview_run.sh[$$]" -p local1.error "$dbfile not found."
+    logger -t "comistream pushout_old_cover_dir.sh[$$]" -p local1.error "$dbfile not found."
     exit 1
 fi
 
