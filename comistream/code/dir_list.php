@@ -847,7 +847,7 @@ if ($is_404_mode) {
     </div>
 
     <div id="filemenu" class="filemenu" style="position:absolute; width:80%; left:10%; padding:10px; display: none; background-color:rgba(0,0,0,0.5); border-radius:5px;">
-        <form id="fileope">
+        <form id="fileope" action="<?php echo $cgiPath; ?>" method="POST">
             <input id="newname" type="text" name="newname" value="" style="width:99%;">
             <input id="orgname" type="hidden" name="orgname" value="">
             <input id="fileLink" type="hidden" name="file" value="">
