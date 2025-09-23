@@ -1821,72 +1821,256 @@ function vipsGetImageInfo($imagePath)
     }
 }
 
+
 /**
- * ディレクトリとその中身を再帰的に削除します
+ * 許可されたディレクトリ内でのパス削除が安全かチェックします
  * 
- * 指定されたディレクトリ内のファイル、サブディレクトリ、シンボリックリンクを
- * 全て削除してから、ディレクトリ自体を削除します。安全な削除処理を行います。
+ * ディレクトリトラバーサル攻撃や不正なパスアクセスを防ぐため、
+ * 削除対象パスが許可されたベースディレクトリ内にあることを確認します。
  * 
- * @param string $dir 削除対象のディレクトリパス
- * @return bool 削除成功時はtrue、失敗時はfalse
+ * @param string $path 検証するパス
+ * @return bool 削除が許可される場合はtrue、危険な場合はfalse
+ * 
+ * @since 2.0.0
+ * @author Comistream Project
+ */
+function isPathAllowedForDeletion($path)
+{
+    global $conf;
+
+    // NULL文字やその他の危険な文字を除去
+    $path = str_replace(["\0", "\r", "\n"], '', $path);
+
+    // 空文字や不正な文字列をチェック
+    if (empty($path) || strlen($path) > 4096) {
+        writelog("ERROR isPathAllowedForDeletion() Invalid path length or empty: " . strlen($path));
+        return false;
+    }
+
+    // パスの正規化（realpath前の基本チェック）
+    if (strpos($path, '..') !== false) {
+        writelog("ERROR isPathAllowedForDeletion() Path traversal detected: $path");
+        return false;
+    }
+
+    // パスが存在しない場合はrealpath()が失敗するが、削除対象が存在しないなら安全
+    if (!file_exists($path)) {
+        // 親ディレクトリで検証
+        $parentPath = dirname($path);
+        if (!file_exists($parentPath)) {
+            writelog("ERROR isPathAllowedForDeletion() Parent directory does not exist: $parentPath");
+            return false;
+        }
+        $realPath = realpath($parentPath) . DIRECTORY_SEPARATOR . basename($path);
+    } else {
+        $realPath = realpath($path);
+        if ($realPath === false) {
+            writelog("ERROR isPathAllowedForDeletion() Failed to resolve real path: $path");
+            return false;
+        }
+    }
+
+    // 許可されたベースディレクトリのリスト
+    $allowedBasePaths = [];
+
+    // キャッシュディレクトリ
+    if (isset($conf["cacheDir"]) && !empty($conf["cacheDir"])) {
+        $cacheRealPath = realpath($conf["cacheDir"]);
+        if ($cacheRealPath !== false) {
+            $allowedBasePaths[] = $cacheRealPath;
+        }
+    }
+
+    // 一時ディレクトリルート
+    if (isset($conf["comistream_tmp_dir_root"]) && !empty($conf["comistream_tmp_dir_root"])) {
+        $tmpRealPath = realpath($conf["comistream_tmp_dir_root"]);
+        if ($tmpRealPath !== false) {
+            $allowedBasePaths[] = $tmpRealPath;
+        }
+    }
+
+    // ツールディレクトリ配下の一時作業領域
+    if (isset($conf["comistream_tool_dir"]) && !empty($conf["comistream_tool_dir"])) {
+        $toolDir = realpath($conf["comistream_tool_dir"]);
+        if ($toolDir !== false) {
+            $allowedBasePaths[] = $toolDir . DIRECTORY_SEPARATOR . "data" . DIRECTORY_SEPARATOR . "cache";
+            $allowedBasePaths[] = $toolDir . DIRECTORY_SEPARATOR . "temp";
+        }
+    }
+
+    // システム一時ディレクトリ（/tmp、/dev/shm配下のcomistream関連のみ）
+    $systemTmpPaths = [
+        '/tmp/comistream',
+        '/dev/shm/comistream',
+        '/var/tmp/comistream'
+    ];
+
+    foreach ($systemTmpPaths as $tmpPath) {
+        if (is_dir($tmpPath)) {
+            $allowedBasePaths[] = realpath($tmpPath);
+        }
+    }
+
+    if (empty($allowedBasePaths)) {
+        writelog("ERROR isPathAllowedForDeletion() No allowed base paths configured");
+        return false;
+    }
+
+    // パスが許可されたベースディレクトリ内にあるかチェック
+    foreach ($allowedBasePaths as $basePath) {
+        if ($basePath === false) continue;
+
+        // 正規化されたパスで比較（末尾のスラッシュを統一）
+        $basePath = rtrim($basePath, DIRECTORY_SEPARATOR);
+        $checkPath = rtrim($realPath, DIRECTORY_SEPARATOR);
+
+        if (strpos($checkPath, $basePath) === 0) {
+            // さらに確実にするため、区切り文字をチェック
+            if ($checkPath === $basePath || substr($checkPath, strlen($basePath), 1) === DIRECTORY_SEPARATOR) {
+                writelog("DEBUG isPathAllowedForDeletion() Path allowed: $realPath (base: $basePath)");
+                return true;
+            }
+        }
+    }
+
+    writelog("ALERT isPathAllowedForDeletion() Path not in allowed directories: $realPath");
+    writelog("DEBUG isPathAllowedForDeletion() Allowed bases: " . implode(', ', $allowedBasePaths));
+    return false;
+} //end function isPathAllowedForDeletion
+
+
+/**
+ * ディレクトリを安全に再帰的に削除します（セキュリティ強化版）
+ * 
+ * 指定されたディレクトリとその中身を完全に削除します。
+ * ディレクトリトラバーサル攻撃やパスインジェクション攻撃を防ぐため、
+ * 厳格なパス検証とアクセス制御を実装しています。
+ * 削除可能なディレクトリは設定で定義されたベースディレクトリ配下のみです。
+ * 
+ * @param string $dir 削除するディレクトリのパス
+ * @return bool 削除に成功した場合はtrue、失敗した場合はfalse
  * 
  * @example
  * // 一時ディレクトリを削除
- * if (deleteDirectory('/tmp/comistream_temp')) {
- *     echo "一時ディレクトリを削除しました\n";
- * } else {
- *     echo "削除に失敗しました\n";
+ * $tempDir = $conf["comistream_tmp_dir_root"] . '/temp_' . uniqid();
+ * if (deleteDirectory($tempDir)) {
+ *     echo "ディレクトリが安全に削除されました";
  * }
  * 
  * // キャッシュディレクトリをクリーンアップ
- * $cacheDir = '/var/cache/comistream/book_123';
+ * $cacheDir = $conf["cacheDir"] . '/book_123';
  * deleteDirectory($cacheDir);
  * 
  * @warning この関数は指定されたディレクトリを完全に削除します。
- *          実行前に削除対象が正しいことを確認してください。
+ *          セキュリティ上、許可されたベースディレクトリ配下のみ削除可能です。
+ *          ディレクトリトラバーサル攻撃対策により、../などの危険なパスは拒否されます。
  * 
- * @since 1.0.0
+ * @since 1.0.0 (2.0.0でセキュリティ強化)
  * @author Comistream Project
  */
 function deleteDirectory($dir)
 {
-    writelog("DEBUG deleteDirectory() $dir");
+    // 入力の基本検証
+    if (!is_string($dir) || empty($dir)) {
+        writelog("ERROR deleteDirectory() Invalid directory parameter");
+        return false;
+    }
 
+    // NULL文字などの危険な文字を除去
+    $dir = str_replace(["\0", "\r", "\n"], '', $dir);
+
+    writelog("DEBUG deleteDirectory() Attempting to delete: $dir");
+
+    // パスの安全性を確認（最重要セキュリティチェック）
+    if (!isPathAllowedForDeletion($dir)) {
+        writelog("CRITICAL deleteDirectory() Path not allowed for deletion: $dir");
+        return false;
+    }
+
+    // ファイルが存在しない場合は成功として扱う
     if (!file_exists($dir)) {
+        writelog("DEBUG deleteDirectory() Path does not exist: $dir");
         return true;
     }
 
+    // 通常のファイルの場合
     if (!is_dir($dir)) {
-        return unlink($dir);
+        if (!is_writable(dirname($dir))) {
+            writelog("ERROR deleteDirectory() Parent directory not writable: " . dirname($dir));
+            return false;
+        }
+        $result = unlink($dir);
+        if ($result) {
+            writelog("DEBUG deleteDirectory() File deleted successfully: $dir");
+        } else {
+            writelog("ERROR deleteDirectory() Failed to delete file: $dir");
+        }
+        return $result;
     }
 
-    foreach (scandir($dir) as $item) {
-        if ($item == '.' || $item == '..') {
+    // ディレクトリの読み取り権限確認
+    if (!is_readable($dir)) {
+        writelog("ERROR deleteDirectory() Directory not readable: $dir");
+        return false;
+    }
+
+    // ディレクトリの内容を取得
+    $items = scandir($dir);
+    if ($items === false) {
+        writelog("ERROR deleteDirectory() Failed to scan directory: $dir");
+        return false;
+    }
+
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') {
             continue;
         }
 
-        $path = $dir . DIRECTORY_SEPARATOR . $item;
+        $itemPath = $dir . DIRECTORY_SEPARATOR . $item;
 
-        if (is_link($path)) {
+        // 各アイテムのパスも安全性確認（多重防御）
+        if (!isPathAllowedForDeletion($itemPath)) {
+            writelog("ERROR deleteDirectory() Sub-item path not allowed: $itemPath");
+            return false;
+        }
+
+        if (is_link($itemPath)) {
             // シンボリックリンクの場合は直接unlinkで削除
-            if (!unlink($path)) {
+            if (!unlink($itemPath)) {
+                writelog("ERROR deleteDirectory() Failed to delete symlink: $itemPath");
                 return false;
             }
-        } elseif (is_dir($path)) {
+            writelog("DEBUG deleteDirectory() Symlink deleted: $itemPath");
+        } elseif (is_dir($itemPath)) {
             // ディレクトリの場合は再帰的に削除
-            if (!deleteDirectory($path)) {
+            if (!deleteDirectory($itemPath)) {
+                writelog("ERROR deleteDirectory() Failed to delete subdirectory: $itemPath");
                 return false;
             }
         } else {
             // 通常のファイルの場合はunlinkで削除
-            if (!unlink($path)) {
+            if (!unlink($itemPath)) {
+                writelog("ERROR deleteDirectory() Failed to delete file: $itemPath");
                 return false;
             }
+            writelog("DEBUG deleteDirectory() File deleted: $itemPath");
         }
     }
 
-    // ディレクトリ自体を削除
-    return rmdir($dir);
+    // 最終的にディレクトリ自体を削除
+    if (!is_writable(dirname($dir))) {
+        writelog("ERROR deleteDirectory() Parent directory not writable for rmdir: " . dirname($dir));
+        return false;
+    }
+
+    $result = rmdir($dir);
+    if ($result) {
+        writelog("DEBUG deleteDirectory() Directory deleted successfully: $dir");
+    } else {
+        writelog("ERROR deleteDirectory() Failed to delete directory: $dir");
+    }
+
+    return $result;
 } //end function deleteDirectory
 
 
@@ -5139,7 +5323,7 @@ function handleEpubOpen()
     if ($fileSize < 5 * 1024 * 1024) {
         $encodedFilePath = rawurlencode($publicDir . '/' . $file);
         $bibiUrl = "/bibi/?book=" . $encodedFilePath;
-        writelog("DEBUG handleEpubOpen() small file, redirecting directly to bibi: $bibiUrl");
+        writelog("INFO handleEpubOpen() small file, redirecting directly to bibi: $bibiUrl");
 
         // 直接Bibiは積極的にキャッシュ
         header('Cache-Control: private, max-age=86400');
@@ -5157,7 +5341,7 @@ function handleEpubOpen()
     $fileHash = trim($fileHash);
 
     if (empty($fileHash)) {
-        writelog("ERROR handleEpubOpen() md5 hash failed: $epubFile");
+        writelog("ERROR handleEpubOpen() file hash failed: $epubFile");
         errorExit('file_processing_failed');
     }
 
@@ -5166,11 +5350,38 @@ function handleEpubOpen()
     // キャッシュディレクトリパス
     $epubCacheDir = $cacheDir . '/' . $fileHash;
 
+    // シンボリックリンクのパスを設定
+    $webRoot = $conf['webRoot'] ?? '/home/dmng/public';
+    $symlinkPath = $webRoot . '/theme/bibi/' . $fileHash;
+
     // キャッシュが既に存在するかチェック
     // && file_exists($epubCacheDir . '/container.xml')
-    if (is_dir($epubCacheDir)) {
+    if (is_dir($epubCacheDir) && is_link($symlinkPath) && is_dir($symlinkPath)) {
         writelog("DEBUG handleEpubOpen() cache already exists, skipping extraction");
+        // 展開中でもここに来てしまうのでDONEファイルがあるかを検証する
+        if (file_exists("$epubCacheDir/DONE")) {
+            writelog("DEBUG handleEpubOpen() DONE file exists.");
+            // bibiにリダイレクト
+            $bibiUrl = "/bibi/?book=/theme/bibi/$fileHash";
+            writelog("INFO handleEpubOpen() redirecting to bibi: $bibiUrl");
+
+            // 個人データを1日間ブラウザにキャッシュする設定
+            header('Cache-Control: max-age=86400, private');
+            header('Expires: ' . gmdate('D, d M Y H:i:s', time() + 86400) . ' GMT');
+            header("Location: $bibiUrl", true, 302);
+            exit(0);
+        } else {
+            // 展開中なので待たせる
+            writelog("INFO handleEpubOpen() epub extracting,exit.");
+            errorExit('archive_expanding', 'archive_expanding_detail', false);
+            exit(0);
+        }
     } else {
+        // ローディング画面
+        writelog("DEBUG handleEpubOpen() print loading page");
+        $file = $fileHash;
+        printLoading(round($fileSizeMB));
+
         // キャッシュディレクトリがない場合は古いシンボリックリンクがあるかもしれないから削除
         // シンボリックリンクのパスを設定
         $webRoot = $conf['webRoot'] ?? '/home/dmng/public';
@@ -5179,6 +5390,8 @@ function handleEpubOpen()
             unlink($symlinkPath);
             writelog("DEBUG handleEpubOpen() old symlink removed: $symlinkPath");
         }
+        // 古いキャッシュディレクトリを削除
+        deleteDirectory($epubCacheDir);
         // キャッシュディレクトリを作成
         if (!chkAndMakeDir($epubCacheDir)) {
             writelog("ERROR handleEpubOpen() failed to create cache directory: $epubCacheDir");
@@ -5200,42 +5413,31 @@ function handleEpubOpen()
             errorExit('file_processing_failed');
         }
 
-        writelog("DEBUG handleEpubOpen() EPUB extracted successfully");
-    }
-
-    // シンボリックリンクのパスを設定
-    $webRoot = $conf['webRoot'] ?? '/home/dmng/public';
-    $symlinkPath = $webRoot . '/theme/bibi/' . $fileHash;
-
-    // シンボリックリンクが存在しない場合は作成
-    if (!is_link($symlinkPath) && !is_dir($symlinkPath)) {
-        // 親ディレクトリを作成
-        $symlinkDir = dirname($symlinkPath);
-        if (!is_dir($symlinkDir)) {
-            if (!mkdir($symlinkDir, 0755, true)) {
-                writelog("ERROR handleEpubOpen() failed to create symlink directory: $symlinkDir");
-                errorExit('mkdir_failed');
+        // シンボリックリンクが存在しない場合は作成
+        if (!is_link($symlinkPath) && !is_dir($symlinkPath)) {
+            // 親ディレクトリを作成
+            $symlinkDir = dirname($symlinkPath);
+            if (!is_dir($symlinkDir)) {
+                if (!mkdir($symlinkDir, 0755, true)) {
+                    writelog("ERROR handleEpubOpen() failed to create symlink directory: $symlinkDir");
+                    errorExit('mkdir_failed');
+                }
             }
-        }
 
-        // シンボリックリンクを作成
-        if (!symlink($epubCacheDir, $symlinkPath)) {
-            writelog("ERROR handleEpubOpen() failed to create symlink: $epubCacheDir -> $symlinkPath");
-            errorExit('symlink_failed');
-        }
+            // シンボリックリンクを作成
+            if (!symlink($epubCacheDir, $symlinkPath)) {
+                writelog("ERROR handleEpubOpen() failed to create symlink: $epubCacheDir -> $symlinkPath");
+                errorExit('symlink_failed');
+            }
 
-        writelog("DEBUG handleEpubOpen() symlink created: $symlinkPath");
+            writelog("DEBUG handleEpubOpen() symlink created: $symlinkPath");
+        }
+        // 完了フラグを作成
+        touch("$epubCacheDir/DONE");
+        // writelog("INFO handleEpubOpen() Background PDF preparation finished for $file.");
+        writelog("DEBUG handleEpubOpen() EPUB extracted successfully");
+        exit(0);
     }
-
-    // bibiにリダイレクト
-    $bibiUrl = "/bibi/?book=/theme/bibi/$fileHash";
-    writelog("DEBUG handleEpubOpen() redirecting to bibi: $bibiUrl");
-
-    // 個人データを1日間ブラウザにキャッシュする設定
-    header('Cache-Control: max-age=86400, private');
-    header('Expires: ' . gmdate('D, d M Y H:i:s', time() + 86400) . ' GMT');
-    header("Location: $bibiUrl", true, 302);
-    exit(0);
 } //end function handleEpubOpen
 
 ?>
