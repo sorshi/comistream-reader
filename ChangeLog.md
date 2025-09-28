@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ディレクトリリスティングにスケルトンスクリーン搭載
 - 5MB以上のepubはサーバー側で事前展開して高速な出画を行うように
 - 画面下半分の親指上スワイプによるページ順めくり機能を追加
+- 表紙画像/プレビュー画像作成時に同名ファイルでもファイルの中身を判定して同一ファイル化判定
 
 ### 変更
 - unrar path設定項目を削除
@@ -60,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SynologyのNASでコンテナが起動するように修正 [#11](https://github.com/sorshi/comistream-reader/issues/11)
 - jQuery依存箇所を書き直した
 - Dockerfileのdnf不具合修正
+- 表紙画像とプレビュー画像のプッシュアウトに失敗するパターンを削除できるように改良
 
 ### 削除
 - なし

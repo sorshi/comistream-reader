@@ -787,8 +787,6 @@ function getRecentBooks()
     }
     exit(0);
 } //end function writelog
-
-
 ##### ファイルクローズ時にページ位置を保存 ##################################################
 function saveBookmark()
 {
@@ -1854,22 +1852,57 @@ function isPathAllowedForDeletion($path)
     }
 
     // パスが存在しない場合はrealpath()が失敗するが、削除対象が存在しないなら安全
-    if (!file_exists($path)) {
-        // 親ディレクトリで検証
-        $parentPath = dirname($path);
-        if (!file_exists($parentPath)) {
-            writelog("ERROR isPathAllowedForDeletion() Parent directory does not exist: $parentPath");
-            return false;
-        }
-        $realPath = realpath($parentPath) . DIRECTORY_SEPARATOR . basename($path);
-    } else {
-        $realPath = realpath($path);
-        if ($realPath === false) {
-            writelog("ERROR isPathAllowedForDeletion() Failed to resolve real path: $path");
-            return false;
-        }
-    }
+    // if (!file_exists($path)) {
+    //     // 親ディレクトリで検証
+    //     $parentPath = dirname($path);
+    //     if (!file_exists($parentPath)) {
+    //         writelog("ERROR isPathAllowedForDeletion() Parent directory does not exist: $parentPath");
+    //         return false;
+    //     }
+    //     $realPath = realpath($parentPath) . DIRECTORY_SEPARATOR . basename($path);
+    // } else {
+    //     $realPath = realpath($path);
+    //     if ($realPath === false) {
+    //         writelog("ERROR isPathAllowedForDeletion() Failed to resolve real path: $path");
+    //         return false;
+    //     }
+    // }
+    // シンボリックリンクはunlinkで安全に削除できるのでリンク先を辿らない
+    $isSymlink = is_link($path);
 
+    // パスが存在しない場合でも、親を遡って許可されたベースパス内かチェックする
+    $realPath = $isSymlink ? false : realpath($path);
+    if ($realPath === false) {
+        // realpathが失敗した場合、パスが存在しない可能性がある。
+        // 親ディレクトリを遡って、最初に存在するディレクトリを探す。
+        $parentPath = $isSymlink ? dirname($path) : $path;
+        $nonExistentSubpath = $isSymlink ? basename($path) : '';
+
+        // 存在する親が見つかるまで、またはルートに達するまでループ
+        while (!file_exists($parentPath)) {
+            $basename = basename($parentPath);
+            $parentPath = dirname($parentPath);
+
+            // ルートまで遡っても存在しない場合はエラー
+            if ($parentPath === '.' || $parentPath === '/') {
+                writelog("ERROR isPathAllowedForDeletion() Could not find any existing parent directory for path: $path");
+                return false;
+            }
+            $nonExistentSubpath = $basename . ($nonExistentSubpath ? DIRECTORY_SEPARATOR . $nonExistentSubpath : '');
+        }
+
+        $realParentPath = realpath($parentPath);
+        if ($realParentPath === false) {
+            writelog("ERROR isPathAllowedForDeletion() Failed to resolve real path for existing parent: $parentPath");
+            return false;
+        }
+
+        // 存在しない部分を結合して、本来あるべき絶対パスを構築
+        $realPath = $realParentPath . DIRECTORY_SEPARATOR . $nonExistentSubpath;
+
+        // 末尾のセパレータを削除して正規化
+        $realPath = rtrim($realPath, DIRECTORY_SEPARATOR);
+    }
     // 許可されたベースディレクトリのリスト
     $allowedBasePaths = [];
 
@@ -1902,6 +1935,7 @@ function isPathAllowedForDeletion($path)
     $systemTmpPaths = [
         '/tmp/comistream',
         '/dev/shm/comistream',
+        '/dev/shm/comistream_temp',
         '/var/tmp/comistream'
     ];
 
@@ -2284,7 +2318,6 @@ function printHTML()
     --loading-circle-url: url("$themeDir/theme/icons/loadingCircle.gif");
     --degree: rotateY($degree);
 }
-
 $contents_css
 
 --></style>
@@ -3057,7 +3090,6 @@ function _preparePdfCache()
         writelog("DEBUG _preparePdfCache() TOC generated and cached.");
     }
 } //end function _preparePdfCache
-
 ##### PDFから目次情報取得 ############################################################
 function formatPdfContents($raw_contents)
 {
@@ -3265,8 +3297,6 @@ function get_book_title($bookName)
     $onlyBookName = preg_replace('/\[(.*?)\] */', '', $onlyBookName); // [ ] 内削除
     $bookName = preg_replace('/(\(|\[)[0-9]{4}-[0-9]{2}-[0-9]{2}(\)|\])/', '', $bookName); // YYYY-MM-DD を削除
     $onlyBookName = preg_replace('/(\(|\[)[0-9]{4}-[0-9]{2}-[0-9]{2}(\)|\])/', '', $onlyBookName); // YYYY-MM-DD を削除
-    $bookName = preg_replace('/(\(|\[)(オリジナル|DL|DL版|よろず|修正版|AVIF|WebP|別スキャン|別炊|JPG|縮小)(\)|\])/', '', $bookName); // 付属情報を削除
-    $onlyBookName = preg_replace('/(\(|\[)(オリジナル|DL|DL版|よろず|修正版|AVIF|WebP|別スキャン|別炊|JPG|縮小)(\)|\])/', '', $onlyBookName); // 付属情報を削除
     $bookName = preg_replace('/(.+)(\.[^.]+)$/', '$1', $bookName); // 拡張子を削除
     $onlyBookName = preg_replace('/(.+)(\.[^.]+)$/', '$1', $onlyBookName); // 拡張子を削除
     $pageTitle = $bookName;
@@ -4483,8 +4513,6 @@ function handleInitialSetup($postData)
         errorExit('invalid_config', 'system_error');
     }
 } //end function handleInitialSetup
-
-
 ##### .htaccess作成、theme設定とfooter.html更新 #################################################
 function installThemeFiles($dbh)
 {

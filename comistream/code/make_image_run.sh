@@ -36,6 +36,8 @@ export comistream_tool_dir=$(sqlite3 "$dbfile" "SELECT value FROM system_config 
 export publicDir=$(sqlite3 "$dbfile" "SELECT value FROM system_config WHERE key='publicDir';")
 # export publicDir="/nas";
 export comistream_tmp_dir_root=$(sqlite3 "$dbfile" "SELECT value FROM system_config WHERE key='comistream_tmp_dir_root';")
+md5cmd=$(sqlite3 "$dbfile" "SELECT value FROM system_config WHERE key='md5cmd';")
+export md5cmd
 
 # # プレビュー画像用のディレクトリ
 # 廃止、coversと共通化
@@ -49,6 +51,106 @@ multiProc=1
 export make_image_script=$(realpath "$(dirname "$0")/make_cover_preview.php")
 # エラーログ
 errorLog="/dev/null"
+
+ebook_extensions=(zip ZIP cbz CBZ rar RAR cbr CBR 7z 7Z cb7 CB7 pdf PDF epub EPUB ePub)
+
+function get_file_hash() {
+  local target="$1"
+  if [ -z "$md5cmd" ]; then
+    echo ""
+    return 1
+  fi
+  if [ ! -f "$target" ]; then
+    echo ""
+    return 1
+  fi
+
+  local cmd=()
+  read -r -a cmd <<< "$md5cmd"
+  if [ ${#cmd[@]} -eq 0 ]; then
+    echo ""
+    return 1
+  fi
+
+  local output
+  if ! output=$("${cmd[@]}" "$target" 2>/dev/null); then
+    echo ""
+    return 1
+  fi
+
+  echo "$output" | awk 'NR==1 {print $1}'
+}
+export -f get_file_hash
+
+function get_file_size() {
+  local target="$1"
+  if [ -z "$target" ] || [ ! -f "$target" ]; then
+    echo ""
+    return 1
+  fi
+
+  local size
+  if size=$(stat -c %s "$target" 2>/dev/null); then
+    echo "$size"
+    return 0
+  fi
+
+  if size=$(stat -f %z "$target" 2>/dev/null); then
+    echo "$size"
+    return 0
+  fi
+
+  size=$(wc -c < "$target" 2>/dev/null)
+  echo "$size"
+  return 0
+}
+export -f get_file_size
+
+function resolve_ebook_from_image() {
+  local image_path="$1"
+  local image_type="$2"
+  local relative_path=""
+  local prefix="$webRoot/theme/$image_type/"
+
+  if [[ "$image_path" == "$prefix"* ]]; then
+    relative_path="${image_path#"$prefix"}"
+    relative_path="${relative_path#/}"
+    local normalized_public_dir="${publicDir#/}"
+    if [ -n "$normalized_public_dir" ] && [[ "$relative_path" == "$normalized_public_dir/"* ]]; then
+      relative_path="${relative_path#"$normalized_public_dir/"}"
+    fi
+  else
+    prefix="$comistream_tool_dir/data/theme/$image_type$publicDir/"
+    if [[ "$image_path" == "$prefix"* ]]; then
+      relative_path="${image_path#"$prefix"}"
+    fi
+  fi
+
+  if [ -z "$relative_path" ]; then
+    echo ""
+    return 1
+  fi
+
+  relative_path="${relative_path#/}"
+  local normalized_public_dir="${publicDir#/}"
+  if [ -n "$normalized_public_dir" ] && [[ "$relative_path" == "$normalized_public_dir/"* ]]; then
+    relative_path="${relative_path#"$normalized_public_dir/"}"
+  fi
+
+  local base_path="${relative_path%.*}"
+  local candidate
+  for ext in "${ebook_extensions[@]}"; do
+    candidate="$searchPath/$base_path.$ext"
+    if [ -f "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  echo ""
+  return 1
+}
+export -f resolve_ebook_from_image
 
 function make_image() {
   set +H
@@ -90,18 +192,93 @@ function make_image() {
     if [[ "$filePath" =~ \.(zip|ZIP|cbz|CBZ|rar|RAR|cbr|CBR|7z|7Z|cb7|CB7|pdf|PDF|epub|EPUB|ePub)$ ]]; then
       # 開始時間を記録
       start_time=$(date +%s.%N)
+      logger -t "comistream make_image_run.sh[$$]" -p local1.info "Generate image files for $outputFile"
       outputBasename=$(basename "${outputFile}")
-      existingFile=$(find "$webRoot/theme/$imageType/" -type f | grep -m 1 -F "${outputBasename}")
-      # logger -t "comistream make_image_run.sh[$$]" -p local1.notice "$existingFile $outputFile $1"
+      link_created=false
+      target_size=$(get_file_size "$filePath")
+      target_hash=""
+      missing_candidates=()
+      total_candidates=0
+      matching_candidates=0
+      escaped_output_basename=$(printf '%s\n' "$outputBasename" | sed 's/[][\\*?]/\\&/g')
+      # オヨ？ワイルドカード変換されたら困るからバッチリエスケープするルン！
+      logger -t "comistream make_image_run.sh[$$]" -p local1.debug "checking reuse candidates for: $1 ($imageType)"
 
-      if [ -n "$existingFile" ] && [ "$existingFile" != "$outputFile" ]; then
-        # 既存のファイルが見つかった場合、ハードリンクを作成
-        mkdir -p "$(dirname "$outputFile")"
-        ln "$existingFile" "$outputFile"
-        logger -t "comistream make_image_run.sh[$$]" -p local1.info "hardlink created $existingFile for: $1 ($imageType)"
+      # オヨ？ ebookが見付からないルン…移動かもだから候補に入れるルン！
+      if [ -z "$target_size" ]; then
+        logger -t "comistream make_image_run.sh[$$]" -p local1.debug "target ebook size unavailable; fallback to regenerate: $1"
       else
-        # 既存のファイルが見つからない場合、新規作成
-        logger -t "comistream make_image_run.sh[$$]" -p local1.debug "$imageType file not exist; creating new: $1"
+        while IFS= read -r -d '' existingFile; do
+          total_candidates=$((total_candidates + 1))
+          if [ "$existingFile" == "$outputFile" ]; then
+            continue
+          fi
+
+          matching_candidates=$((matching_candidates + 1))
+
+          # ふにゃ？候補は同名だけ探してるからここは絞り込み済みルン！
+          source_ebook=$(resolve_ebook_from_image "$existingFile" "$imageType")
+          logger -t "comistream make_image_run.sh[$$]" -p local1.debug "candidate image: $existingFile -> ebook: ${source_ebook:-UNRESOLVED}"
+          if [ -z "$source_ebook" ]; then
+            logger -t "comistream make_image_run.sh[$$]" -p local1.debug "source ebook path unresolved; skip candidate: $existingFile"
+            missing_candidates+=("$existingFile")
+            continue
+          fi
+
+          if [ ! -f "$source_ebook" ]; then
+            logger -t "comistream make_image_run.sh[$$]" -p local1.debug "source ebook missing; skip candidate: $existingFile"
+            missing_candidates+=("$existingFile")
+            continue
+          fi
+
+          source_size=$(get_file_size "$source_ebook")
+          if [ -z "$source_size" ] || [ "$source_size" != "$target_size" ]; then
+            logger -t "comistream make_image_run.sh[$$]" -p local1.debug "size mismatch; skip candidate: $existingFile (source=$source_size target=$target_size)"
+            continue
+          fi
+
+          if [ -z "$target_hash" ]; then
+            target_hash=$(get_file_hash "$filePath")
+            if [ -z "$target_hash" ]; then
+              logger -t "comistream make_image_run.sh[$$]" -p local1.debug "target hash unavailable; stop reuse attempt for: $1"
+              break
+            fi
+            logger -t "comistream make_image_run.sh[$$]" -p local1.debug "target hash: $target_hash"
+          fi
+          source_hash=$(get_file_hash "$source_ebook")
+
+          if [ -z "$source_hash" ]; then
+            logger -t "comistream make_image_run.sh[$$]" -p local1.debug "hash unavailable; skip candidate: $existingFile"
+            continue
+          fi
+
+          logger -t "comistream make_image_run.sh[$$]" -p local1.debug "source hash: $source_hash (candidate: $existingFile)"
+
+          if [ "$source_hash" == "$target_hash" ]; then
+            mkdir -p "$(dirname "$outputFile")"
+            ln "$existingFile" "$outputFile"
+            logger -t "comistream make_image_run.sh[$$]" -p local1.info "hardlink created $existingFile for: $1 ($imageType)"
+            link_created=true
+            break
+          fi
+
+          logger -t "comistream make_image_run.sh[$$]" -p local1.debug "hash mismatch; skip candidate: $existingFile (source_hash=$source_hash target_hash=$target_hash)"
+        done < <(find "$webRoot/theme/$imageType/" -type f -name "${escaped_output_basename}" -print0 2>/dev/null)
+      fi
+
+      if [ "$link_created" != true ] && [ ${#missing_candidates[@]} -eq 1 ]; then
+        candidate="${missing_candidates[0]}"
+        mkdir -p "$(dirname "$outputFile")"
+        ln "$candidate" "$outputFile"
+        logger -t "comistream make_image_run.sh[$$]" -p local1.info "hardlink created (assumed move) $candidate for: $1 ($imageType)"
+        link_created=true
+      elif [ "$link_created" != true ] && [ ${#missing_candidates[@]} -gt 1 ]; then
+        logger -t "comistream make_image_run.sh[$$]" -p local1.debug "multiple missing ebook candidates (${#missing_candidates[@]}) for: $1; skip hardlink"
+      fi
+
+      if [ "$link_created" != true ]; then
+        logger -t "comistream make_image_run.sh[$$]" -p local1.debug "checked ${matching_candidates} matching candidate(s) among ${total_candidates} scanned; reusable image found? $link_created"
+        logger -t "comistream make_image_run.sh[$$]" -p local1.debug "no reusable image found; creating new: $1 ($imageType)"
         nice php $make_image_script --file="$1" --type="$imageType"
       fi
     else
@@ -113,7 +290,7 @@ function make_image() {
   fi
 
   if [ ! -s "$outputFile" ]; then
-    logger -t "comistream make_image_run.sh[$$]" -p local1.NOTICE "$imageType output NG :$outputFile:$1"
+    logger -t "comistream make_image_run.sh[$$]" -p local1.warning "$imageType output NG :$outputFile:$1"
     rm -f "$outputFile"
   else
     # 終了時間を記録し、所要時間を計算
@@ -121,7 +298,7 @@ function make_image() {
     duration=$(echo "$end_time - $start_time" | bc)
     # 小数点第2位で四捨五入
     duration=$(printf "%.1f" "$duration")
-    logger -t "comistream make_image_run.sh[$$]" -p local1.INFO "$imageType output OK : $1 (processing time: ${duration}sec)"
+    logger -t "comistream make_image_run.sh[$$]" -p local1.info "$imageType output OK : $1 (processing time: ${duration}sec)"
   fi
 
   set -H
