@@ -39,15 +39,16 @@ previewDir="$comistream_tool_dir/data/theme/preview/"
 removeNonexistentOriginalDirs() {
   local coverDir="$1"
 
-  # coverディレクトリ内の各ディレクトリに対して処理を行う
-  find "$coverDir" -type d | while read dir; do
-    # 元のディレクトリのパスを生成
-    originalDir="${webRoot}/$(echo "$dir" | sed "s|$coverDir||")"
+  # coverディレクトリ内の各ディレクトリに対して処理を行うルン
+  find "$coverDir" -mindepth 1 -type d -print0 | while IFS= read -r -d '' dir; do
+    # 元のディレクトリのパスを生成するルン
+    local relativePath="${dir#${coverDir}}"
+    local originalDir="${webRoot}/${relativePath}"
 
     # echo "ORG   :$originalDir"
     # echo "TARGET:$dir"
 
-    # 元のディレクトリが存在しなければ削除
+    # 元のディレクトリが存在しなければ削除するルン
     if [ ! -d "$originalDir" ]; then
       rm -rf "$dir"
       # echo "rm -rf $dir"
