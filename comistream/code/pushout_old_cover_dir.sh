@@ -18,6 +18,9 @@
 #
 ###############################################################################
 
+# 起動
+logger -t "comistream pushout_old_cover_dir.sh[$$]" -p local1.info "pushout_old_cover_dir start."
+
 # 設定
 dbfile=$(realpath "$(dirname "$0")/../data/db/comistream.sqlite")
 if [ ! -f "$dbfile" ]; then

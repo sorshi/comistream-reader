@@ -14,9 +14,10 @@
  * @version     1.0.0
  * @link        https://github.com/sorshi/comistream-reader
  *
- * @param  string  --file   処理対象のファイルパス
- * @param  string  --type   作成する画像タイプ (covers|preview)
- * @param  bool    --cache  キャッシュディレクトリを使用するかどうか
+ * @param  string  --file      処理対象のファイルパス
+ * @param  string  --type      作成する画像タイプ (covers|preview)
+ * @param  bool    --cache     キャッシュディレクトリを使用するかどうか
+ * @param  int     --trimming  トリミングするかどうか (1:トリミング, 2:トリミングしない)
  */
 
 /**
@@ -110,7 +111,7 @@ register_shutdown_function(function () {
 
 // シングルファイルモードなら
 // コマンドライン引数を取得
-$options = getopt("", ["file:", "type:", "cache:"]);
+$options = getopt("", ["file:", "type:", "cache:", "trimming::"]);
 
 // 引数のバリデーション
 if (!isset($options['file']) || !isset($options['type'])) {
@@ -419,8 +420,12 @@ if (strcasecmp($ext, 'epub') == 0) {
     $user = 'guest';
     $size = 'FULL';
     openPage();
-    // 画像は余白をトリミングする
-    $view = 'trimming';
+    // 画像は余白をトリミングするかどうかを--trimmingオプションで制御するルン
+    if (isset($options['trimming']) && $options['trimming'] == 2) {
+        $view = '';
+    } else {
+        $view = 'trimming';
+    }
 
     if ($type == 'covers') {
 

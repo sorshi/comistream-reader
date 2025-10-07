@@ -29,6 +29,8 @@
 #     \( largefolderx2.webp -alpha set -channel A -evaluate Multiply 0.75 \) -gravity center -composite \
 #     -quality 75 combined_folder_icon.webp
 
+# 起動
+logger -t "comistream make_folder_image_run.sh[$$]" -p local1.info "make_folder_image_run start."
 
 # 設定値
 dbfile=$(realpath "$(dirname "$0")/../data/db/comistream.sqlite")
@@ -69,11 +71,13 @@ function make_folder_icon() {
   local outputDir="$comistream_tool_dir/data/theme/covers$publicDir/$targetDirRelPath"
   local output_icon_path="${outputDir}index.webp"
 
-  logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.debug "Processing targetDirAbsPath: $targetDirAbsPath outputDir: $outputDir output_icon_path: $output_icon_path"
+  # 多すぎるのでコメントアウト
+  # logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.debug "Processing targetDirAbsPath: $targetDirAbsPath outputDir: $outputDir output_icon_path: $output_icon_path"
 
   # 出力ファイルが存在するか0バイトの場合以外はスキップ
   if [ -s "$output_icon_path" ]; then
-    logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.debug "Icon already exists, skipping: $output_icon_path"
+    # 多すぎるのでコメントアウト
+    # logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.debug "Icon already exists, skipping: $output_icon_path"
     return
   fi
 

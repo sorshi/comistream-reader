@@ -924,44 +924,77 @@ function outputPage($isFileout = false)
         if (preg_match('/\.(zip|cbz|7z|cb7|rar|cbr)$/i', $ext)) {
             // zipから1ページ切り出し
             // unzipで[]は特殊文字のため?にエスケープする
+            // 元のファイル名を保存（rawindex検索用）
+            $pagefileOriginal = $pagefile;
             $pagefile = str_replace(['[', ']'], '?', $pagefile);
             if (file_exists("$cacheDir/$file/cp932")) {
                 $pageInput = "LANG=ja_JP.UTF8 $unzip -p -O cp932 \"$cacheDir/$file/file\" \"$pagefile\"";
             } else {
-                // ファイルサイズ検証
+                // ファイルサイズ検証 ルン！
                 // 定数定義
                 if (!defined('MAX_FILE_SIZE_BYTES')) {
                     define('MAX_FILE_SIZE_BYTES', 20 * 1024 * 1024); // 20MB
                 }
-                // 1. 7zaのリストコマンドでファイル情報を取得
-                // -slt: 詳細なリスト形式で出力
-                // -p: パスワード指定
-                $command_list = sprintf(
-                    'LANG=ja_JP.UTF8 %s l -slt %s %s',
-                    $p7zip,
-                    escapeshellarg($cacheDir . '/' . $file . '/file'),
-                    escapeshellarg($pagefile)
-                );
 
-                // コマンドを実行し、出力を取得
-                $output = shell_exec($command_list);
-                // writelog("DEBUG outputPage() p7zip list output:" . $output);
+                // 1. rawindexファイルから情報を取得（高速化！）
+                $rawindex_path = "$cacheDir/$file/rawindex";
+                $output = '';
 
-                // 2. 出力から展開後のファイルサイズをパース
-                // "Size = [数字]" の行を探す
-                $unpackedSize = 0;
-                if (preg_match('/^Size = (\d+)$/m', $output, $matches)) {
-                    $unpackedSize = (int)$matches[1];
+                if (file_exists($rawindex_path)) {
+                    // 既存のrawindexファイルを使用（高速！）
+                    $output = file_get_contents($rawindex_path);
+                    writelog("DEBUG outputPage() Using existing rawindex file for size check");
                 } else {
-                    // ... ファイル情報が取得できなかった場合のエラー処理
-                    writelog("ERROR outputPage() Could not find the specified file in the archive.");
+                    // rawindexがない場合は7zaコマンドを実行（フォールバック）
+                    $command_list = sprintf(
+                        'LANG=ja_JP.UTF8 %s l -slt %s',
+                        $p7zip,
+                        escapeshellarg($cacheDir . '/' . $file . '/file')
+                    );
+                    $output = shell_exec($command_list);
+                    writelog("DEBUG outputPage() Generated new rawindex via 7za command");
+                }
+
+                // 2. 出力から該当ファイルの展開後サイズをパースするルン
+                // ファイル名とサイズの情報を抽出（元のファイル名で検索！）
+                $unpackedSize = 0;
+                $lines = explode("\n", $output);
+                $foundFile = false;
+
+                for ($i = 0; $i < count($lines); $i++) {
+                    // "Path = " で始まる行を探すルン
+                    if (strpos($lines[$i], 'Path = ') === 0) {
+                        $pathValue = trim(substr($lines[$i], 7)); // "Path = " の後の部分
+
+                        // ファイル名が一致するかチェック（末尾一致でチェック）
+                        // 元のファイル名（置換前）で検索するルン！
+                        if (
+                            substr($pathValue, -strlen($pagefileOriginal)) === $pagefileOriginal ||
+                            $pathValue === $pagefileOriginal
+                        ) {
+                            $foundFile = true;
+                            // 次の数行でSizeを探すルン
+                            for ($j = $i + 1; $j < min($i + 10, count($lines)); $j++) {
+                                if (preg_match('/^Size = (\d+)$/', $lines[$j], $matches)) {
+                                    $unpackedSize = (int)$matches[1];
+                                    writelog("DEBUG outputPage() Found file size: $unpackedSize bytes for: $pagefileOriginal");
+                                    break 2; // 両方のループを抜けるルン
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!$foundFile) {
+                    // ファイルが見つからなかった場合のエラー処理ルン
+                    writelog("ERROR outputPage() Could not find the specified file in the archive: $pagefileOriginal");
                 }
                 // ファイル情報が見つからない、またはサイズが0の場合はエラー
                 if ($unpackedSize === 0) {
-                    // エラー処理: 指定されたファイルがアーカイブ内に見つかりませんでした。
+                    // エラー処理: 指定されたファイルがアーカイブ内に見つかりませんでした
                     header("HTTP/1.1 500 Internal Server Error");
                     // showReloadRequiredImg(1);
-                    writelog("ERROR outputPage() Could not find the specified file in the archive.");
+                    writelog("ERROR outputPage() File not found or size is 0 in archive: $pagefileOriginal");
                     deleteCacheDirAndReload();
                     exit;
                 }

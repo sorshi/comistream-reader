@@ -150,3 +150,9 @@ if [ -d "$bibi_dir" ]; then
 else
     logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.info "Bibi directory not found: $bibi_dir"
 fi
+
+# カスタムフォルダアイコン作成
+logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.info "start make_folder_image_run.sh."
+make_folder_image_run_file="$SCRIPT_DIR/../code/make_folder_image_run.sh"
+bash "$make_folder_image_run_file" > /dev/null 2>&1
+

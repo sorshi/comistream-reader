@@ -15,7 +15,7 @@
 #
 #
 # 作成者: Comistream Project
-# バージョン: 1.0.1
+# バージョン: 2.0.0
 # ライセンス: GPL3.0
 # https://github.com/sorshi/comistream-reader
 #
@@ -197,14 +197,14 @@ function make_image() {
       link_created=false
       target_size=$(get_file_size "$filePath")
       target_hash=""
-      missing_candidates=()
       total_candidates=0
       matching_candidates=0
+      missing_candidates=()
       escaped_output_basename=$(printf '%s\n' "$outputBasename" | sed 's/[][\\*?]/\\&/g')
       # オヨ？ワイルドカード変換されたら困るからバッチリエスケープするルン！
       logger -t "comistream make_image_run.sh[$$]" -p local1.debug "checking reuse candidates for: $1 ($imageType)"
 
-      # オヨ？ ebookが見付からないルン…移動かもだから候補に入れるルン！
+      # オヨ？同名ファイルを探してハッシュ比較するルン！
       if [ -z "$target_size" ]; then
         logger -t "comistream make_image_run.sh[$$]" -p local1.debug "target ebook size unavailable; fallback to regenerate: $1"
       else
@@ -220,13 +220,13 @@ function make_image() {
           source_ebook=$(resolve_ebook_from_image "$existingFile" "$imageType")
           logger -t "comistream make_image_run.sh[$$]" -p local1.debug "candidate image: $existingFile -> ebook: ${source_ebook:-UNRESOLVED}"
           if [ -z "$source_ebook" ]; then
-            logger -t "comistream make_image_run.sh[$$]" -p local1.debug "source ebook path unresolved; skip candidate: $existingFile"
+            logger -t "comistream make_image_run.sh[$$]" -p local1.debug "source ebook path unresolved; mark as missing candidate: $existingFile"
             missing_candidates+=("$existingFile")
             continue
           fi
 
           if [ ! -f "$source_ebook" ]; then
-            logger -t "comistream make_image_run.sh[$$]" -p local1.debug "source ebook missing; skip candidate: $existingFile"
+            logger -t "comistream make_image_run.sh[$$]" -p local1.debug "source ebook missing; mark as missing candidate: $existingFile"
             missing_candidates+=("$existingFile")
             continue
           fi
@@ -266,20 +266,50 @@ function make_image() {
         done < <(find "$webRoot/theme/$imageType/" -type f -name "${escaped_output_basename}" -print0 2>/dev/null)
       fi
 
-      if [ "$link_created" != true ] && [ ${#missing_candidates[@]} -eq 1 ]; then
-        candidate="${missing_candidates[0]}"
-        mkdir -p "$(dirname "$outputFile")"
-        ln "$candidate" "$outputFile"
-        logger -t "comistream make_image_run.sh[$$]" -p local1.info "hardlink created (assumed move) $candidate for: $1 ($imageType)"
-        link_created=true
-      elif [ "$link_created" != true ] && [ ${#missing_candidates[@]} -gt 1 ]; then
-        logger -t "comistream make_image_run.sh[$$]" -p local1.debug "multiple missing ebook candidates (${#missing_candidates[@]}) for: $1; skip hardlink"
+      # オヨオヨ？元ebookが見つからない画像があったルン！ファイル移動かチェックするルン！
+      if [ "$link_created" != true ] && [ ${#missing_candidates[@]} -gt 0 ]; then
+        logger -t "comistream make_image_run.sh[$$]" -p local1.debug "found ${#missing_candidates[@]} missing ebook candidate(s); checking if file was moved"
+        
+        # ファイル名（拡張子なし）を取得
+        base_name="${1%.*}"
+        same_name_count=0
+        
+        # searchPath内で同名のebookファイルを全てカウント
+        for ext in "${ebook_extensions[@]}"; do
+          test_path="$searchPath/$base_name.$ext"
+          if [ -f "$test_path" ]; then
+            same_name_count=$((same_name_count + 1))
+            logger -t "comistream make_image_run.sh[$$]" -p local1.debug "found same-name ebook: $test_path"
+          fi
+        done
+        
+        logger -t "comistream make_image_run.sh[$$]" -p local1.debug "same-name ebook count in searchPath: $same_name_count"
+        
+        # 同名ファイルが1つだけ（現在処理中のファイル）なら移動と判定
+        if [ "$same_name_count" -eq 1 ]; then
+          if [ ${#missing_candidates[@]} -eq 1 ]; then
+            candidate="${missing_candidates[0]}"
+            mkdir -p "$(dirname "$outputFile")"
+            ln "$candidate" "$outputFile"
+            logger -t "comistream make_image_run.sh[$$]" -p local1.info "hardlink created (detected file move) $candidate for: $1 ($imageType)"
+            link_created=true
+          else
+            logger -t "comistream make_image_run.sh[$$]" -p local1.debug "file move detected but multiple image candidates (${#missing_candidates[@]}); cannot determine which to reuse"
+          fi
+        else
+          logger -t "comistream make_image_run.sh[$$]" -p local1.debug "multiple same-name ebooks exist ($same_name_count); not a file move, creating new image"
+        fi
       fi
 
       if [ "$link_created" != true ]; then
         logger -t "comistream make_image_run.sh[$$]" -p local1.debug "checked ${matching_candidates} matching candidate(s) among ${total_candidates} scanned; reusable image found? $link_created"
         logger -t "comistream make_image_run.sh[$$]" -p local1.debug "no reusable image found; creating new: $1 ($imageType)"
-        nice php $make_image_script --file="$1" --type="$imageType"
+        nice php "$make_image_script" --file="$1" --type="$imageType"
+        # 失敗したらトリミングなしで再実行するルン
+        if [ ! -s "$outputFile" ]; then
+          logger -t "comistream make_image_run.sh[$$]" -p local1.info "First attempt failed for $1. Retrying with trimming disabled."
+          nice php "$make_image_script" --file="$1" --type="$imageType" --trimming=2
+        fi
       fi
     else
       # 関係ないファイル
@@ -308,7 +338,7 @@ export -f make_image
 # 引数が渡された場合は、そのファイルのみを処理する
 if [ $# -eq 2 ]; then
   logger -t "comistream make_image_run.sh[$$]" -p local1.debug "single process mode : $1 ($2)"
-  php $make_image_script --file="$1" --type="$imageType"
+  make_image "$1" "$2"
 else
   # 引数が渡されなかった場合は、findコマンドを使用して処理する
   cd "$searchPath"
