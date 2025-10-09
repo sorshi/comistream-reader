@@ -11,7 +11,7 @@
  * @author      Comistream Project.
  * @copyright   2024 Comistream Project.
  * @license     GPL3.0 License
- * @version     1.1.0
+ * @version     2.0.0
  * @link        https://github.com/sorshi/comistream-reader
  */
 
@@ -28,6 +28,19 @@ session_set_cookie_params(86400 * 31);
 
 // 多言語化対応のためのファイルを読み込み
 require_once(__DIR__ . '/i18n.php');
+
+// libディレクトリ内のファイルを読み込み
+require_once(__DIR__ . '/lib/lib_base.php');
+require_once(__DIR__ . '/lib/lib_db.php');
+require_once(__DIR__ . '/lib/lib_config.php');
+require_once(__DIR__ . '/lib/lib_auth.php');
+require_once(__DIR__ . '/lib/lib_book_actions.php');
+require_once(__DIR__ . '/lib/lib_book_info.php');
+require_once(__DIR__ . '/lib/lib_book_open.php');
+require_once(__DIR__ . '/lib/lib_bookmark.php');
+require_once(__DIR__ . '/lib/lib_image.php');
+require_once(__DIR__ . '/lib/lib_view.php');
+
 
 ##### ヘッダデバッグ表示 ######################################################################
 function debugRequestParams()
@@ -2247,257 +2260,6 @@ function compressResponse($content)
             return $content; // 圧縮をサポートしていない場合は非圧縮コンテンツを返す
     }
 } //end function compressResponse
-
-
-##### ベースhtml出力 #####################################################################
-function printHTML()
-{
-    global $conf, $size, $global_preload_pages, $global_debug_flag, $page, $maxPage, $degree,
-        $indexArray, $position, $direction, $autosplit, $fileSize, $averagePageBytes, $baseFile,
-        $escapedFile, $file, $size, $view_query, $global_preload_delay_ms, $publicDir, $pageTitle,
-        $bookName, $contents, $split_button_class, $split_button_text;
-
-    // I18nインスタンスを取得
-    $i18n = I18n::getInstance();
-
-    // CSSファイルの読み込み
-    if (file_exists($conf["comistream_tool_dir"] . '/code/comistream.css')) {
-        $contents_css = file_get_contents($conf["comistream_tool_dir"] . '/code/comistream.css');
-        writelog("DEBUG CSS file exist.");
-    } else {
-        writelog("ERROR CSS not found:" . __DIR__);
-        errorExit('config_not_found', 'config_not_found');
-    }
-
-    // JavaScriptファイルの読み込み
-    if (file_exists($conf["comistream_tool_dir"] . '/code/comistream.js')) {
-        $contents_js = file_get_contents($conf["comistream_tool_dir"] . '/code/comistream.js');
-        writelog("DEBUG JS file exist.");
-    } else {
-        writelog("ERROR JS not found:" . __DIR__);
-        errorExit('config_not_found', 'config_not_found');
-    }
-
-    // 動作モード設定
-    if ($size === 'FULL') {
-        $size_button_flag = $i18n->get('compressed'); // 切り換え先を表示
-        $size_button_class = 'button raw';
-        // FULLサイズはモバイルネットワークではないと想定してプリロードページ数を4倍に
-        $global_preload_pages *= 4;
-    } else {
-        $size_button_flag = $i18n->get('full_size');
-        $size_button_class = 'button cmp';
-    }
-    // デバッグフラグをJSONに変換(JS埋め込み用)
-    $debug_flag = json_encode($global_debug_flag);
-
-    // ページ数が最大ページ数を超えていたら最大ページ数に修正
-    if ($page > $maxPage) {
-        $page = $maxPage;
-    }
-    // サイト名
-    $apple_mobile_web_app_title = $conf['siteName'];
-
-    // themeもpath
-    $themeDir = ''; // themeは常にwebroot直下
-
-    // 言語選択用のHTMLを生成
-    $langSelectorHtml = $i18n->getLangSelectorHtml();
-    // 言語切り替え用のJavaScript
-    $langSwitcherJs = $i18n->getLangSwitcherJs();
-
-    // 新規ページ出力モジュールテスト
-    // if ($_SESSION['pageGenerator'] == 1) {
-    //     $pageGenerator = "const pageGenerator = \"/cgi-bin/comistream_page_out\";";
-    //     writelog("DEBUG printHTML() pageGenerator: comistream_page_out");
-    // } else {
-    $pageGenerator = "const pageGenerator = \"/cgi-bin/comistream.php\";";
-    // }
-
-    // JavaScript用に安全にエンコードした変数を準備
-    $baseFileJson = json_encode($baseFile);
-    $escapedFileJson = json_encode($escapedFile);
-    $fileJson = json_encode($file);
-    $positionJson = json_encode($position);
-    $directionJson = json_encode($direction);
-    $autosplitJson = json_encode($autosplit);
-    $sizeJson = json_encode($size);
-    $viewQueryJson = json_encode($view_query);
-    $preloadDelayJson = json_encode($global_preload_delay_ms);
-    $publicDirJson = json_encode($publicDir);
-    $themeDirJson = json_encode($themeDir);
-
-    $htmlContent =  <<<EOF
-<!DOCTYPE html>
-<html lang="{$i18n->getCurrentLang()}" data-long-press-delay="500">
-<head>
-    <meta http-equiv="Content-Type" CONTENT="text/html; charset=UTF-8">
-    <meta name="viewport" content="width=device-width, viewport-fit=cover" />
-    <meta name="theme-color" content="#606060" />
-    <link rel="manifest" href="/theme/manifest.json" crossorigin="use-credentials">
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-touch-fullscreen" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="$apple_mobile_web_app_title">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-    <meta name="robots" content="noindex, nofollow" />
-<style type="text/css"><!--
-:root {
-    --arrowR-url: url("$themeDir/theme/icons/arrowR.png");
-    --arrowL-url: url("$themeDir/theme/icons/arrowL.png");
-    --nextR-url: url("$themeDir/theme/icons/nextR.png");
-    --nextL-url: url("$themeDir/theme/icons/nextL.png");
-    --setting-url: url("$themeDir/theme/icons/setting.png");
-    --loading-circle-url: url("$themeDir/theme/icons/loadingCircle.gif");
-    --degree: rotateY($degree);
-}
-$contents_css
-
---></style>
-<script src="$themeDir/theme/js/long-press-event.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.29.2/feather.min.js"></script>
-<script>
-<!--
-    // PHPの設定に基づいてJavaScriptのデバッグフラグを設定
-    window.DEBUG_ENABLED = $debug_flag;
-
-    // 多言語対応用のメッセージを設定
-    window.i18n = {
-        fullscreen_not_supported: "{$i18n->get('fullscreen_not_supported')}",
-        author_link_not_found: "{$i18n->get('author_link_not_found')}",
-        title_link_not_found: "{$i18n->get('title_link_not_found')}",
-        input_alphanumeric: "{$i18n->get('input_alphanumeric')}",
-        connection_error: "{$i18n->get('connection_error')}",
-        toc_button_full: "{$i18n->get('full_size')}",
-        toc_button_compress: "{$i18n->get('compressed')}",
-        toc_button_fullsize: "{$i18n->get('full_size')}",
-        toc_button_trimming: "{$i18n->get('trimmingmode_trimming')}",
-        toc_button_normal: "{$i18n->get('trimmingmode_normal')}",
-        large_page_notification: "{$i18n->get('large_page_notification')}"
-    };
-
-    (function() {
-        // 即時関数の定義と実行
-        window.debugLog = function(message) {
-                if (window.DEBUG_ENABLED) {
-                        console.debug(message);
-                }
-        };
-    })();
-
-    var page = $page;
-    var prevPage = $page;
-    var indexArray = [$indexArray];
-    var position = $positionJson;
-    var direction = $directionJson;
-    var autoSplit = $autosplitJson; // クエリパラメータで停止 offか空文字
-    const archiveFileMBytes = $fileSize; // オープンしたファイルのサイズ（MB）
-    const averagePageKBytes = $averagePageBytes; // オリジナルの平均ページサイズ(KB)
-    const maxPage = $maxPage;
-    const baseFile = $baseFileJson;
-    const escapedFile = $escapedFileJson;
-    const file = $fileJson;
-    const size = $sizeJson;
-    const view_query = $viewQueryJson;
-    const global_preload_delay_ms = $preloadDelayJson;
-    const publicDir = $publicDirJson;
-    const themeDir = $themeDirJson;
-    let global_preload_pages = $global_preload_pages;
-    $pageGenerator
-
-    // comistream.js
-    $contents_js
-
-    // 言語切り替え用JavaScript
-    $langSwitcherJs
-
-    // DOMが読み込まれた後にfeather.replace()を呼び出す
-    document.addEventListener('DOMContentLoaded', function() {
-        feather.replace();
-        // 大きなページサイズの通知をチェック
-        checkAndShowLargePageNotification();
-    });
-//-->
-</script>
-
-<title>$pageTitle</title>
-</head>
-
-<body onload="restorePage()" data-long-press-delay="500">
-
-<div id="clock" class="clock-container clock-hidden">00:00</div>
-
-<div id="loading" class="loading"></div>
-
-<div class="canvas" id="image"></div>
-<div class="canvas" style="width:50%; display:none;" id="nextimage"></div>
-
-<div class="canvas" style="width:0%; display:none;" id="dummyimage"></div>
-<div class="progressbox"><div class="progress-left" id="progress"></div></div>
-
-<table data-long-press-delay="500"><tr style="height: 20%;">
-    <td class="leftIndex" onclick="leftIndex()" ></td>
-    <td colspan="3" class="center" onclick="index()" ></td>
-    <td class="rightIndex" onclick="rightIndex()" ></td>
-</tr><tr>
-    <td class="left" onclick="leftward()" ></td>
-    <td class="left-under" onclick="leftward()" ></td>
-    <td class="center" onclick="index()" ></td>
-    <td class="right-under" onclick="rightward()" ></td>
-    <td class="right" onclick="rightward()" ></td>
-</tr></table>
-
-<div class="contents" id="contents">
-    <div>
-        <div class="toc-buttons">
-            <img src="$themeDir/theme/icons/close.png" alt="{$i18n->get('alt_close_button')}" class="close" onclick="document.getElementById('contents').style.display='none'">
-            <span class="button button-close" onclick="backListPage();">{$i18n->get('back')}</span>
-            <span id="rawMode" class="$size_button_class button-mode" onclick="toggleRaw();">$size_button_flag</span>
-            <span id="single" class="button button-mode" onclick="single()">{$i18n->get('single_page')}</span>
-            <span id="spread" class="button button-mode" onclick="spread()">{$i18n->get('spread_page')}</span>
-            <span class="button button-mode" onclick="fixSpreadPage()">{$i18n->get('spread_fix')}</span>
-            <span class="button button-mode" id="direction" onclick="toggleDirection()">{$i18n->get('direction')}</span>
-            <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()">{$i18n->get('fullscreen')}</span>
-            <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()">$split_button_text</span>
-            $langSelectorHtml
-            <span class="clock-icon-button" id="clockToggleButton" onclick="toggleClock()"><i data-feather="clock"></i></span>
-            <span class="inspector-icon-button" id="inspectorToggleButton" onclick="showInspector()"><i data-feather="info"></i></span>
-        </div>
-        <div style="clear:both;">
-            <div class="bookName">$bookName</div>
-            <input id="slider" type="range" value="$maxPage" min="1" max="$maxPage" step="1" /><span id="value" class="value">1</span>
-        </div>
-        <hr>
-        <div class="toclist">$contents</div>
-    </div>
-</div>
-
-<div id="suggest" hidden >
-    <input type="hidden" autofocus="autofocus" />
-        <span class="button" onclick="backListPage();">{$i18n->get('back')}</span>
-</div>
-
-<div id="overlay" class="overlay"></div>
-<div id="modal" class="modal">
-    <div class="modal-content">
-        <img id="image1" alt="{$i18n->get('alt_quick_spread_left')}">
-        <img id="image2" alt="{$i18n->get('alt_quick_spread_right')}">
-    </div>
-</div>
-
-<div id="inspector" class="inspector"></div>
-
-</body>
-</html>
-
-EOF;
-
-    // Content-Type ヘッダーを設定
-    header('Content-Type: text/html; charset=utf-8');
-    // レスポンスを圧縮して出力
-    echo compressResponse($htmlContent);
-    writelog("DEBUG printHTML done.");
-} //end function printHTML
 
 
 ##### /を維持したurlencode ###################################################################

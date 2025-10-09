@@ -438,8 +438,8 @@ $global_debug_flag = isset($global_debug_flag) ? $global_debug_flag : false;
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
-    ? '/theme/style_cover.css?2025080200'
-    : '/theme/style.css?2025083100';
+    ? '/theme/style_cover.css?2025100900'
+    : '/theme/style.css?2025100900';
 
 header('Content-Type: text/html; charset=utf-8');
 

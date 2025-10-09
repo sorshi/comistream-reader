@@ -158,16 +158,21 @@ $autosplit = array_key_exists("autosplit", $param) ? $param["autosplit"] : "on";
 // I18nインスタンスを取得
 $i18n = I18n::getInstance();
 
+// ページモード（単頁/見開）の初期設定 ルン！
+// LocalStorageから復元されるので、デフォルトは単頁モード
+$pagemode_button_class = 'button single';
+$pagemode_button_text = $i18n->get('single_page'); // 現在のモード（単頁）を表示
+
 if (array_key_exists("view", $param)) {
     $view = $param["view"];
     $view_query = '&view=trimming';
     $split_button_class = 'button trimming';
-    $split_button_text = $i18n->get('trimmingmode_normal'); // 変更先を表示
+    $split_button_text = $i18n->get('trimmingmode_trimming'); // 現在のモードを表示するルン！
     writelog("DEBUG Query string : view split:$view");
 } else {
     $view_query = '';
     $split_button_class = 'button normal';
-    $split_button_text = $i18n->get('trimmingmode_trimming');
+    $split_button_text = $i18n->get('trimmingmode_normal');
 }
 
 // Cookieからユーザ名取得

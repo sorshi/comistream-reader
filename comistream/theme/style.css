@@ -106,7 +106,7 @@ a:hover{
   width:32px;
   height:28px;
   margin:1px 8px 0px 0px;
-  background:url("icons/coverview.png") center/contain no-repeat;
+  background:url("icons/listview.png") center/contain no-repeat;
   cursor: pointer;
 }
 /* .history{

@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - インスペクターオープン/クローズの操作を二本指下スワイプからTOCメニューのiアイコンに変更
 - デイリーバッチの改良でアクセスの無いキャッシュディレクトリは保持期間の半分の日数で削除
 - 電子書籍本体のない表紙画像とプレビュー画像の削除処理追加
+- メニューやヘッダのボタン表示を切替先から現在モードに統一
 
 ### 修正
 - Dockerfileにunrar追加

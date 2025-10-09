@@ -1030,13 +1030,28 @@ function restorePage() {
     page = parseInt(window.localStorage.getItem(file) || page);
   }
   mode = parseInt(window.localStorage.getItem("pagemode") || mode);
+  
+  // ページモードボタンの表示を現在のモードに合わせて設定 ルン！
   if (mode == 2) {
-    spread();
+    // 見開モードの場合
+    document.getElementById("pageMode").className = "button spread button-mode";
+    document.getElementById("pageMode").textContent = window.i18n.toc_button_spread;
+    document.getElementById("image").style.width = "50%";
+    document.getElementById("image").style.backgroundPosition = direction;
+    document.getElementById("image").style.float = position;
+    document.getElementById("nextimage").style.display = "block";
+    document.getElementById("nextimage").style.backgroundPosition = position;
+    document.getElementById("nextimage").style.float = direction;
   } else {
-    document.getElementById("spread").style.display = "block";
-    document.getElementById("single").style.display = "none";
-    loadPage(1);
+    // 単頁モードの場合（デフォルト）
+    document.getElementById("pageMode").className = "button single button-mode";
+    document.getElementById("pageMode").textContent = window.i18n.toc_button_single;
+    document.getElementById("image").style.width = "100%";
+    document.getElementById("image").style.backgroundPosition = "center";
+    document.getElementById("image").style.float = "none";
+    document.getElementById("nextimage").style.display = "none";
   }
+  loadPage(1);
   if (indexName != "") {
     Array.prototype.forEach.call(
       document.getElementsByClassName("toclink"),
@@ -1126,11 +1141,38 @@ function valueChange() {
     document.getElementById("slider").value;
 }
 
-function single() {
-  document.getElementById("spread").style.display = "block";
-  document.getElementById("single").style.display = "none";
+// 単頁/見開モードのトグル切り替え ルン！現在のモードを表示するルン！
+function togglePageMode() {
+  if (mode === 1) {
+    // 単頁 → 見開に切り替え
+    mode = 2;
+    document.getElementById("pageMode").className = "button spread button-mode";
+    document.getElementById("pageMode").textContent = window.i18n.toc_button_spread;
+    document.getElementById("image").style.width = "50%";
+    document.getElementById("image").style.backgroundPosition = direction;
+    document.getElementById("image").style.float = position;
+    document.getElementById("nextimage").style.display = "block";
+    document.getElementById("nextimage").style.backgroundPosition = position;
+    document.getElementById("nextimage").style.float = direction;
+  } else {
+    // 見開 → 単頁に切り替え
+    mode = 1;
+    document.getElementById("pageMode").className = "button single button-mode";
+    document.getElementById("pageMode").textContent = window.i18n.toc_button_single;
+    document.getElementById("image").style.width = "100%";
+    document.getElementById("image").style.backgroundPosition = "center";
+    document.getElementById("image").style.float = "none";
+    document.getElementById("nextimage").style.display = "none";
+  }
+  loadPage(1);
+}
 
+// 旧関数は互換性のため残しておくルン（fixSpreadPageなどから呼ばれる可能性）
+function single() {
+  if (mode === 1) return; // 既に単頁モードなら何もしない
   mode = 1;
+  document.getElementById("pageMode").className = "button single button-mode";
+  document.getElementById("pageMode").textContent = window.i18n.toc_button_single;
   document.getElementById("image").style.width = "100%";
   document.getElementById("image").style.backgroundPosition = "center";
   document.getElementById("image").style.float = "none";
@@ -1139,10 +1181,10 @@ function single() {
 }
 
 function spread() {
-  document.getElementById("spread").style.display = "none";
-  document.getElementById("single").style.display = "block";
-
+  if (mode === 2) return; // 既に見開モードなら何もしない
   mode = 2;
+  document.getElementById("pageMode").className = "button spread button-mode";
+  document.getElementById("pageMode").textContent = window.i18n.toc_button_spread;
   document.getElementById("image").style.width = "50%";
   document.getElementById("image").style.backgroundPosition = direction;
   document.getElementById("image").style.float = position;
@@ -1317,7 +1359,7 @@ function funcKey(evt) {
 }
 
 function toggleRaw() {
-  // 圧縮有無の切り替え
+  // 圧縮有無の切り替え ルン！現在のモードを表示するように変更するルン！
   let data = new FormData();
   data.append("mode", "close");
   data.append("file", escapedFile);
@@ -1335,7 +1377,7 @@ function toggleRaw() {
   } else {
     document.getElementById("rawMode").className = "button raw";
     document.getElementById("rawMode").textContent =
-      window.i18n.toc_button_fullsize;
+      window.i18n.toc_button_full;
     document.cookie = "rawMode=raw; path=/; max-age=31536000";
     // console.log("size toggle raw");
     // let reload_url = location.href + "&size=FULL";
@@ -1344,7 +1386,7 @@ function toggleRaw() {
 }
 
 function toggleTrimmingFile() {
-  // サーバー側で左右余白トリミングするモード（旧:見開きサイズ画像ファイルの左右分割表示モード）
+  // サーバー側で左右余白トリミングするモード（旧:見開きサイズ画像ファイルの左右分割表示モード） ルン！
   let data = new FormData();
   data.append("mode", "close");
   data.append("file", escapedFile);
@@ -1355,7 +1397,7 @@ function toggleTrimmingFile() {
     navigator.sendBeacon("comistream.php", data);
     document.getElementById("splitFile").className = "button trimming";
     document.getElementById("splitFile").textContent =
-      window.i18n.toc_button_normal; // 変更先を表示
+      window.i18n.toc_button_trimming; // 現在のモードを表示するルン！
     // console.log("toggleTrimmingFile() normal to split");
     let reload_url = location.href + "&view=trimming";
     // (reload_url);
@@ -1366,7 +1408,7 @@ function toggleTrimmingFile() {
     navigator.sendBeacon("comistream.php", data);
     document.getElementById("splitFile").className = "button normal";
     document.getElementById("splitFile").textContent =
-      window.i18n.toc_button_trimming;
+      window.i18n.toc_button_normal;
     // console.log("toggleTrimmingFile() split to normal");
     let reload_url = location.href.replace("&view=trimming", "");
     // console.log(reload_url);
