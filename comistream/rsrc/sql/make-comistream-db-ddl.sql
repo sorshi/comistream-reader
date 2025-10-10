@@ -118,6 +118,12 @@ INSERT OR REPLACE INTO system_config (key, value) VALUES('mainThemeColor', '#779
 INSERT OR REPLACE INTO system_config (key, value) VALUES('isDebugMode', 0);
 INSERT OR REPLACE INTO system_config (key, value) VALUES('isLowMemoryMode', 1);
 
+INSERT OR REPLACE INTO system_config (key, value) VALUES('image_max_file_size_MB', 20);
+INSERT OR REPLACE INTO system_config (key, value) VALUES('image_max_width', 8000);
+INSERT OR REPLACE INTO system_config (key, value) VALUES('image_max_height', 8000);
+
+
+
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT, -- ユーザーID：一意の識別子
     name TEXT NOT NULL, -- ユーザー名：ログイン用のユーザー名

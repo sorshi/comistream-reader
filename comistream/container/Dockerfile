@@ -2,7 +2,7 @@
 # Comistream Reader Docker Container
 #
 # 高性能なサーバーサイドコミックブックリーダーのためのDockerコンテナ設定。
-# AlmaLinux 9をベースに、必要なツールとライブラリをインストールし、
+# AlmaLinux 10をベースに、必要なツールとライブラリをインストールし、
 # Webサーバー環境を構築します。
 #
 # @package     sorshi/comistream-reader
@@ -13,8 +13,8 @@
 # @link        https://github.com/sorshi/comistream-reader
 # -----------------------------------------------------------------------------
 #
-# ベースイメージとしてAlmaLinux9を使用
-FROM almalinux:9
+# ベースイメージとしてAlmaLinux10を使用
+FROM almalinux:10
 
 # タイムゾーンを日本に設定
 ENV TZ Asia/Tokyo

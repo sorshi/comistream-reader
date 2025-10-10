@@ -883,8 +883,7 @@ function saveBookmark()
 function outputPage($isFileout = false)
 {
     global $view, $convert, $cacheDir, $file, $page, $size, $quality, $width, $als, $tempDir,
-        $cpdf, $unzip, $p7zip, $unrar, $fullsize_png_compress, $isPageSave, $position_int, $crop_split_view_parts, $conf;
-    global $conf;
+        $cpdf, $unzip, $p7zip, $unrar, $fullsize_png_compress, $isPageSave, $position_int, $crop_split_view_parts, $conf, $dbh;
 
     $crop_half_cmd = '';
     $crop_half_cmd_left = '';
@@ -946,7 +945,14 @@ function outputPage($isFileout = false)
                 // ファイルサイズ検証 ルン！
                 // 定数定義
                 if (!defined('MAX_FILE_SIZE_BYTES')) {
-                    define('MAX_FILE_SIZE_BYTES', 20 * 1024 * 1024); // 20MB
+                    // DBから設定値を取得するルン！
+                    $maxFileSizeMB = checkSystemConfig($dbh, 'image_max_file_size_MB', 20);
+                    // 0以上の整数かチェックするルン！不正な値なら20MBをデフォルトにするルン
+                    if (!is_numeric($maxFileSizeMB) || intval($maxFileSizeMB) <= 0) {
+                        writelog("WARNING: Invalid image_max_file_size_MB value: $maxFileSizeMB. Using default 20MB.");
+                        $maxFileSizeMB = 20;
+                    }
+                    define('MAX_FILE_SIZE_BYTES', intval($maxFileSizeMB) * 1024 * 1024);
                 }
 
                 // 1. rawindexファイルから情報を取得（高速化！）
@@ -1386,9 +1392,24 @@ function deleteCacheDirAndReload()
  */
 function isImageSizeOverLimitAndErrorOutout($pageImg)
 {
+    global $dbh;
     // 最大イメージサイズ
-    define("MAX_WIDTH", 8000);
-    define("MAX_HEIGHT", 8000);
+    // DBから設定値を取得するルン！
+    $maxWidth = checkSystemConfig($dbh, 'image_max_width', 8000);
+    // 0以上の整数かチェックするルン！不正な値なら8000をデフォルトにするルン
+    if (!is_numeric($maxWidth) || intval($maxWidth) <= 0) {
+        writelog("WARNING: Invalid image_max_width value: $maxWidth. Using default 8000.");
+        $maxWidth = 8000;
+    }
+    define("MAX_WIDTH", intval($maxWidth));
+    
+    $maxHeight = checkSystemConfig($dbh, 'image_max_height', 8000);
+    // 0以上の整数かチェックするルン！不正な値なら8000をデフォルトにするルン
+    if (!is_numeric($maxHeight) || intval($maxHeight) <= 0) {
+        writelog("WARNING: Invalid image_max_height value: $maxHeight. Using default 8000.");
+        $maxHeight = 8000;
+    }
+    define("MAX_HEIGHT", intval($maxHeight));
     if (isVipsAvailable()) {
         try {
             $image = \Jcupitt\Vips\Image::newFromBuffer($pageImg);
