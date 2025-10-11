@@ -80,7 +80,7 @@ switch ($liveStreamMode) {
     }
     break;
   case 2:
-    if (!$_SESSION['is_admin']) {
+    if (!isset($_SESSION['is_admin']) || !$_SESSION['is_admin']) {
       writelog("INFO Only admin user is allowed to use LiveStream", $writelog_process_name);
       errorExit('admin_only', 'admin_only_detail');
     }

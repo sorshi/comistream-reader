@@ -17,7 +17,13 @@
 
 
 ##### ベースhtml出力 #####################################################################
-function printHTML()
+
+/**
+ * HTML生成関数 ルン！テストしやすいようにHTML文字列を返すルン！
+ * 
+ * @return string 生成されたHTML文字列
+ */
+function generateHTML()
 {
     global $conf, $size, $global_preload_pages, $global_debug_flag, $page, $maxPage, $degree,
         $indexArray, $position, $direction, $autosplit, $fileSize, $averagePageBytes, $baseFile,
@@ -26,14 +32,22 @@ function printHTML()
 
     // I18nインスタンスを取得
     $i18n = I18n::getInstance();
+    if ($i18n === null) {
+        writelog("ERROR I18n instance is null");
+        errorExit('i18n_init_failed', 'Failed to initialize I18n');
+    }
 
     // CSSファイルの読み込み
+    if (!isset($conf["comistream_tool_dir"])) {
+        writelog("ERROR comistream_tool_dir not configured");
+        errorExit('config_missing', 'comistream_tool_dir not found in configuration');
+    }
     if (file_exists($conf["comistream_tool_dir"] . '/code/comistream.css')) {
         $contents_css = file_get_contents($conf["comistream_tool_dir"] . '/code/comistream.css');
         writelog("DEBUG CSS file exist.");
     } else {
         writelog("ERROR CSS not found:" . __DIR__);
-        errorExit('config_not_found', 'config_not_found');
+        errorExit('css_file_missing', 'CSS file not found at: ' . $conf["comistream_tool_dir"] . '/code/comistream.css');
     }
 
     // JavaScriptファイルの読み込み
@@ -42,7 +56,7 @@ function printHTML()
         writelog("DEBUG JS file exist.");
     } else {
         writelog("ERROR JS not found:" . __DIR__);
-        errorExit('config_not_found', 'config_not_found');
+        errorExit('js_file_missing', 'JavaScript file not found at: ' . $conf["comistream_tool_dir"] . '/code/comistream.js');
     }
 
     // 動作モード設定 ルン！現在のモードを表示するルン！
@@ -94,6 +108,43 @@ function printHTML()
     $publicDirJson = json_encode($publicDir);
     $themeDirJson = json_encode($themeDir);
 
+    // HTMLエスケープ処理 ルン！XSS対策大事ルン！
+    $apple_mobile_web_app_title = htmlspecialchars($apple_mobile_web_app_title, ENT_QUOTES, 'UTF-8');
+    $size_button_flag = htmlspecialchars($size_button_flag, ENT_QUOTES, 'UTF-8');
+    $pagemode_button_text = htmlspecialchars($pagemode_button_text, ENT_QUOTES, 'UTF-8');
+    $split_button_text = htmlspecialchars($split_button_text, ENT_QUOTES, 'UTF-8');
+    $alt_close_button = htmlspecialchars($i18n->get('alt_close_button'), ENT_QUOTES, 'UTF-8');
+    $alt_quick_spread_left = htmlspecialchars($i18n->get('alt_quick_spread_left'), ENT_QUOTES, 'UTF-8');
+    $alt_quick_spread_right = htmlspecialchars($i18n->get('alt_quick_spread_right'), ENT_QUOTES, 'UTF-8');
+
+    // $pageTitleは既にget_book_title()内でエスケープ済みルン！
+    // $bookNameはHTMLタグ（<small>、<a>など）を含む前提で処理されてるから、
+    // get_book_title()内で個別の値をエスケープしてからタグを追加してるルン！
+    // $contentsもHTMLタグを含むTOC（目次）コンテンツルン。
+    // これらは信頼できるソースから生成されるけど、念のため確認するルン！
+
+    // $maxPageは整数型として扱うルン！念のため明示的に整数化するルン！
+    $maxPage = intval($maxPage);
+
+    // i18nのJavaScript用データを安全にエンコードするルン！
+    // json_encode()を使うことで、クォートや改行などが適切にエスケープされて、
+    // XSSの脆弱性を防げるルン☆
+    $i18n_js_data = json_encode([
+        'fullscreen_not_supported' => $i18n->get('fullscreen_not_supported'),
+        'author_link_not_found' => $i18n->get('author_link_not_found'),
+        'title_link_not_found' => $i18n->get('title_link_not_found'),
+        'input_alphanumeric' => $i18n->get('input_alphanumeric'),
+        'connection_error' => $i18n->get('connection_error'),
+        'toc_button_full' => $i18n->get('full_size'),
+        'toc_button_compress' => $i18n->get('compressed'),
+        'toc_button_fullsize' => $i18n->get('full_size'),
+        'toc_button_trimming' => $i18n->get('trimmingmode_trimming'),
+        'toc_button_normal' => $i18n->get('trimmingmode_normal'),
+        'toc_button_single' => $i18n->get('single_page'),
+        'toc_button_spread' => $i18n->get('spread_page'),
+        'large_page_notification' => $i18n->get('large_page_notification')
+    ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+
     $htmlContent =  <<<EOF
 <!DOCTYPE html>
 <html lang="{$i18n->getCurrentLang()}" data-long-press-delay="500">
@@ -106,90 +157,74 @@ function printHTML()
     <meta name="apple-touch-fullscreen" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="$apple_mobile_web_app_title">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-    <meta name="robots" content="noindex, nofollow" />
-<style type="text/css"><!--
-:root {
-    --arrowR-url: url("$themeDir/theme/icons/arrowR.png");
-    --arrowL-url: url("$themeDir/theme/icons/arrowL.png");
-    --nextR-url: url("$themeDir/theme/icons/nextR.png");
-    --nextL-url: url("$themeDir/theme/icons/nextL.png");
-    --setting-url: url("$themeDir/theme/icons/setting.png");
-    --loading-circle-url: url("$themeDir/theme/icons/loadingCircle.gif");
-    --degree: rotateY($degree);
-}
-$contents_css
+    <script src="$themeDir/theme/js/long-press-event.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.29.2/feather.min.js" integrity="sha512-zMm7+ZQ8AZr1r3W8Z8lDATkH05QG5Gm2xc6MlsCdBz9l6oE8Y7IXByMgSm/rdRQrhuHt99HAYfMljBOEZ68q5A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <style type="text/css"><!--
+    :root {
+        --arrowR-url: url("$themeDir/theme/icons/arrowR.png");
+        --arrowL-url: url("$themeDir/theme/icons/arrowL.png");
+        --nextR-url: url("$themeDir/theme/icons/nextR.png");
+        --nextL-url: url("$themeDir/theme/icons/nextL.png");
+        --setting-url: url("$themeDir/theme/icons/setting.png");
+        --loading-circle-url: url("$themeDir/theme/icons/loadingCircle.gif");
+        --degree: rotateY($degree);
+    }
+    $contents_css
+    --></style>
 
---></style>
-<script src="$themeDir/theme/js/long-press-event.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.29.2/feather.min.js"></script>
-<script>
-<!--
-    // PHPの設定に基づいてJavaScriptのデバッグフラグを設定
-    window.DEBUG_ENABLED = $debug_flag;
+    <script>
+    <!--
+        // PHPの設定に基づいてJavaScriptのデバッグフラグを設定するルン！
+        window.DEBUG_ENABLED = $debug_flag;
 
-    // 多言語対応用のメッセージを設定
-    window.i18n = {
-        fullscreen_not_supported: "{$i18n->get('fullscreen_not_supported')}",
-        author_link_not_found: "{$i18n->get('author_link_not_found')}",
-        title_link_not_found: "{$i18n->get('title_link_not_found')}",
-        input_alphanumeric: "{$i18n->get('input_alphanumeric')}",
-        connection_error: "{$i18n->get('connection_error')}",
-        toc_button_full: "{$i18n->get('full_size')}",
-        toc_button_compress: "{$i18n->get('compressed')}",
-        toc_button_fullsize: "{$i18n->get('full_size')}",
-        toc_button_trimming: "{$i18n->get('trimmingmode_trimming')}",
-        toc_button_normal: "{$i18n->get('trimmingmode_normal')}",
-        toc_button_single: "{$i18n->get('single_page')}",
-        toc_button_spread: "{$i18n->get('spread_page')}",
-        large_page_notification: "{$i18n->get('large_page_notification')}"
-    };
+        // 多言語対応用のメッセージを設定するルン！
+        // json_encode()を使って安全にエスケープしてるから、XSSの心配はないルン☆
+        window.i18n = $i18n_js_data;
 
-    (function() {
-        // 即時関数の定義と実行
-        window.debugLog = function(message) {
-                if (window.DEBUG_ENABLED) {
-                        console.debug(message);
-                }
-        };
-    })();
+        (function() {
+            // 即時関数の定義と実行
+            window.debugLog = function(message) {
+                    if (window.DEBUG_ENABLED) {
+                            console.debug(message);
+                    }
+            };
+        })();
 
-    var page = $page;
-    var prevPage = $page;
-    var indexArray = [$indexArray];
-    var position = $positionJson;
-    var direction = $directionJson;
-    var autoSplit = $autosplitJson; // クエリパラメータで停止 offか空文字
-    const archiveFileMBytes = $fileSize; // オープンしたファイルのサイズ（MB）
-    const averagePageKBytes = $averagePageBytes; // オリジナルの平均ページサイズ(KB)
-    const maxPage = $maxPage;
-    const baseFile = $baseFileJson;
-    const escapedFile = $escapedFileJson;
-    const file = $fileJson;
-    const size = $sizeJson;
-    const view_query = $viewQueryJson;
-    const global_preload_delay_ms = $preloadDelayJson;
-    const publicDir = $publicDirJson;
-    const themeDir = $themeDirJson;
-    let global_preload_pages = $global_preload_pages;
-    $pageGenerator
+        var page = $page;
+        var prevPage = $page;
+        var indexArray = [$indexArray];
+        var position = $positionJson;
+        var direction = $directionJson;
+        var autoSplit = $autosplitJson; // クエリパラメータで停止 offか空文字
+        const archiveFileMBytes = $fileSize; // オープンしたファイルのサイズ（MB）
+        const averagePageKBytes = $averagePageBytes; // オリジナルの平均ページサイズ(KB)
+        const maxPage = $maxPage;
+        const baseFile = $baseFileJson;
+        const escapedFile = $escapedFileJson;
+        const file = $fileJson;
+        const size = $sizeJson;
+        const view_query = $viewQueryJson;
+        const global_preload_delay_ms = $preloadDelayJson;
+        const publicDir = $publicDirJson;
+        const themeDir = $themeDirJson;
+        let global_preload_pages = $global_preload_pages;
+        $pageGenerator
 
-    // comistream.js
-    $contents_js
+        // comistream.js
+        $contents_js
 
-    // 言語切り替え用JavaScript
-    $langSwitcherJs
+        // 言語切り替え用JavaScript
+        $langSwitcherJs
 
-    // DOMが読み込まれた後にfeather.replace()を呼び出す
-    document.addEventListener('DOMContentLoaded', function() {
-        feather.replace();
-        // 大きなページサイズの通知をチェック
-        checkAndShowLargePageNotification();
-    });
-//-->
-</script>
-
-<title>$pageTitle</title>
+        // DOMが読み込まれた後にfeather.replace()を呼び出す
+        document.addEventListener('DOMContentLoaded', function() {
+            feather.replace();
+            // 大きなページサイズの通知をチェック
+            checkAndShowLargePageNotification();
+        });
+    //-->
+    </script>
+    <title>$pageTitle</title>
 </head>
 
 <body onload="restorePage()" data-long-press-delay="500">
@@ -219,7 +254,7 @@ $contents_css
 <div class="contents" id="contents">
     <div>
         <div class="toc-buttons">
-            <img src="$themeDir/theme/icons/close.png" alt="{$i18n->get('alt_close_button')}" class="close" onclick="document.getElementById('contents').style.display='none'">
+            <img src="$themeDir/theme/icons/close.png" alt="$alt_close_button" class="close" onclick="document.getElementById('contents').style.display='none'">
             <span class="button button-close" onclick="backListPage();">{$i18n->get('back')}</span>
             <span id="rawMode" class="$size_button_class button-mode" onclick="toggleRaw();">$size_button_flag</span>
             <span id="pageMode" class="$pagemode_button_class button-mode" onclick="togglePageMode()">$pagemode_button_text</span>
@@ -248,8 +283,8 @@ $contents_css
 <div id="overlay" class="overlay"></div>
 <div id="modal" class="modal">
     <div class="modal-content">
-        <img id="image1" alt="{$i18n->get('alt_quick_spread_left')}">
-        <img id="image2" alt="{$i18n->get('alt_quick_spread_right')}">
+        <img id="image1" alt="$alt_quick_spread_left">
+        <img id="image2" alt="$alt_quick_spread_right">
     </div>
 </div>
 
@@ -260,11 +295,34 @@ $contents_css
 
 EOF;
 
-    // Content-Type ヘッダーを設定
-    header('Content-Type: text/html; charset=utf-8');
-    // レスポンスを圧縮して出力
-    echo compressResponse($htmlContent);
+    return $htmlContent;
+} //end function generateHTML
+
+/**
+ * HTML出力関数 ルン！ヘッダー設定して出力するルン！
+ * generateHTML()を呼んで結果を出力するルン。
+ * 
+ * @return void
+ */
+function printHTML()
+{
+    // HTML文字列を生成 ルン！
+    $html = generateHTML();
+
+    // ヘッダーがまだ送信されていない場合のみContent-Typeヘッダーを設定 ルン！
+    if (!headers_sent()) {
+        header('Content-Type: text/html; charset=utf-8');
+    } else {
+        writelog("WARNING printHTML: Headers already sent, cannot set Content-Type.");
+    }
+
+    // compressResponse関数が利用可能な場合は圧縮、そうでなければそのまま出力 ルン！
+    if (function_exists('compressResponse')) {
+        echo compressResponse($html);
+    } else {
+        writelog("WARNING printHTML: compressResponse function not found, output without compression.");
+        echo $html;
+    }
+
     writelog("DEBUG printHTML done.");
 } //end function printHTML
-
-

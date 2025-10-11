@@ -303,10 +303,15 @@ function make_image() {
 
             if [ "$source_hash" == "$target_hash" ]; then
               mkdir -p "$(dirname "$outputFile")"
-              ln "$existingFile" "$outputFile"
-              logger -t "comistream make_image_run.sh[$$]" -p local1.info "hardlink created $existingFile for: $1 ($imageType)"
-              link_created=true
-              break
+              if ln "$existingFile" "$outputFile"; then
+                logger -t "comistream make_image_run.sh[$$]" -p local1.info "hardlink created $existingFile for: $1 ($imageType)"
+                link_created=true
+                break
+              else
+                logger -t "comistream make_image_run.sh[$$]" -p local1.error "hardlink failed; will continue searching; $existingFile $outputFile; for: $1 ($imageType)"
+                link_created=false
+                break
+              fi
             fi
 
             logger -t "comistream make_image_run.sh[$$]" -p local1.debug "hash mismatch; skip candidate: $existingFile (source_hash=$source_hash target_hash=$target_hash)"

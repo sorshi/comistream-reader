@@ -66,6 +66,8 @@ function checkSystemConfig($dbh, $key, $defaultValue = null)
     } else {
       // DBに無かったから、デフォルト値でINSERTするルン！
       if ($defaultValue !== null) {
+        // TODO 注: データベース間の真の移植性を確保するには、$dbh->getAttribute(PDO::ATTR_DRIVER_NAME) を確認し、各データベースタイプに適した構文を使用することを検討してください。
+        // $insertQuery = "INSERT INTO system_config (key, value) VALUES (:key, :value) ON DUPLICATE KEY UPDATE value = :value";
         $insertQuery = "INSERT OR REPLACE INTO system_config (key, value) VALUES (:key, :value)";
         $insertStmt = $dbh->prepare($insertQuery);
         $insertStmt->bindValue(':key', $key, PDO::PARAM_STR);

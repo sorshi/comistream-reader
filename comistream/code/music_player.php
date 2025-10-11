@@ -197,6 +197,7 @@ function openMusicPlayer()
     $themeDir = $conf["comistream_tool_dir"];
 
     // HTMLページ出力
+    $safeBaseFile = htmlspecialchars($baseFile, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     echo <<<HTML
 <!DOCTYPE html>
 <html lang="ja">
@@ -210,7 +211,7 @@ function openMusicPlayer()
     <meta name="theme-color" content="#667eea">
     <link rel="apple-touch-icon" href="/theme/icons/audio.png">
     <link rel="manifest" href="/theme/manifest.json">
-    <title>$baseFile - Music Player</title>
+    <title>$safeBaseFile - Music Player</title>
     <style>
         * {
             margin: 0;
@@ -508,7 +509,7 @@ function openMusicPlayer()
         </div>
         
         <div class="track-info">
-            <div class="track-title" id="trackTitle">$baseFile</div>
+            <div class="track-title" id="trackTitle">$safeBaseFile</div>
             <div class="track-artist" id="trackArtist">Unknown Artist</div>
         </div>
         
@@ -552,8 +553,7 @@ function openMusicPlayer()
     <script>
         // PHP から JavaScript へのデータ渡し
         window.musicFiles = $musicFilesJson;
-        window.currentIndex = $currentIndex;
-        window.user = '$user';
+        window.user = <?= json_encode($user, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
         window.themeDir = '$themeDir';
         window.baseDir = window.location.origin + '/';
     </script>

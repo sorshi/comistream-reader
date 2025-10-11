@@ -54,14 +54,17 @@ class I18n
         writelog("DEBUG: detectLanguage - 言語検出開始");
         // 1. Cookieから言語設定を取得
         if (isset($_COOKIE['lang'])) {
-            writelog("DEBUG: Cookie lang値: " . $_COOKIE['lang']);
-            if (array_key_exists($_COOKIE['lang'], $this->availableLangs)) {
-                $this->lang = $_COOKIE['lang'];
+            // クッキー値を一度だけサニタイズするルン！
+            $safeCookie = preg_replace('/[^a-zA-Z0-9_\-]/', '', $_COOKIE['lang']);
+            
+            // サニタイズした値が空じゃなくて、利用可能な言語リストに存在するかチェックするルン
+            if (!empty($safeCookie) && array_key_exists($safeCookie, $this->availableLangs)) {
+                $this->lang = $safeCookie;
                 writelog("DEBUG: Cookie から言語設定: " . $this->lang);
                 return;
             } else {
-                $safeCookie = preg_replace('/[^a-zA-Z0-9_\-]/', '', $_COOKIE['lang']);
-                writelog("DEBUG: Cookie lang値: " . $safeCookie);
+                // クッキー値が無効だったルン
+                writelog("DEBUG: Cookie lang値が無効: " . $safeCookie);
             }
         } else {
             writelog("DEBUG: Cookie に言語設定はありません");
@@ -190,7 +193,10 @@ class I18n
         // 全言語のリストをドロップダウンに表示
         foreach ($this->availableLangs as $code => $name) {
             if ($code !== $this->lang) { // 現在選択中の言語以外を表示
-                $html .= '<a href="#" class="lang-option" data-lang="' . $code . '">' . $name . '</a>';
+                // XSS対策：属性値とテキストノードをエスケープするルン！
+                $escapedCode = htmlspecialchars($code, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $escapedName = htmlspecialchars($name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $html .= '<a href="#" class="lang-option" data-lang="' . $escapedCode . '">' . $escapedName . '</a>';
             }
         }
 

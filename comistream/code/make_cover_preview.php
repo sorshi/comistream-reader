@@ -529,6 +529,10 @@ if (strcasecmp($ext, 'epub') == 0) {
 
             $outputFile = "$shmDir/" . $outputFileBasename . ".png";
             $imageProcessed = false;
+            
+            // libvipsで取得する画像サイズの初期化（libvipsが使われない場合のnotice回避）ルン
+            $vipsImageWidth = 0;
+            $vipsImageHeight = 0;
 
             // libvipsが利用可能なら高速処理を使用
             if ($isVipsAvailable) {
@@ -581,7 +585,13 @@ if (strcasecmp($ext, 'epub') == 0) {
 
             // libvipsで処理できなかった場合はImageMagickを使用
             if (!$imageProcessed) {
-                $cmd = $pageOutCmd . " | $convert - -fuzz 10% -trim +repage -format png -resize $global_resize -quality $quality $outputFile";
+                // トリミング設定に応じてコマンドを構築するルン
+                $trimOption = "";
+                if (!isset($options['trimming']) || $options['trimming'] != 2) {
+                    // トリミングが有効な場合のみ -fuzz 10% -trim +repage を追加するルン
+                    $trimOption = " -fuzz 10% -trim +repage";
+                }
+                $cmd = $pageOutCmd . " | $convert -" . $trimOption . " -format png -resize $global_resize -quality $quality $outputFile";
                 exec($cmd, $output, $return_var);
 
                 if ($return_var !== 0) {

@@ -376,8 +376,6 @@ window.addEventListener(
 window.addEventListener(
   "touchmove",
   function (evt) {
-    if (isPinching) return; // ピンチ操作中はスワイプさせない
-
     // isPinching中も2本指スワイプは判定したいので、条件を変更
     // if (isZoomed()) return; // 拡大中のスワイプを許可するためコメントアウト
 
@@ -404,7 +402,6 @@ window.addEventListener(
 
     // ピンチ操作が始まっていたら1本指スワイプは無効
     if (isPinching) return;
-
     // 1本指スワイプの処理
     if (document.getElementById("contents").style.display == "block") {
       startX = -1;

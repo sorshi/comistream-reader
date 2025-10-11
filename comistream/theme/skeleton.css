@@ -106,11 +106,14 @@
 
 /* 実際のコンテンツの初期状態（シンプルアプローチ） */
 .actual-content {
+  opacity: 0;
+  pointer-events: none;
   transition: opacity 0.3s ease-in;
 }
 
 .actual-content.fade-in {
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* スムーズトランジション用の背景色維持 */

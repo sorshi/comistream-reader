@@ -59,7 +59,8 @@ NASに追加すると、ブラウザさえあればどこからでもマンガ�
 AlmaLinux9の例だと以下のコマンドを実行します。
    ```
    sudo dnf install -y tar httpd php sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release
-   sudo dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig unrar fd-find mupdf-devel
+   sudo dnf config-manager --set-enabled crb
+   sudo dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig unrar fd-find mupdf-devel vips
    ```
 3. 追加で必要なツールをインストール：  
 以下コマンドを展開してpathの切られてる/usr/local/bin/あたりにコピーします。  
@@ -168,6 +169,8 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 - [CSS loading animation 12](https://codepen.io/martinvd/pen/xbQJom/)
 - [jQuery](https://jquery.com/)
 - [jQuery UI](https://jqueryui.com/)
+- [Feather](https://feathericons.com/)
+
 
 ## 開発者
 

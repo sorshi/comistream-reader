@@ -322,7 +322,7 @@ writelog("INFO dir_list: Raw path param: " . $request_path, "dir_list");
 // 1. URLデコード（1回のみ） - rawurldecode()を使用して+をスペースに変換しない
 $request_path = rawurldecode($request_path);
 
-// 2. 危険な文字を除去
+// 2. 危険な文字を除去（ヌルバイトや制御文字）
 $request_path = str_replace([
     "\0",        // null byte
     "\r",        // carriage return
@@ -334,53 +334,60 @@ $request_path = str_replace([
     chr(12),     // form feed
 ], '', $request_path);
 
-// 3. 相対パス攻撃を防ぐ
-$request_path = str_replace(['../', '.\\', '..\\'], '', $request_path);
-
-// 4. パスを正規化
+// 3. パスを正規化（先頭スラッシュ追加のみ）
 $request_path = '/' . ltrim($request_path, '/');
 
-writelog("INFO dir_list: Sanitized path: " . $request_path, "dir_list");
+writelog("INFO dir_list: Decoded path: " . $request_path, "dir_list");
 
-// 5. 物理パス検証とHTTPステータス整理
-// - 存在しないディレクトリ: 404
-// - DocumentRoot範囲外（指定不可能なはず）: 404
-// - 読み取り不可ディレクトリ: 403
+// 4. ★ロバストなパス検証：正規化パス（canonical path）を使用 ★
+// document rootの正規化パスを取得するルン
+$document_root_real = realpath($document_root);
+if ($document_root_real === false) {
+    // document rootが解決できない場合は致命的エラールン
+    http_response_code(500);
+    writelog("CRITICAL dir_list: Document root cannot be resolved: " . $document_root, "dir_list");
+    echo "500 Internal Server Error";
+    exit;
+}
 
 // 404モードフラグの初期化（エラー時に空ディレクトリ表示へ）
 $is_404_mode = false;
 
-$document_root_real = realpath($document_root) ?: $document_root;
-$joined_path = $document_root . $request_path; // サニタイズ済みのため単純連結でOK
-$parent_realpath = realpath(dirname($joined_path));
+// リクエストパスを結合（まだ未検証のパスルン）
+$joined_path = $document_root . $request_path;
 
-if ($parent_realpath === false || strpos($parent_realpath, $document_root_real) !== 0) {
-    // 親ディレクトリ自体が解決不能、またはDocumentRoot外
+// ★重要：結合したパスの正規化パス（canonical path）を取得するルン★
+$canonical_path = realpath($joined_path);
+
+// realpathがfalseを返す場合：パスが存在しないか不正なパスルン
+if ($canonical_path === false) {
+    // パスが存在しないか、解決できない不正なパス
     http_response_code(404);
-    writelog("ERROR dir_list: Out-of-docroot or invalid parent path: " . $request_path . " -> parent=" . ($parent_realpath ?: 'false'), "dir_list");
+    writelog("ERROR dir_list: Path does not exist or cannot be resolved: " . $request_path, "dir_list");
     $is_404_mode = true;
     $physical_path = null;
-} elseif (!file_exists($joined_path)) {
-    // 対象が存在しない
+// ★正規化パスがdocument rootで始まるか厳密チェック（パストラバーサル防止）★
+} elseif (strpos($canonical_path, $document_root_real . '/') !== 0 && $canonical_path !== $document_root_real) {
+    // 正規化されたパスがdocument root外を指している = ディレクトリトラバーサル攻撃の試みルン！
     http_response_code(404);
-    writelog("ERROR dir_list: Not found: " . $request_path . " - showing empty directory layout", "dir_list");
+    writelog("ALERT SECURITY dir_list: Path traversal attempt detected! Request: " . $request_path . " -> Canonical: " . $canonical_path . " (expected prefix: " . $document_root_real . ")", "dir_list");
     $is_404_mode = true;
     $physical_path = null;
-} elseif (!is_dir($joined_path)) {
+} elseif (!is_dir($canonical_path)) {
     // ディレクトリ以外
     http_response_code(404);
-    writelog("ERROR dir_list: Not a directory attempt: " . $request_path . " - showing empty directory layout", "dir_list");
+    writelog("ERROR dir_list: Not a directory: " . $request_path . " -> " . $canonical_path, "dir_list");
     $is_404_mode = true;
     $physical_path = null;
-} elseif (!is_readable($joined_path) || !is_executable($joined_path)) {
+} elseif (!is_readable($canonical_path) || !is_executable($canonical_path)) {
     // ディレクトリだが読み込み不可（または実行権限なしで走査不可）
     http_response_code(403);
-    writelog("ERROR dir_list: Directory not readable or not traversable: " . $request_path . " -> " . $joined_path, "dir_list");
+    writelog("ERROR dir_list: Directory not readable or not traversable: " . $request_path . " -> " . $canonical_path, "dir_list");
     echo "403 Forbidden";
     exit;
 } else {
-    // ここまで来ればディレクトリとして妥当
-    $physical_path = realpath($joined_path) ?: $joined_path;
+    // ここまで来ればディレクトリとして妥当ルン！正規化されたパスを使用するルン
+    $physical_path = $canonical_path;
 }
 
 // 以降、$is_404_mode が true の場合は空ディレクトリとして表示を継続
@@ -745,6 +752,7 @@ if ($is_404_mode) {
 
                     // 即座にフェードイン開始（背景色で隠れているため滑らか）
                     requestAnimationFrame(() => {
+                        tbody.classList.add('fade-in');
                         tbody.style.opacity = '1';
 
                         // フッターを表示
@@ -1244,7 +1252,7 @@ if ($is_404_mode) {
                     }
 
                     tableContainer.classList.remove('skeleton-loading');
-                    tbody.classList.add('actual-content');
+                    tbody.classList.add('actual-content', 'fade-in');
                     tbody.style.opacity = '1';
 
                     const footer = document.querySelector('.footer');
@@ -1387,7 +1395,7 @@ if ($is_404_mode) {
 
                 // スケルトンクラスを削除し、実際のコンテンツクラスを追加
                 tableContainer.classList.remove('skeleton-loading');
-                tbody.classList.add('actual-content');
+                tbody.classList.add('actual-content', 'fade-in');
                 tbody.style.opacity = '1'; // 即座に表示
 
                 // フッターを表示
@@ -1462,7 +1470,7 @@ if ($is_404_mode) {
                     // スケルトンが表示されていない場合は直接エラー表示
                     tbody.innerHTML = errorHtml;
                     tableContainer.classList.remove('skeleton-loading');
-                    tbody.classList.add('actual-content');
+                    tbody.classList.add('actual-content', 'fade-in');
                     tbody.style.opacity = '1';
 
                     // フッターも表示

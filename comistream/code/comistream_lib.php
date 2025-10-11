@@ -1401,20 +1401,20 @@ function isImageSizeOverLimitAndErrorOutout($pageImg)
         writelog("WARNING: Invalid image_max_width value: $maxWidth. Using default 8000.");
         $maxWidth = 8000;
     }
-    define("MAX_WIDTH", intval($maxWidth));
-    
+    $maxWidthLimit = intval($maxWidth);
+
     $maxHeight = checkSystemConfig($dbh, 'image_max_height', 8000);
     // 0以上の整数かチェックするルン！不正な値なら8000をデフォルトにするルン
     if (!is_numeric($maxHeight) || intval($maxHeight) <= 0) {
         writelog("WARNING: Invalid image_max_height value: $maxHeight. Using default 8000.");
         $maxHeight = 8000;
     }
-    define("MAX_HEIGHT", intval($maxHeight));
+    $maxHeightLimit = intval($maxHeight);
     if (isVipsAvailable()) {
         try {
             $image = \Jcupitt\Vips\Image::newFromBuffer($pageImg);
 
-            if ($image->width > MAX_WIDTH || $image->height > MAX_HEIGHT) {
+            if ($image->width > $maxWidthLimit || $image->height > $maxHeightLimit) {
                 // エラー処理: 解像度が大きすぎます。
                 writelog("NOTICE isImageSizeOverLimitAndErrorOutout() image size is too large: " . $image->width . "x" . $image->height);
                 header("HTTP/1.1 413 Content Too Large");
@@ -2529,6 +2529,9 @@ function makeIndex($maxPage)
 
     // I18nインスタンスを取得
     $i18n = I18n::getInstance();
+    
+    // XSS対策：$maxPageを必ず整数化するルン！
+    $maxPage = intval($maxPage);
 
     $indexArray = '';
     $contents = '';
@@ -2551,8 +2554,8 @@ function makeIndex($maxPage)
         if ($indexBookmark && is_array($indexBookmark)) {
             foreach ($indexBookmark as $bookmark) {
                 if (isset($bookmark['page']) && isset($bookmark['title'])) {
-                    $page = $bookmark['page'];
-                    $title = htmlspecialchars($bookmark['title']);
+                    $page = intval($bookmark['page']); // XSS対策：必ず整数化するルン！
+                    $title = htmlspecialchars($bookmark['title'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); // XSS対策：完全なエスケープルン！
                     $indexArray .= ",$page";
                     $contents .= "<div class=\"toclink\" onclick=\"page=$page; loadPage(1);\">$title</div>\n";
                 }
@@ -3079,11 +3082,19 @@ function get_book_author_keyword($baseFile)
 
     $book_search_url = $conf["book_search_url"];
     $str = '';
+    
+    // XSS対策：$book_search_urlをエスケープするルン！
+    $safeSearchUrl = htmlspecialchars($book_search_url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
     if (preg_match('/\[(.*?)\((.*?)\]/', $baseFile, $matches)) {
         $A = $matches[1];
         $B = $matches[2];
-        $str .= "<a href=\"$book_search_url$A\">$A</a>,<a href=\"$book_search_url$B\">$B</a>,";
+        // XSS対策：URLエンコードとHTMLエスケープを適切に使い分けるルン！
+        $urlA = urlencode($A);
+        $urlB = urlencode($B);
+        $escA = htmlspecialchars($A, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $escB = htmlspecialchars($B, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $str .= "<a href=\"" . $safeSearchUrl . $urlA . "\">" . $escA . "</a>,<a href=\"" . $safeSearchUrl . $urlB . "\">" . $escB . "</a>,";
     }
 
     if (preg_match('/\[(.*?)\]/', $baseFile, $matches)) {
@@ -3091,7 +3102,10 @@ function get_book_author_keyword($baseFile)
         $parts = preg_split('/(×|／|、|,|×|\s)/', $A);
         foreach ($parts as $part) {
             if (!preg_match('/^(×|／|、|,|×|\s)$/', $part)) {  // 区切り文字をスキップ
-                $str .= "<a href=\"$book_search_url$part\">$part</a>,";
+                // XSS対策：URLエンコードとHTMLエスケープを適切に使い分けるルン！
+                $urlPart = urlencode($part);
+                $escPart = htmlspecialchars($part, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $str .= "<a href=\"" . $safeSearchUrl . $urlPart . "\">" . $escPart . "</a>,";
             }
         }
     }
@@ -3107,18 +3121,30 @@ function get_book_title($bookName)
     $onlyBookName = '';
     $bookName = trim($bookName);
     $bookName = preg_replace('/^\(.*?\) */', '', $bookName); // ファイル名先頭の (...) を削除
-    $bookName = htmlspecialchars($bookName, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8'); // タグエスケープ
+    
+    // まず全ての文字列操作を行ってから、最後にエスケープするルン！
+    // $onlyBookNameの作成（HTMLタグなし、純粋なテキストのみ）
     $onlyBookName = $bookName;
-    $bookName = preg_replace('/\[(.*?)\] */', '<small class="bookName">$1</small> <br>', $bookName); // [ ] 内を取り出して文字サイズを小さく
     $onlyBookName = preg_replace('/\[(.*?)\] */', '', $onlyBookName); // [ ] 内削除
-    $bookName = preg_replace('/(\(|\[)[0-9]{4}-[0-9]{2}-[0-9]{2}(\)|\])/', '', $bookName); // YYYY-MM-DD を削除
     $onlyBookName = preg_replace('/(\(|\[)[0-9]{4}-[0-9]{2}-[0-9]{2}(\)|\])/', '', $onlyBookName); // YYYY-MM-DD を削除
-    $bookName = preg_replace('/(.+)(\.[^.]+)$/', '$1', $bookName); // 拡張子を削除
     $onlyBookName = preg_replace('/(.+)(\.[^.]+)$/', '$1', $onlyBookName); // 拡張子を削除
-    $pageTitle = $bookName;
-    $pageTitle = preg_replace('/<("[^"]*"|\'[^\']*\'|[^\'">])*>/', '', $pageTitle); // <title>用に書名部分を取り出し、タグ削除
-    // $pageTitle = htmlspecialchars($pageTitle, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+    
+    // $bookNameの作成（HTMLタグあり）
+    // まずエスケープしてから、信頼できるHTMLタグ（<small>等）を追加するルン！
+    $bookName = htmlspecialchars($bookName, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8'); // XSS対策：先にエスケープルン！
+    $bookName = preg_replace('/\[(.*?)\] */', '<small class="bookName">$1</small> <br>', $bookName); // [ ] 内を取り出して文字サイズを小さく（エスケープ済みの値に安全なHTMLを追加）
+    $bookName = preg_replace('/(\(|\[)[0-9]{4}-[0-9]{2}-[0-9]{2}(\)|\])/', '', $bookName); // YYYY-MM-DD を削除
+    $bookName = preg_replace('/(.+)(\.[^.]+)$/', '$1', $bookName); // 拡張子を削除
     $bookName = preg_replace('/\[(.*?)\] */', '', $bookName); // [ ] を捨てる
+    
+    // $pageTitleの作成（<title>タグ用、HTMLタグなし）
+    $pageTitle = $bookName;
+    $pageTitle = preg_replace('/<("[^"]*"|\'[^\']*\'|[^\'">])*>/', '', $pageTitle); // タグ削除（エスケープされた&lt;も削除される）
+    $pageTitle = strip_tags($pageTitle); // 念のため、残ったタグも全て削除するルン！
+    // $pageTitleは既に$bookNameから派生してエスケープ済みルン！でも念のため再エスケープしても問題ないルン
+    
+    // $onlyBookNameもエスケープするルン！
+    $onlyBookName = htmlspecialchars($onlyBookName, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
 
     // タグ付き作者名・書名 タグなし作者名・書名 書名のみ
     writelog("DEBUG get_book_title() bookName:$bookName pageTitle:$pageTitle onlyBookName:$onlyBookName");
@@ -3134,11 +3160,19 @@ function print_book_notfound_error($bookName)
     // I18nインスタンスを取得
     $i18n = I18n::getInstance();
 
+    // XSS対策：$bookNameは既にエスケープ済みルン！
+    // でもURLに埋め込む場合は、urlencode()を使う必要があるルン！
     if (strlen($book_search_url) > 1) {
-        $bookName = "<a href=\"$book_search_url$bookName\">$bookName</a>";
-    } else {
-        $bookName = $bookName;
+        // $bookNameは既にエスケープ済みなので、URLエンコード用に生の値を取得するルン
+        // でも$bookNameしか渡されてないから、html_entity_decode()で戻すルン（あまり良くないけど仕方ないルン）
+        $rawBookName = html_entity_decode($bookName, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $urlEncodedBookName = urlencode($rawBookName);
+        // $book_search_urlもエスケープするルン！
+        $safeSearchUrl = htmlspecialchars($book_search_url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $bookName = "<a href=\"" . $safeSearchUrl . $urlEncodedBookName . "\">" . $bookName . "</a>";
     }
+    // $bookNameは既にエスケープ済みルン！
+    
     $authors = get_book_author_keyword($baseFile);
     writelog("DEBUG print_book_notfound_error() bookName:" . $bookName . " authors:" . $authors);
 

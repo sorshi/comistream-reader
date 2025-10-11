@@ -211,6 +211,15 @@ try {
         throw new Exception('Directory not readable or not traversable: ' . $request_path);
     } else {
         $physical_path = realpath($joined_path) ?: $joined_path;
+        if ($physical_path !== null) {
+            $docroot_guard = rtrim($document_root_real, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+            $physical_guard = rtrim($physical_path, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+            if (strpos($physical_guard, $docroot_guard) !== 0) {
+                http_response_code(404);
+                $is_404_mode = true;
+                $physical_path = null;
+            }
+        }
     }
 
     // セッション開始（必要に応じて）
@@ -236,7 +245,11 @@ try {
 
             $item_path = $physical_path . '/' . $item;
             $is_dir = is_dir($item_path);
-            $stat = stat($item_path);
+            $stat = @stat($item_path);
+            if ($stat === false) {
+                writelog("WARN dir_list_api: stat failed for {$item_path}", "dir_list_api");
+                continue;
+            }
             $entry = [
                 'name' => $item,
                 'is_dir' => $is_dir,
