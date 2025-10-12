@@ -235,6 +235,52 @@ function compareWithDakuten(strA, strB) {
   return strA.length - strB.length;
 }
 
+// スクロール位置の保存（遷移前に呼び出すルン）
+function saveScrollPosition() {
+  try {
+    const scrollY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop;
+    const currentPath = window.location.pathname;
+    
+    sessionStorage.setItem('comistream_scroll_y', scrollY.toString());
+    sessionStorage.setItem('comistream_scroll_path', currentPath);
+    
+    debugLog('DEBUG saveScrollPosition: Saved scroll position ' + scrollY + ' for path: ' + currentPath);
+  } catch (e) {
+    console.warn('Failed to save scroll position:', e);
+  }
+}
+
+// スクロール位置の復元（コンテンツロード完了後に呼び出すルン）
+function restoreScrollPosition() {
+  try {
+    const savedScrollY = sessionStorage.getItem('comistream_scroll_y');
+    const savedPath = sessionStorage.getItem('comistream_scroll_path');
+    const currentPath = window.location.pathname;
+    
+    // 保存されたパスと現在のパスが一致する場合のみ復元するルン
+    if (savedScrollY && savedPath === currentPath) {
+      const scrollY = parseInt(savedScrollY, 10);
+      
+      debugLog('DEBUG restoreScrollPosition: Restoring scroll position ' + scrollY + ' for path: ' + currentPath);
+      
+      // コンテンツが完全にレンダリングされるまで少し待つルン
+      // 画像読み込みやレイアウト計算の完了を待つため
+      setTimeout(function() {
+        window.scrollTo(0, scrollY);
+        debugLog('DEBUG restoreScrollPosition: Scroll restored to ' + scrollY);
+        
+        // 復元後は保存データをクリアするルン（次回の遷移に影響しないように）
+        sessionStorage.removeItem('comistream_scroll_y');
+        sessionStorage.removeItem('comistream_scroll_path');
+      }, 150); // 150ms遅延（画像読み込みとレイアウト計算の完了を待つルン）
+    } else {
+      debugLog('DEBUG restoreScrollPosition: No matching scroll position to restore (saved: ' + savedPath + ', current: ' + currentPath + ')');
+    }
+  } catch (e) {
+    console.warn('Failed to restore scroll position:', e);
+  }
+}
+
 // クライアント側ソート関数（ディレクトリとファイルを混在ソート）
 function sortItemsClientSide(items, sortBy, sortOrder) {
   if (!Array.isArray(items)) {
@@ -478,6 +524,9 @@ function linkhook(e) {
     openFileMenu(e);
     return false;
   }
+
+  // ★ スクロール位置を保存するルン！（遷移前に保存）
+  saveScrollPosition();
 
   // 画像ファイルはそのままブラウザで開く（リーダーは起動しない）
   if (

@@ -366,7 +366,7 @@ if ($canonical_path === false) {
     writelog("ERROR dir_list: Path does not exist or cannot be resolved: " . $request_path, "dir_list");
     $is_404_mode = true;
     $physical_path = null;
-// ★正規化パスがdocument rootで始まるか厳密チェック（パストラバーサル防止）★
+    // ★正規化パスがdocument rootで始まるか厳密チェック（パストラバーサル防止）★
 } elseif (strpos($canonical_path, $document_root_real . '/') !== 0 && $canonical_path !== $document_root_real) {
     // 正規化されたパスがdocument root外を指している = ディレクトリトラバーサル攻撃の試みルン！
     http_response_code(404);
@@ -789,6 +789,11 @@ if ($is_404_mode) {
                             }
                             callGetBookmarkWhenReady();
                             callGetHistoryWhenReady();
+
+                            // ★ スクロール位置を復元するルン！（すべての初期化完了後）
+                            if (typeof restoreScrollPosition === 'function') {
+                                restoreScrollPosition();
+                            }
                         } catch (e) {
                             console.error('ERROR hideSkeletonLoading: Initialization failed:', e);
                         }
@@ -1276,6 +1281,11 @@ if ($is_404_mode) {
                         }
                         callGetBookmarkWhenReady();
                         callGetHistoryWhenReady();
+
+                        // ★ スクロール位置を復元するルン！（すべての初期化完了後）
+                        if (typeof restoreScrollPosition === 'function') {
+                            restoreScrollPosition();
+                        }
                     } catch (e) {
                         console.error('ERROR Normal render (direct): Initialization failed:', e);
                     }
@@ -1435,6 +1445,11 @@ if ($is_404_mode) {
                     callGetBookmarkWhenReady();
                     callGetHistoryWhenReady();
 
+                    // ★ スクロール位置を復元するルン！（すべての初期化完了後）
+                    if (typeof restoreScrollPosition === 'function') {
+                        restoreScrollPosition();
+                    }
+
                     debugLog('DEBUG Fast render: All initialization completed');
                 } catch (e) {
                     console.error('ERROR Fast render: Initialization failed:', e);
@@ -1531,6 +1546,13 @@ if ($is_404_mode) {
 
                 // 高速表示で空ディレクトリを描画
                 renderDirectoryContentFast(items, meta);
+
+                // ★ スクロール位置を復元するルン！（404モードでも復元する）
+                setTimeout(function() {
+                    if (typeof restoreScrollPosition === 'function') {
+                        restoreScrollPosition();
+                    }
+                }, 200);
             }
 
             // DOMContentLoaded時にAjax読み込み開始
