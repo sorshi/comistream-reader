@@ -441,6 +441,7 @@ input[type="range"]::-moz-range-thumb {
   display: inline-block; /* 他の要素と並べる */
   vertical-align: middle; /* 他のボタンと縦位置を合わせる */
   margin-left: 5px; /* 左側のマージン */
+  margin-right: 5px; /* 右側のマージン */
   padding: 3px; /* アイコン周りの余白を小さく */
   line-height: 1; /* 行の高さをアイコンに合わせる */
 }
