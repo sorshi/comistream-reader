@@ -3,14 +3,14 @@
 /**
  * Comistream Reader - Music Player PHP
  *
- * 音楽ファイルの再生とプレイリスト管理を行います。
+ * 音楽ファイルの再生とプレイリスト管理を行います。（BETA版）
  * iOS 18 Safariでのバックグラウンド再生に対応しています。
  *
  * @package     sorshi/comistream-reader
  * @author      Comistream Project.
  * @copyright   2024 Comistream Project.
  * @license     GPL3.0 License
- * @version     1.0.0
+ * @version     2.0.0
  * @link        https://github.com/sorshi/comistream-reader
  */
 
@@ -198,6 +198,8 @@ function openMusicPlayer()
 
     // HTMLページ出力
     $safeBaseFile = htmlspecialchars($baseFile, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $currentIndex = (int)$currentIndex;
+    $user = htmlspecialchars($user, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
     echo <<<HTML
 <!DOCTYPE html>
 <html lang="ja">
@@ -205,9 +207,7 @@ function openMusicPlayer()
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <!-- iOS 18 Safari PWA および バックグラウンド再生対応 -->
-    <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Music Player">
     <meta name="theme-color" content="#667eea">
     <link rel="apple-touch-icon" href="/theme/icons/audio.png">
     <link rel="manifest" href="/theme/manifest.json">
@@ -218,7 +218,7 @@ function openMusicPlayer()
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -226,7 +226,7 @@ function openMusicPlayer()
             height: 100vh;
             overflow: hidden;
         }
-        
+
         .music-player {
             display: flex;
             flex-direction: column;
@@ -236,13 +236,13 @@ function openMusicPlayer()
             background: rgba(0, 0, 0, 0.3);
             backdrop-filter: blur(10px);
         }
-        
+
         .player-header {
             text-align: center;
             padding: 20px;
             background: rgba(0, 0, 0, 0.2);
         }
-        
+
         .album-art {
             width: 200px;
             height: 200px;
@@ -255,30 +255,30 @@ function openMusicPlayer()
             font-size: 48px;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
         }
-        
+
         .track-info {
             text-align: center;
             padding: 20px;
         }
-        
+
         .track-title {
             font-size: 20px;
             font-weight: bold;
             margin-bottom: 8px;
             word-break: break-word;
         }
-        
+
         .track-artist {
             font-size: 16px;
             opacity: 0.8;
             margin-bottom: 20px;
         }
-        
+
         .progress-container {
             padding: 0 30px;
             margin-bottom: 20px;
         }
-        
+
         .progress-bar {
             width: 100%;
             height: 4px;
@@ -287,7 +287,7 @@ function openMusicPlayer()
             margin: 10px 0;
             cursor: pointer;
         }
-        
+
         .progress-fill {
             height: 100%;
             background: white;
@@ -295,14 +295,14 @@ function openMusicPlayer()
             width: 0%;
             transition: width 0.1s ease;
         }
-        
+
         .time-display {
             display: flex;
             justify-content: space-between;
             font-size: 12px;
             opacity: 0.8;
         }
-        
+
         .controls {
             display: flex;
             justify-content: center;
@@ -310,7 +310,7 @@ function openMusicPlayer()
             gap: 20px;
             padding: 20px;
         }
-        
+
         .control-btn {
             background: rgba(255, 255, 255, 0.2);
             border: none;
@@ -326,12 +326,12 @@ function openMusicPlayer()
             transition: all 0.3s ease;
             position: relative;
         }
-        
+
         .control-btn:hover {
             background: rgba(255, 255, 255, 0.3);
             transform: scale(1.1);
         }
-        
+
         .play-pause-btn {
             width: 60px;
             height: 60px;
@@ -339,7 +339,7 @@ function openMusicPlayer()
             background: rgba(255, 255, 255, 0.9);
             color: #333;
         }
-        
+
         /* アイコンはISO/IEC 10646準拠のUnicode記号を使用 */
         .icon-play::before { content: '▶'; }
         .icon-pause::before { content: '⏸'; }
@@ -353,19 +353,19 @@ function openMusicPlayer()
             font-size: 18px;
             line-height: 1;
         }
-        
+
         .shuffle-active {
             background: rgba(255, 255, 255, 0.4) !important;
         }
-        
+
         .repeat-active {
             background: rgba(255, 255, 255, 0.4) !important;
         }
-        
+
         .volume-container {
             padding: 0 30px 20px;
         }
-        
+
         .volume-slider {
             width: 100%;
             height: 4px;
@@ -374,7 +374,7 @@ function openMusicPlayer()
             outline: none;
             -webkit-appearance: none;
         }
-        
+
         .volume-slider::-webkit-slider-thumb {
             -webkit-appearance: none;
             width: 16px;
@@ -383,14 +383,14 @@ function openMusicPlayer()
             background: white;
             cursor: pointer;
         }
-        
+
         .playlist-container {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
             background: rgba(0, 0, 0, 0.2);
         }
-        
+
         .playlist-item {
             padding: 10px;
             border-radius: 8px;
@@ -400,22 +400,22 @@ function openMusicPlayer()
             display: flex;
             align-items: center;
         }
-        
+
         .playlist-item:hover {
             background: rgba(255, 255, 255, 0.1);
         }
-        
+
         .playlist-item.active {
             background: rgba(255, 255, 255, 0.2);
         }
-        
+
         .track-number {
             width: 30px;
             text-align: center;
             opacity: 0.6;
             font-size: 14px;
         }
-        
+
         .track-name {
             flex: 1;
             padding-left: 10px;
@@ -429,7 +429,7 @@ function openMusicPlayer()
             gap: 10px;
             flex-wrap: wrap;
         }
-        
+
         .playlist-btn {
             background: rgba(255, 255, 255, 0.2);
             border: none;
@@ -440,7 +440,7 @@ function openMusicPlayer()
             font-size: 14px;
             transition: background 0.3s ease;
         }
-        
+
         .playlist-btn:hover {
             background: rgba(255, 255, 255, 0.3);
         }
@@ -477,23 +477,23 @@ function openMusicPlayer()
             .music-player {
                 max-width: 100%;
             }
-            
+
             .album-art {
                 width: 150px;
                 height: 150px;
                 font-size: 36px;
             }
-            
+
             .controls {
                 gap: 15px;
             }
-            
+
             .control-btn {
                 width: 45px;
                 height: 45px;
                 font-size: 16px;
             }
-            
+
             .play-pause-btn {
                 width: 55px;
                 height: 55px;
@@ -507,12 +507,12 @@ function openMusicPlayer()
         <div class="player-header">
             <div class="album-art">🎵</div>
         </div>
-        
+
         <div class="track-info">
             <div class="track-title" id="trackTitle">$safeBaseFile</div>
             <div class="track-artist" id="trackArtist">Unknown Artist</div>
         </div>
-        
+
         <div class="progress-container">
             <div class="progress-bar" id="progressBar">
                 <div class="progress-fill" id="progressFill"></div>
@@ -522,7 +522,7 @@ function openMusicPlayer()
                 <span id="totalTime">0:00</span>
             </div>
         </div>
-        
+
         <div class="controls">
             <button class="control-btn icon-prev" id="prevBtn" title="前の曲" data-tooltip="前の曲"></button>
             <button class="control-btn play-pause-btn icon-play" id="playPauseBtn" title="再生" data-tooltip="再生"></button>
@@ -531,7 +531,7 @@ function openMusicPlayer()
             <button class="control-btn icon-repeat" id="repeatBtn" title="リピート: OFF" data-tooltip="リピート: OFF"></button>
             <a class="control-btn icon-download" id="downloadBtn" title="ダウンロード" data-tooltip="ダウンロード" href="#" download></a>
         </div>
-        
+
         <div class="volume-container">
             <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="70">
         </div>
@@ -541,24 +541,22 @@ function openMusicPlayer()
             <button class="playlist-btn" id="createPlaylistBtn">新規作成</button>
             <button class="playlist-btn" id="addToPlaylistBtn">追加</button>
         </div>
-        
+
         <div class="playlist-container" id="playlistContainer">
             <!-- プレイリストアイテムがここに動的に追加される -->
         </div>
     </div>
-    
+
     <!-- iOS 18 Safari バックグラウンド再生対応のオーディオ要素 -->
     <audio id="audioPlayer" preload="auto" crossorigin="anonymous" playsinline webkit-playsinline x-webkit-airplay="allow"></audio>
 
     <script>
         // PHP から JavaScript へのデータ渡し
         window.musicFiles = $musicFilesJson;
-        window.user = <?= json_encode($user, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
-        window.themeDir = '$themeDir';
+        window.currentIndex = $currentIndex;
+        window.user = '$user';
         window.baseDir = window.location.origin + '/';
-    </script>
-    
-    <script>
+
         $contents_js
     </script>
 </body>
