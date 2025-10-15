@@ -558,3 +558,116 @@ input[type="range"]::-moz-range-thumb {
     padding: 10px 14px;
   }
 }
+
+/* ツールチップスタイル ルン！ */
+.button[data-tooltip],
+.clock-icon-button[data-tooltip],
+.inspector-icon-button[data-tooltip],
+.lang-selector[data-tooltip] {
+  position: relative;
+}
+
+.button[data-tooltip]::after,
+.clock-icon-button[data-tooltip]::after,
+.inspector-icon-button[data-tooltip]::after,
+.lang-selector[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: 100%;
+  right: 0;
+  transform: translateY(8px);
+  background-color: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: normal;
+  white-space: normal;
+  min-width: 12em;
+  max-width: 20em;
+  text-align: left;
+  line-height: 1.4;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease;
+  z-index: 10000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* 時計とインスペクタと言語切替のツールチップは左側に配置するルン！ */
+.clock-icon-button[data-tooltip]::after,
+.inspector-icon-button[data-tooltip]::after,
+.lang-selector[data-tooltip]::after {
+  right: auto;
+  left: 0;
+}
+
+.clock-icon-button[data-tooltip]::before,
+.inspector-icon-button[data-tooltip]::before,
+.lang-selector[data-tooltip]::before {
+  right: auto;
+  left: 12px;
+}
+
+.button[data-tooltip]:hover::after,
+.clock-icon-button[data-tooltip]:hover::after,
+.inspector-icon-button[data-tooltip]:hover::after,
+.lang-selector[data-tooltip]:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(4px);
+}
+
+/* ツールチップの矢印 ルン！ */
+.button[data-tooltip]::before,
+.clock-icon-button[data-tooltip]::before,
+.inspector-icon-button[data-tooltip]::before,
+.lang-selector[data-tooltip]::before {
+  content: "";
+  position: absolute;
+  top: 100%;
+  right: 12px;
+  transform: translateY(-6px);
+  border: 6px solid transparent;
+  border-bottom-color: rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+  z-index: 10000;
+}
+
+.button[data-tooltip]:hover::before,
+.clock-icon-button[data-tooltip]:hover::before,
+.inspector-icon-button[data-tooltip]:hover::before,
+.lang-selector[data-tooltip]:hover::before {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* タッチデバイスではツールチップを無効化するルン！ */
+@media (hover: none) {
+  .button[data-tooltip]::after,
+  .button[data-tooltip]::before,
+  .clock-icon-button[data-tooltip]::after,
+  .clock-icon-button[data-tooltip]::before,
+  .inspector-icon-button[data-tooltip]::after,
+  .inspector-icon-button[data-tooltip]::before,
+  .lang-selector[data-tooltip]::after,
+  .lang-selector[data-tooltip]::before {
+    display: none;
+  }
+}
+
+/* モバイル向けのツールチップ調整 ルン！ */
+@media (max-width: 768px) {
+  .button[data-tooltip]::after,
+  .clock-icon-button[data-tooltip]::after,
+  .inspector-icon-button[data-tooltip]::after,
+  .lang-selector[data-tooltip]::after {
+    min-width: 10em;
+    max-width: 18em;
+    font-size: 9px;
+    padding: 6px 10px;
+  }
+}

@@ -69,7 +69,7 @@ function generateHTML()
         $size_button_flag = $i18n->get('compressed');
         $size_button_class = 'button cmp';
     }
-    
+
     // 綴じ方向ボタンの設定 ルン！現在のモードを表示するルン！
     if ($direction === 'left') {
         // 右綴じ（デフォルト）
@@ -80,7 +80,7 @@ function generateHTML()
         $direction_button_text = $i18n->get('direction_left');
         $direction_button_class = 'button left-to-right';
     }
-    
+
     // デバッグフラグをJSONに変換(JS埋め込み用)
     $debug_flag = json_encode($global_debug_flag);
 
@@ -94,8 +94,11 @@ function generateHTML()
     // themeもpath
     $themeDir = ''; // themeは常にwebroot直下
 
-    // 言語選択用のHTMLを生成
-    $langSelectorHtml = $i18n->getLangSelectorHtml();
+    // ツールチップ用の翻訳テキストを取得してから言語選択HTMLを生成するルン！
+    $tooltip_language_text = $i18n->get('tooltip_language');
+
+    // 言語選択用のHTMLを生成（ツールチップ付き）
+    $langSelectorHtml = $i18n->getLangSelectorHtml($tooltip_language_text);
     // 言語切り替え用のJavaScript
     $langSwitcherJs = $i18n->getLangSwitcherJs();
 
@@ -161,6 +164,21 @@ function generateHTML()
         'toc_button_windowed' => $i18n->get('windowed'),
         'large_page_notification' => $i18n->get('large_page_notification')
     ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+
+    // ツールチップ用の翻訳テキストを準備するルン！
+    $tooltip_back = htmlspecialchars($i18n->get('tooltip_back'), ENT_QUOTES, 'UTF-8');
+    $tooltip_full_size = htmlspecialchars($i18n->get('tooltip_full_size'), ENT_QUOTES, 'UTF-8');
+    $tooltip_compressed = htmlspecialchars($i18n->get('tooltip_compressed'), ENT_QUOTES, 'UTF-8');
+    $tooltip_single_page = htmlspecialchars($i18n->get('tooltip_single_page'), ENT_QUOTES, 'UTF-8');
+    $tooltip_spread_page = htmlspecialchars($i18n->get('tooltip_spread_page'), ENT_QUOTES, 'UTF-8');
+    $tooltip_spread_fix = htmlspecialchars($i18n->get('tooltip_spread_fix'), ENT_QUOTES, 'UTF-8');
+    $tooltip_direction = htmlspecialchars($i18n->get('tooltip_direction'), ENT_QUOTES, 'UTF-8');
+    $tooltip_fullscreen = htmlspecialchars($i18n->get('tooltip_fullscreen'), ENT_QUOTES, 'UTF-8');
+    $tooltip_trimmingmode_trimming = htmlspecialchars($i18n->get('tooltip_trimmingmode_trimming'), ENT_QUOTES, 'UTF-8');
+    $tooltip_trimmingmode_normal = htmlspecialchars($i18n->get('tooltip_trimmingmode_normal'), ENT_QUOTES, 'UTF-8');
+    $tooltip_clock = htmlspecialchars($i18n->get('tooltip_clock'), ENT_QUOTES, 'UTF-8');
+    $tooltip_inspector = htmlspecialchars($i18n->get('tooltip_inspector'), ENT_QUOTES, 'UTF-8');
+    $tooltip_language = htmlspecialchars($i18n->get('tooltip_language'), ENT_QUOTES, 'UTF-8');
 
     $htmlContent =  <<<EOF
 <!DOCTYPE html>
@@ -272,16 +290,16 @@ function generateHTML()
     <div>
         <div class="toc-buttons">
             <img src="$themeDir/theme/icons/close.png" alt="$alt_close_button" class="close" onclick="document.getElementById('contents').style.display='none'">
-            <span class="button button-close" onclick="backListPage();">{$i18n->get('back')}</span>
-            <span id="rawMode" class="$size_button_class button-mode" onclick="toggleRaw();">$size_button_flag</span>
-            <span id="pageMode" class="$pagemode_button_class button-mode" onclick="togglePageMode()">$pagemode_button_text</span>
-            <span class="button button-mode" onclick="fixSpreadPage()">{$i18n->get('spread_fix')}</span>
-            <span class="$direction_button_class button-mode" id="direction" onclick="toggleDirection()">$direction_button_text</span>
-            <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()">{$i18n->get('fullscreen')}</span>
-            <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()">$split_button_text</span>
+            <span class="button button-close" onclick="backListPage();" data-tooltip="$tooltip_back">{$i18n->get('back')}</span>
+            <span id="rawMode" class="$size_button_class button-mode" onclick="toggleRaw();" data-tooltip-full="$tooltip_full_size" data-tooltip-compressed="$tooltip_compressed">$size_button_flag</span>
+            <span id="pageMode" class="$pagemode_button_class button-mode" onclick="togglePageMode()" data-tooltip-single="$tooltip_single_page" data-tooltip-spread="$tooltip_spread_page">$pagemode_button_text</span>
+            <span class="button button-mode" onclick="fixSpreadPage();" data-tooltip="$tooltip_spread_fix">{$i18n->get('spread_fix')}</span>
+            <span class="$direction_button_class button-mode" id="direction" onclick="toggleDirection()" data-tooltip="$tooltip_direction">$direction_button_text</span>
+            <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()" data-tooltip="$tooltip_fullscreen">{$i18n->get('fullscreen')}</span>
+            <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()" data-tooltip-trimming="$tooltip_trimmingmode_trimming" data-tooltip-normal="$tooltip_trimmingmode_normal">$split_button_text</span>
             $langSelectorHtml
-            <span class="clock-icon-button" id="clockToggleButton" onclick="toggleClock()"><i data-feather="clock"></i></span>
-            <span class="inspector-icon-button" id="inspectorToggleButton" onclick="showInspector()"><i data-feather="info"></i></span>
+            <span class="clock-icon-button" id="clockToggleButton" onclick="toggleClock()" data-tooltip="$tooltip_clock"><i data-feather="clock"></i></span>
+            <span class="inspector-icon-button" id="inspectorToggleButton" onclick="showInspector()" data-tooltip="$tooltip_inspector"><i data-feather="info"></i></span>
         </div>
         <div style="clear:both;">
             <div class="bookName">$bookName</div>
@@ -318,7 +336,7 @@ EOF;
 /**
  * HTML出力関数 ルン！ヘッダー設定して出力するルン！
  * generateHTML()を呼んで結果を出力するルン。
- * 
+ *
  * @return void
  */
 function printHTML()

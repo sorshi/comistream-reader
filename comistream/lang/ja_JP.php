@@ -129,4 +129,19 @@ return [
     'alt_close_button' => '閉じるボタン',
     'alt_quick_spread_left' => 'クイック見開きモード左ページ',
     'alt_quick_spread_right' => 'クイック見開きモード右ページ',
+
+    // Tooltips for TOC menu buttons
+    'tooltip_back' => 'リーダーを閉じて元の画面に戻ります',
+    'tooltip_full_size' => 'オリジナルの画像ファイルをそのまま表示します。高画質ですがパケット消費が多くなります',
+    'tooltip_compressed' => '画像を圧縮して表示します。パケット消費を抑えられますが画質は低下します。スマホサイズでは充分高画質なケースも多いです',
+    'tooltip_single_page' => 'ページを1枚ずつ表示します。縦長の表示に最適です。長押しやスペースキーでクイック見開き表示が可能です',
+    'tooltip_spread_page' => 'ページを2枚並べて表示します。横長の表示に最適です',
+    'tooltip_spread_fix' => '見開き表示モードのときに左ページと右ページを補正します',
+    'tooltip_direction' => '綴じ方向を変更します',
+    'tooltip_fullscreen' => 'フルスクリーン表示とウィンドウ表示を切り替えます',
+    'tooltip_trimmingmode_trimming' => 'ページの前後左右余白を取り除いて表示します。スキャン時に余白が大きい画像ファイルの表示に最適です',
+    'tooltip_trimmingmode_normal' => '画像ファイルをトリミングせずそのまま表示します',
+    'tooltip_clock' => '左上に時刻表示をします',
+    'tooltip_inspector' => '左下に詳細情報を表示します',
+    'tooltip_language' => '表示言語を切り替えます',
 ];

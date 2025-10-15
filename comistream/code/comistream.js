@@ -1106,6 +1106,9 @@ function restorePage() {
 
   // 全画面ボタンの初期状態を設定するルン！
   updateFullScreenButton();
+
+  // ツールチップの初期状態を設定するルン！
+  updateModeTooltips();
 }
 
 function index() {
@@ -1170,6 +1173,8 @@ function togglePageMode() {
     document.getElementById("image").style.float = "none";
     document.getElementById("nextimage").style.display = "none";
   }
+  // ツールチップを更新するルン！
+  updateModeTooltips();
   loadPage(1);
 }
 
@@ -1183,6 +1188,8 @@ function single() {
   document.getElementById("image").style.backgroundPosition = "center";
   document.getElementById("image").style.float = "none";
   document.getElementById("nextimage").style.display = "none";
+  // ツールチップを更新するルン！
+  updateModeTooltips();
   loadPage(1);
 }
 
@@ -1197,6 +1204,8 @@ function spread() {
   document.getElementById("nextimage").style.display = "block";
   document.getElementById("nextimage").style.backgroundPosition = position;
   document.getElementById("nextimage").style.float = direction;
+  // ツールチップを更新するルン！
+  updateModeTooltips();
   loadPage(1);
 }
 
@@ -2074,5 +2083,59 @@ function checkAndShowLargePageNotification() {
         "KB, showing notification"
     );
     showLargePageNotification();
+  }
+}
+
+// ツールチップを更新するヘルパー関数 ルン！
+function updateTooltip(elementId, newTooltip) {
+  const element = document.getElementById(elementId);
+  if (element) {
+    element.setAttribute("data-tooltip", newTooltip);
+  }
+}
+
+// モード切り替え時にツールチップを更新する関数 ルン！
+// 現在の状態に応じて、そのモードの説明をツールチップに表示するルン☆
+function updateModeTooltips() {
+  // rawModeボタンのツールチップを更新 ルン！
+  const rawMode = document.getElementById("rawMode");
+  if (rawMode) {
+    if (rawMode.classList.contains("raw")) {
+      // 現在原寸(raw)モードなので、原寸モードの説明をツールチップに表示するルン
+      const tooltip = rawMode.getAttribute("data-tooltip-full");
+      if (tooltip) rawMode.setAttribute("data-tooltip", tooltip);
+    } else {
+      // 現在圧縮(cmp)モードなので、圧縮モードの説明をツールチップに表示するルン
+      const tooltip = rawMode.getAttribute("data-tooltip-compressed");
+      if (tooltip) rawMode.setAttribute("data-tooltip", tooltip);
+    }
+  }
+
+  // pageModeボタンのツールチップを更新 ルン！
+  const pageMode = document.getElementById("pageMode");
+  if (pageMode) {
+    if (pageMode.classList.contains("single")) {
+      // 現在単頁モードなので、単頁モードの説明をツールチップに表示するルン
+      const tooltip = pageMode.getAttribute("data-tooltip-single");
+      if (tooltip) pageMode.setAttribute("data-tooltip", tooltip);
+    } else {
+      // 現在見開(spread)モードなので、見開モードの説明をツールチップに表示するルン
+      const tooltip = pageMode.getAttribute("data-tooltip-spread");
+      if (tooltip) pageMode.setAttribute("data-tooltip", tooltip);
+    }
+  }
+
+  // splitFileボタンのツールチップを更新 ルン！
+  const splitFile = document.getElementById("splitFile");
+  if (splitFile) {
+    if (splitFile.classList.contains("trimming")) {
+      // 現在トリミングモードなので、トリミングモードの説明をツールチップに表示するルン
+      const tooltip = splitFile.getAttribute("data-tooltip-trimming");
+      if (tooltip) splitFile.setAttribute("data-tooltip", tooltip);
+    } else {
+      // 現在通常(normal)モードなので、通常モードの説明をツールチップに表示するルン
+      const tooltip = splitFile.getAttribute("data-tooltip-normal");
+      if (tooltip) splitFile.setAttribute("data-tooltip", tooltip);
+    }
   }
 }

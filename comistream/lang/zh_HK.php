@@ -129,4 +129,19 @@ return [
     'alt_close_button' => '關閉按鈕',
     'alt_quick_spread_left' => '快速雙頁模式左頁',
     'alt_quick_spread_right' => '快速雙頁模式右頁',
+
+    // Tooltips for TOC menu buttons
+    'tooltip_back' => '關閉閱讀器並返回上一個畫面',
+    'tooltip_full_size' => '顯示原始圖片檔案。高畫質但資料用量較多',
+    'tooltip_compressed' => '顯示壓縮圖片。減少資料用量但降低畫質。智慧型手機顯示通常已足夠清晰',
+    'tooltip_single_page' => '逐頁顯示。最適合直向顯示。長按或空白鍵可快速雙頁顯示',
+    'tooltip_spread_page' => '並排顯示兩頁。最適合橫向顯示',
+    'tooltip_spread_fix' => '調整雙頁顯示模式中的左右頁位置',
+    'tooltip_direction' => '變更閱讀方向',
+    'tooltip_fullscreen' => '切換全螢幕和視窗顯示',
+    'tooltip_trimmingmode_trimming' => '移除頁面四周邊緣。最適合掃描時留有大邊緣的圖片檔案',
+    'tooltip_trimmingmode_normal' => '不裁切邊緣直接顯示圖片檔案',
+    'tooltip_clock' => '在左上角顯示時間',
+    'tooltip_inspector' => '在左下角顯示詳細資訊',
+    'tooltip_language' => '切換顯示語言',
 ]; 

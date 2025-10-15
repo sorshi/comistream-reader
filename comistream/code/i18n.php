@@ -56,7 +56,7 @@ class I18n
         if (isset($_COOKIE['lang'])) {
             // クッキー値を一度だけサニタイズするルン！
             $safeCookie = preg_replace('/[^a-zA-Z0-9_\-]/', '', $_COOKIE['lang']);
-            
+
             // サニタイズした値が空じゃなくて、利用可能な言語リストに存在するかチェックするルン
             if (!empty($safeCookie) && array_key_exists($safeCookie, $this->availableLangs)) {
                 $this->lang = $safeCookie;
@@ -102,7 +102,7 @@ class I18n
         } else {
             writelog("DEBUG: ブラウザ言語設定はありません");
         }
-        
+
         writelog("DEBUG: デフォルト言語を使用: " . $this->lang);
     }
 
@@ -119,10 +119,10 @@ class I18n
             'zh_TW' => 'zh_TW',
             'zh_HK' => 'zh_HK'
         ];
-        
+
         $mappedLang = isset($langMap[$this->lang]) ? $langMap[$this->lang] : $this->lang;
         $langFile = __DIR__ . '/../lang/' . $mappedLang . '.php';
-        
+
         writelog("DEBUG: 言語ファイル読み込み: " . $langFile);
         if (file_exists($langFile)) {
             $this->translations = require($langFile);
@@ -180,10 +180,19 @@ class I18n
 
     /**
      * 言語選択のHTMLを生成
+     *
+     * @param string $tooltip ツールチップに表示するテキスト（オプション）
      */
-    public function getLangSelectorHtml()
+    public function getLangSelectorHtml($tooltip = '')
     {
-        $html = '<div class="lang-selector">';
+        // ツールチップのエスケープ処理 ルン！
+        $tooltipAttr = '';
+        if (!empty($tooltip)) {
+            $escapedTooltip = htmlspecialchars($tooltip, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $tooltipAttr = ' data-tooltip="' . $escapedTooltip . '"';
+        }
+
+        $html = '<div class="lang-selector"' . $tooltipAttr . '>';
         $html .= '<div class="lang-current">';
 
         // 現在選択中の言語を表示

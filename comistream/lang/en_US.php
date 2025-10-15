@@ -129,4 +129,19 @@ return [
     'alt_close_button' => 'Close button',
     'alt_quick_spread_left' => 'Quick spread mode left page',
     'alt_quick_spread_right' => 'Quick spread mode right page',
+
+    // Tooltips for TOC menu buttons
+    'tooltip_back' => 'Close the reader and return to the previous screen',
+    'tooltip_full_size' => 'Display original image files without compression. Higher quality but uses more data',
+    'tooltip_compressed' => 'Display compressed images. Reduces data usage but lowers quality. Often sufficient for smartphone displays',
+    'tooltip_single_page' => 'Display pages one at a time. Optimal for portrait viewing. Long press or space key for quick spread view',
+    'tooltip_spread_page' => 'Display two pages side by side. Optimal for landscape viewing',
+    'tooltip_spread_fix' => 'Adjust left and right page alignment in spread view mode',
+    'tooltip_direction' => 'Change the reading direction',
+    'tooltip_fullscreen' => 'Toggle between fullscreen and windowed display',
+    'tooltip_trimmingmode_trimming' => 'Remove margins from all sides of pages. Optimal for images with large margins from scanning',
+    'tooltip_trimmingmode_normal' => 'Display images without trimming margins',
+    'tooltip_clock' => 'Display time in the upper left corner',
+    'tooltip_inspector' => 'Display detailed information in the lower left corner',
+    'tooltip_language' => 'Switch display language',
 ];
