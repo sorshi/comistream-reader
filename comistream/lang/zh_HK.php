@@ -24,6 +24,7 @@ return [
     'direction_right' => '右翻',
     'direction_left' => '左翻',
     'fullscreen' => '全螢幕',
+    'windowed' => '視窗顯示',
     'trimmingmode_trimming' => '裁切邊緣',
     'trimmingmode_normal' => '完整顯示',
     'clock' => '時鐘',

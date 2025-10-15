@@ -24,6 +24,7 @@ return [
     'direction_right' => 'Right-to-Left',
     'direction_left' => 'Left-to-Right',
     'fullscreen' => 'Fullscreen',
+    'windowed' => 'Windowed',
     'trimmingmode_trimming' => 'Trimming',
     'trimmingmode_normal' => 'NoTrim',
     'clock' => 'Clock',

@@ -15,8 +15,8 @@
 return [
     // ヘッダーとナビゲーション
     'back' => '戻る',
-    'full_size' => 'フル',
-    'compressed' => '圧縮',
+    'full_size' => '原寸',
+    'compressed' => '節約',
     'single_page' => '単頁',
     'spread_page' => '見開',
     'spread_fix' => '見開補正',
@@ -24,6 +24,7 @@ return [
     'direction_right' => '右綴',
     'direction_left' => '左綴',
     'fullscreen' => '全画面',
+    'windowed' => '窓表示',
     'trimmingmode_trimming' => '余白除',
     'trimmingmode_normal' => '全体',
     'clock' => '時計',

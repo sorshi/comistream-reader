@@ -268,6 +268,12 @@ function isZoomed() {
 
 window.addEventListener("keydown", funcKey);
 
+// 全画面モードの変更を監視するイベントリスナー ルン！
+// ESCキーでの解除にも対応できるルン！
+document.addEventListener("fullscreenchange", updateFullScreenButton);
+document.addEventListener("webkitfullscreenchange", updateFullScreenButton);
+document.addEventListener("mozfullscreenchange", updateFullScreenButton);
+document.addEventListener("MSFullscreenChange", updateFullScreenButton);
 
 window.addEventListener(
   "load",
@@ -1097,6 +1103,9 @@ function restorePage() {
 
   // 大きなページサイズの通知をチェック
   checkAndShowLargePageNotification();
+
+  // 全画面ボタンの初期状態を設定するルン！
+  updateFullScreenButton();
 }
 
 function index() {
@@ -1214,6 +1223,26 @@ function fixSpreadPage() {
   loadPage(1);
 }
 
+// 全画面表示の状態をボタンに反映する関数ルン！
+function updateFullScreenButton() {
+  const fullScreenButton = document.getElementById("fullScreenButton");
+  const isFullscreen =
+    document.fullscreenElement ||
+    document.mozFullScreenElement ||
+    document.webkitFullscreenElement ||
+    document.msFullscreenElement;
+
+  if (isFullscreen) {
+    // 全画面モード時は「窓表示」を表示するルン！
+    fullScreenButton.textContent = window.i18n.toc_button_windowed;
+    fullScreenButton.classList.add("pressed");
+  } else {
+    // 窓表示時は「全画面」を表示するルン！
+    fullScreenButton.textContent = window.i18n.toc_button_fullscreen;
+    fullScreenButton.classList.remove("pressed");
+  }
+}
+
 function toggleFullScreen() {
   if (
     document.fullscreenElement ||
@@ -1221,6 +1250,7 @@ function toggleFullScreen() {
     document.webkitFullscreenElement ||
     document.msFullscreenElement
   ) {
+    // 全画面を解除するルン！
     if (document.cancelFullScreen) {
       document.cancelFullScreen();
     } else if (document.mozCancelFullScreen) {
@@ -1230,24 +1260,21 @@ function toggleFullScreen() {
     } else if (document.msExitFullscreen) {
       document.msExitFullscreen();
     }
-    document.getElementById("fullScreenButton").classList.remove("pressed");
   } else {
+    // 全画面にするルン！
     if (document.documentElement.webkitRequestFullscreen) {
       document.documentElement.webkitRequestFullscreen();
-      document.getElementById("fullScreenButton").classList.add("pressed");
     } else if (document.documentElement.mozRequestFullScreen) {
       document.documentElement.mozRequestFullScreen();
-      document.getElementById("fullScreenButton").classList.add("pressed");
     } else if (document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen();
-      document.getElementById("fullScreenButton").classList.add("pressed");
     } else if (document.documentElement.msRequestFullscreen) {
       document.documentElement.msRequestFullscreen();
-      document.getElementById("fullScreenButton").classList.add("pressed");
     } else {
-      alert("フルスクリーン非対応");
+      alert(window.i18n.fullscreen_not_supported || "フルスクリーン非対応");
     }
   }
+  // ボタンの状態は fullscreenchange イベントで更新されるルン！
 }
 
 function toggleDirection() {

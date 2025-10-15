@@ -157,6 +157,8 @@ function generateHTML()
         'toc_button_spread' => $i18n->get('spread_page'),
         'toc_button_direction_right' => $i18n->get('direction_right'),
         'toc_button_direction_left' => $i18n->get('direction_left'),
+        'toc_button_fullscreen' => $i18n->get('fullscreen'),
+        'toc_button_windowed' => $i18n->get('windowed'),
         'large_page_notification' => $i18n->get('large_page_notification')
     ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
