@@ -16,9 +16,28 @@ let previewWindowHeight = Math.round(
 ); // プレビュー画像の表示上の高さ
 
 // ソート設定の管理
+let currentPath = window.location.pathname;
 let currentSortBy = 'name';
 let currentSortOrder = 'asc';
-let currentPath = window.location.pathname;
+
+// ★即座にlocalStorageから読み込んで初期値を上書きするルン！
+// Ajax開始前に確実にソート設定を反映させるための即時実行関数ルン
+(function initializeSortSettingsImmediately() {
+  try {
+    const sortPrefs = JSON.parse(localStorage.getItem('dirSortPrefs') || '{}');
+    const currentPrefs = sortPrefs[currentPath];
+    if (currentPrefs) {
+      currentSortBy = currentPrefs.sort || 'name';
+      currentSortOrder = currentPrefs.order || 'asc';
+      debugLog('INFO: Sort settings loaded immediately from localStorage: ' + currentSortBy + '/' + currentSortOrder);
+    }
+  } catch (e) {
+    console.warn('Failed to load sort settings from localStorage immediately:', e);
+    // エラー時はデフォルト値を維持するルン
+    currentSortBy = 'name';
+    currentSortOrder = 'asc';
+  }
+})();
 
 // Intl.Collator for natural sorting with kana normalization
 // macOSのFinderと同じような濁点・半濁点順序のため sensitivity を 'accent' に変更

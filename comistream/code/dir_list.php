@@ -1071,9 +1071,10 @@ if ($is_404_mode) {
                     viewmode: viewmode
                 });
 
-                // ソートパラメータがあれば追加
-                if (urlParams.get('sort')) params.set('sort', urlParams.get('sort'));
-                if (urlParams.get('order')) params.set('order', urlParams.get('order'));
+                // ソートパラメータを明示的に渡すルン（セッション切れ対策）
+                // URLパラメータがあればそれを優先、なければcurrentSortBy/currentSortOrderを使用ルン
+                params.set('sort', urlParams.get('sort') || currentSortBy || 'name');
+                params.set('order', urlParams.get('order') || currentSortOrder || 'asc');
 
                 const fullApiUrl = apiUrl + '?' + params.toString();
                 debugLog('API URL:', fullApiUrl);
