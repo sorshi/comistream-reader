@@ -1251,16 +1251,23 @@ function toggleFullScreen() {
 }
 
 function toggleDirection() {
+  // 綴じ方向の切り替え ルン！現在のモードを表示するように変更するルン！
   if (direction == "left") {
+    // 右綴じ → 左綴じに切り替え
     direction = "right";
     position = "left";
     document.getElementById("progress").className = "progress-right";
     document.getElementById("slider").style.transform = "rotateY(0deg)";
+    document.getElementById("direction").className = "button left-to-right button-mode";
+    document.getElementById("direction").textContent = window.i18n.toc_button_direction_left;
   } else {
+    // 左綴じ → 右綴じに切り替え
     direction = "left";
     position = "right";
     document.getElementById("progress").className = "progress-left";
     document.getElementById("slider").style.transform = "rotateY(180deg)";
+    document.getElementById("direction").className = "button right-to-left button-mode";
+    document.getElementById("direction").textContent = window.i18n.toc_button_direction_right;
   }
   if (mode == 2) spread();
 }

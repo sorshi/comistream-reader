@@ -21,6 +21,8 @@ return [
     'spread_page' => 'Spread',
     'spread_fix' => 'Fix Spread',
     'direction' => 'Direction',
+    'direction_right' => 'Right-to-Left',
+    'direction_left' => 'Left-to-Right',
     'fullscreen' => 'Fullscreen',
     'trimmingmode_trimming' => 'Trimming',
     'trimmingmode_normal' => 'NoTrim',

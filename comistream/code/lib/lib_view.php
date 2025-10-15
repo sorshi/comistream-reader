@@ -69,6 +69,18 @@ function generateHTML()
         $size_button_flag = $i18n->get('compressed');
         $size_button_class = 'button cmp';
     }
+    
+    // 綴じ方向ボタンの設定 ルン！現在のモードを表示するルン！
+    if ($direction === 'left') {
+        // 右綴じ（デフォルト）
+        $direction_button_text = $i18n->get('direction_right');
+        $direction_button_class = 'button right-to-left';
+    } else {
+        // 左綴じ
+        $direction_button_text = $i18n->get('direction_left');
+        $direction_button_class = 'button left-to-right';
+    }
+    
     // デバッグフラグをJSONに変換(JS埋め込み用)
     $debug_flag = json_encode($global_debug_flag);
 
@@ -113,6 +125,7 @@ function generateHTML()
     $size_button_flag = htmlspecialchars($size_button_flag, ENT_QUOTES, 'UTF-8');
     $pagemode_button_text = htmlspecialchars($pagemode_button_text, ENT_QUOTES, 'UTF-8');
     $split_button_text = htmlspecialchars($split_button_text, ENT_QUOTES, 'UTF-8');
+    $direction_button_text = htmlspecialchars($direction_button_text, ENT_QUOTES, 'UTF-8');
     $alt_close_button = htmlspecialchars($i18n->get('alt_close_button'), ENT_QUOTES, 'UTF-8');
     $alt_quick_spread_left = htmlspecialchars($i18n->get('alt_quick_spread_left'), ENT_QUOTES, 'UTF-8');
     $alt_quick_spread_right = htmlspecialchars($i18n->get('alt_quick_spread_right'), ENT_QUOTES, 'UTF-8');
@@ -142,6 +155,8 @@ function generateHTML()
         'toc_button_normal' => $i18n->get('trimmingmode_normal'),
         'toc_button_single' => $i18n->get('single_page'),
         'toc_button_spread' => $i18n->get('spread_page'),
+        'toc_button_direction_right' => $i18n->get('direction_right'),
+        'toc_button_direction_left' => $i18n->get('direction_left'),
         'large_page_notification' => $i18n->get('large_page_notification')
     ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
@@ -259,7 +274,7 @@ function generateHTML()
             <span id="rawMode" class="$size_button_class button-mode" onclick="toggleRaw();">$size_button_flag</span>
             <span id="pageMode" class="$pagemode_button_class button-mode" onclick="togglePageMode()">$pagemode_button_text</span>
             <span class="button button-mode" onclick="fixSpreadPage()">{$i18n->get('spread_fix')}</span>
-            <span class="button button-mode" id="direction" onclick="toggleDirection()">{$i18n->get('direction')}</span>
+            <span class="$direction_button_class button-mode" id="direction" onclick="toggleDirection()">$direction_button_text</span>
             <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()">{$i18n->get('fullscreen')}</span>
             <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()">$split_button_text</span>
             $langSelectorHtml

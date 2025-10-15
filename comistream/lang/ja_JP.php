@@ -21,6 +21,8 @@ return [
     'spread_page' => '見開',
     'spread_fix' => '見開補正',
     'direction' => '綴方向',
+    'direction_right' => '右綴',
+    'direction_left' => '左綴',
     'fullscreen' => '全画面',
     'trimmingmode_trimming' => '余白除',
     'trimmingmode_normal' => '全体',
