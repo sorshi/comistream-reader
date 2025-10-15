@@ -1242,12 +1242,12 @@ function updateFullScreenButton() {
     document.msFullscreenElement;
 
   if (isFullscreen) {
-    // 全画面モード時は「窓表示」を表示するルン！
-    fullScreenButton.textContent = window.i18n.toc_button_windowed;
+    // 全画面モード時は「全画面」を表示するルン！（現在のモード表示）
+    fullScreenButton.textContent = window.i18n.toc_button_fullscreen;
     fullScreenButton.classList.add("pressed");
   } else {
-    // 窓表示時は「全画面」を表示するルン！
-    fullScreenButton.textContent = window.i18n.toc_button_fullscreen;
+    // 窓表示時は「窓表示」を表示するルン！（現在のモード表示）
+    fullScreenButton.textContent = window.i18n.toc_button_windowed;
     fullScreenButton.classList.remove("pressed");
   }
 }
