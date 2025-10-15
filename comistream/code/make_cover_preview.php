@@ -391,6 +391,7 @@ if (strcasecmp($ext, 'epub') == 0) {
                     writelog("ERROR: Failed to convert image: $cmd", $writelog_process_name);
                 }
             }
+            unset($image);
         }
 
         // プレビュー画像を作成
@@ -449,7 +450,7 @@ if (strcasecmp($ext, 'epub') == 0) {
 
                 // libvipsで画像データを読み込み
                 $image = \Jcupitt\Vips\Image::newFromBuffer($imageData);
-
+                unset($imageData);
                 // リサイズ処理（ImageMagick形式の'x400'から数値を抽出）
                 $targetSize = intval(preg_replace('/[^0-9]/', '', $resize));
                 if ($targetSize <= 0) {
@@ -513,6 +514,8 @@ if (strcasecmp($ext, 'epub') == 0) {
         } else {
             writelog('DEBUG Cover file successfully created. Size: ' . filesize($coverFile) . ' bytes', $writelog_process_name);
         }
+        unset($image);
+        
     } elseif ($type == 'preview') {
 
         create_preview_dir($previewFile);
@@ -529,7 +532,7 @@ if (strcasecmp($ext, 'epub') == 0) {
 
             $outputFile = "$shmDir/" . $outputFileBasename . ".png";
             $imageProcessed = false;
-            
+
             // libvipsで取得する画像サイズの初期化（libvipsが使われない場合のnotice回避）ルン
             $vipsImageWidth = 0;
             $vipsImageHeight = 0;
@@ -548,6 +551,7 @@ if (strcasecmp($ext, 'epub') == 0) {
 
                     // libvipsで画像データを読み込み
                     $image = \Jcupitt\Vips\Image::newFromBuffer($imageData);
+                    unset($imageData);
 
                     // トリミング処理（libvipsでは自動トリミング機能がないためスキップ）
                     // writelog("DEBUG: Trimming skipped when using libvips (not supported)", $writelog_process_name);
@@ -646,10 +650,12 @@ if (strcasecmp($ext, 'epub') == 0) {
                     $count--;
                 }
             }
-            $page++;
-            $count++;
             // 通常はpageとcountを++
             // 帯とかでページをスキップした場合はpageだけ++
+            $page++;
+            $count++;
+            // メモリ解放
+            unset($image);
         }
         $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 - | $convert - -quality $quality -define webp:lossless=false \"$previewFile\"";
         writelog("DEBUG concatCmd:$concatCmd", $writelog_process_name);

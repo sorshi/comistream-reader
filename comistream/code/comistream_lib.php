@@ -1190,9 +1190,12 @@ function outputPage($isFileout = false)
                     header("Cache-Control: private, max-age=86400");
                     echo $pageImg;
                     writelog("DEBUG outputPage() filesize:" . strlen($pageImg));
+                    // メモリ解放
+                    unset($pageImg);
                 }
             }
         }
+    // フルサイズの送出処理終わり
     } else {
         // モバイル向けの圧縮して画像を出力
         if ($als == 1) {
@@ -1222,6 +1225,7 @@ function outputPage($isFileout = false)
                     if (strlen($imageBinary) > 0) {
                         // バイナリから画像を読み込み
                         $image = \Jcupitt\Vips\Image::newFromBuffer($imageBinary);
+                        unset($imageBinary);
 
                         // 縮小処理
                         $currentWidth = $image->width;
@@ -1246,6 +1250,9 @@ function outputPage($isFileout = false)
                             echo $pageImg;
                             writelog("DEBUG outputPage() vips filesize:" . strlen($pageImg));
                         }
+                        // メモリ解放
+                        unset($image);
+                        unset($pageImg);
                     } else {
                         writelog("ERROR vips input command returned empty data");
                         $pageImg = null;
@@ -1266,6 +1273,7 @@ function outputPage($isFileout = false)
                     if (strlen($imageBinary) > 0) {
                         // バイナリから画像を読み込み
                         $image = \Jcupitt\Vips\Image::newFromBuffer($imageBinary);
+                        unset($imageBinary);
 
                         // 縮小処理
                         $currentWidth = $image->width;
@@ -1290,6 +1298,9 @@ function outputPage($isFileout = false)
                             echo $pageImg;
                             writelog("DEBUG outputPage() vips filesize:" . strlen($pageImg));
                         }
+                        // メモリ解放
+                        unset($image);
+                        unset($pageImg);
                     } else {
                         writelog("ERROR vips input command returned empty data");
                         $pageImg = null;
