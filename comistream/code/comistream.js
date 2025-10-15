@@ -1330,7 +1330,6 @@ function funcKey(evt) {
   // 長押し : クイック見開き表示
   // iPad回転 : クイック見開き表示
   // i : インスペクター表示トグル
-  // 2本指スワイプダウン : インスペクター表示
 
   debugLog("funcKey(); key event:" + evt.code);
   if (evt.code == "Space" || evt.keyCode === 32) {
