@@ -515,7 +515,6 @@ if (strcasecmp($ext, 'epub') == 0) {
             writelog('DEBUG Cover file successfully created. Size: ' . filesize($coverFile) . ' bytes', $writelog_process_name);
         }
         unset($image);
-        
     } elseif ($type == 'preview') {
 
         create_preview_dir($previewFile);
@@ -657,22 +656,78 @@ if (strcasecmp($ext, 'epub') == 0) {
             // メモリ解放
             unset($image);
         }
-        $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 - | $convert - -quality $quality -define webp:lossless=false \"$previewFile\"";
+        // $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 - | $convert - -quality $quality -define webp:lossless=false \"$previewFile\"";
+        // 一時ファイルに出力するルン！バイナリデータはexec()の$outputに入らないルンから！
+        $tmpMergedPng = "$shmDir/__previde.png";
+        // 標準エラー出力もキャプチャするために 2>&1 を追加するルン
+        $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 $tmpMergedPng 2>&1";
         writelog("DEBUG concatCmd:$concatCmd", $writelog_process_name);
+
+        // パフォーマンス計測開始ルン！
+        $perfStartTime = microtime(true);
+
         exec($concatCmd, $output, $return_var);
+
+        // montageコマンドの出力をログに記録するルン
+        if (!empty($output)) {
+            writelog('DEBUG montage output: ' . implode("\n", $output), $writelog_process_name);
+        }
+
         if ($return_var !== 0) {
             writelog('ERROR exec failed. Command: ' . $concatCmd . ' Return code: ' . $return_var, $writelog_process_name);
             clean_shm_dir();
             exit(1);
-        } else {
+        }
+
+        // ファイルが実際に作成されたかチェックするルン
+        if (!file_exists($tmpMergedPng)) {
+            writelog('ERROR montage did not create output file. Command: ' . $concatCmd . ' Return code: ' . $return_var, $writelog_process_name);
+            clean_shm_dir();
+            exit(1);
+        }
+
+        $tmpFileSize = filesize($tmpMergedPng);
+        writelog("DEBUG tmpMergedPng created. Size: $tmpFileSize bytes", $writelog_process_name);
+
+        try {
+            // 一時ファイルから画像を読み込むルン
+            $image = \Jcupitt\Vips\Image::newFromFile($tmpMergedPng);
+            unset($output);
+            // Convert to WebP with quality settings using libvips
+            $image->webpsave($previewFile, [
+                'Q' => $quality,
+                'lossless' => false
+            ]);
+            unset($image);
+
+            // webpsave()が完了してから一時ファイルを削除するルン（遅延読み込み対策）
+            unlink($tmpMergedPng);
+
             $fileBytes = filesize($previewFile);
             if ($fileBytes === 0) {
                 writelog('WARNING Preview file ' . $previewFile . ' is empty, deleting: ' . $previewFile, $writelog_process_name);
                 unlink($previewFile);
             } else {
-                writelog('DEBUG montage exec succeeded. fileBytes:' . $fileBytes . ' Command: ' . $concatCmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
+                writelog('DEBUG montage exec succeeded. fileBytes:' . $fileBytes, $writelog_process_name);
+            }
+        } catch (\Jcupitt\Vips\Exception $e) {
+            writelog("ERROR: Failed to process preview image with libvips: " . $e->getMessage(), $writelog_process_name);
+            // 一時ファイルが残ってたら削除するルン
+            if (file_exists($tmpMergedPng)) {
+                unlink($tmpMergedPng);
+            }
+        } catch (Exception $e) {
+            writelog("ERROR: Failed to process preview image: " . $e->getMessage(), $writelog_process_name);
+            // 一時ファイルが残ってたら削除するルン
+            if (file_exists($tmpMergedPng)) {
+                unlink($tmpMergedPng);
             }
         }
+
+        // パフォーマンス計測終了ルン！
+        $perfEndTime = microtime(true);
+        $perfElapsedMs = round(($perfEndTime - $perfStartTime) * 1000, 2);
+        writelog("DEBUG: Preview montage and conversion took {$perfElapsedMs}ms", $writelog_process_name);
     } else {
         writelog("DEBUG type:" . $type, $writelog_process_name);
     }

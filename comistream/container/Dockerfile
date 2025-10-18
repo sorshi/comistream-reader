@@ -128,7 +128,7 @@ COPY /comistream-tools/comistream.tar.gz /tmp/comistream.tar.gz
 
 RUN dnf update -y &&  \
     dnf install -y tar httpd php sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release php-intl && \
-    dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig unrar fd-find mupdf-devel && \
+    dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig unrar fd-find mupdf-devel php-ffi && \
     dnf clean all && \
     useradd -m user && \
     ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime && \
