@@ -41,5 +41,7 @@ _dev/
 .specstory
 .cursorindexingignore
 
+.cursor/
+
 # SpecStory explanation file
 .specstory/.what-is-this.md

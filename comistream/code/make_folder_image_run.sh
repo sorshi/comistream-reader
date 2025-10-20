@@ -54,7 +54,7 @@ cover_subDir=$(sqlite3 "$dbfile" "SELECT value FROM system_config WHERE key='cov
 # ベースとなるフォルダアイコンの画像
 base_folder_icon=$(realpath "$(dirname "$0")/../theme/icons/largefolderx2.webp")
 if [ ! -f "$base_folder_icon" ]; then
-  logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.error "Base folder icon $base_folder_icon not found."
+  logger -t "comistream make_folder_image_run.sh[$$]" -p local1.error "Base folder icon $base_folder_icon not found."
   exit 1
 fi
 export base_folder_icon
@@ -72,12 +72,12 @@ function make_folder_icon() {
   local output_icon_path="${outputDir}index.webp"
 
   # 多すぎるのでコメントアウト
-  # logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.debug "Processing targetDirAbsPath: $targetDirAbsPath outputDir: $outputDir output_icon_path: $output_icon_path"
+  # logger -t "comistream make_folder_image_run.sh[$$]" -p local1.debug "Processing targetDirAbsPath: $targetDirAbsPath outputDir: $outputDir output_icon_path: $output_icon_path"
 
   # 出力ファイルが存在するか0バイトの場合以外はスキップ
   if [ -s "$output_icon_path" ]; then
     # 多すぎるのでコメントアウト
-    # logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.debug "Icon already exists, skipping: $output_icon_path"
+    # logger -t "comistream make_folder_image_run.sh[$$]" -p local1.debug "Icon already exists, skipping: $output_icon_path"
     return
   fi
 
@@ -90,10 +90,10 @@ function make_folder_icon() {
   done < <(find "$outputDir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) -print0 | sort -z | head -z -n 3)
 
   if [ ${#cover_images[@]} -eq 0 ]; then
-    logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.debug "No cover images found in $targetDirAbsPath, skipping folder icon creation."
+    # logger -t "comistream make_folder_image_run.sh[$$]" -p local1.debug "No cover images found in $targetDirAbsPath, skipping folder icon creation."
     return
   fi
-  logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.debug "Cover files found: ${cover_images[@]}"
+  logger -t "comistream make_folder_image_run.sh[$$]" -p local1.debug "Cover files found: ${cover_images[@]}"
 
 
   # ImageMagickコマンドの構築
@@ -135,17 +135,17 @@ function make_folder_icon() {
   # 開始時間を記録
   start_time=$(date +%s.%N)
 
-  logger --size 4096 -t "comistream make_folder_icon_run.sh[$$]" -p local1.debug "Creating icon for $targetDirRelPath with ${#cover_images[@]} cover(s); executing: magick ${magick_args[*]}"
+  logger --size 4096 -t "comistream make_folder_image_run.sh[$$]" -p local1.debug "Creating icon for $targetDirRelPath with ${#cover_images[@]} cover(s); executing: magick ${magick_args[*]}"
   magick "${magick_args[@]}"
 
   if [ ! -s "$output_icon_path" ]; then
-    logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.NOTICE "Folder icon output NG: $output_icon_path (Source: $targetDirRelPath)"
+    logger -t "comistream make_folder_image_run.sh[$$]" -p local1.NOTICE "Folder icon output NG: $output_icon_path (Source: $targetDirRelPath)"
     rm -f "$output_icon_path" # 失敗した場合は削除
   else
     end_time=$(date +%s.%N)
     duration=$(echo "$end_time - $start_time" | bc)
     duration=$(printf "%.1f" "$duration")
-    logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.INFO "Folder icon output OK: $targetDirRelPath (processing time: ${duration}sec)"
+    logger -t "comistream make_folder_image_run.sh[$$]" -p local1.INFO "Folder icon output OK: $targetDirRelPath (processing time: ${duration}sec)"
   fi
 
   set -H
@@ -153,7 +153,7 @@ function make_folder_icon() {
 export -f make_folder_icon
 
 # メイン処理
-cd "$searchPath" || { logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.error "Failed to cd to $searchPath"; exit 1; }
+cd "$searchPath" || { logger -t "comistream make_folder_image_run.sh[$$]" -p local1.error "Failed to cd to $searchPath"; exit 1; }
 
 # cover_subDir が空または "." の場合はカレントディレクトリ直下を検索
 # そうでない場合は cover_subDir 配下を検索
@@ -174,14 +174,14 @@ fi
 # fdコマンドが利用可能かチェック
 cd "$searchPath"
 if command -v fd >/dev/null 2>&1; then
-  logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.debug "Using fd command for faster directory searching in '$search_target_dir'"
+  logger -t "comistream make_folder_image_run.sh[$$]" -p local1.debug "Using fd command for faster directory searching in '$search_target_dir'"
   # fdでディレクトリのみを検索 (-t d) し、結果をヌル文字区切りでxargsに渡す
   # fd のパスの先頭に "./" がつく場合があるので sed で取り除く
   fd --type d ${fd_depth_option} -0 . $search_target_dir | \
     sed -z 's|^\./||' | \
     xargs -0 -I{} -P ${multiProc} bash -c 'make_folder_icon "{}" 2>>'"$errorLog"
 else
-  logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.error "Require fd command. '$search_target_dir'"
+  logger -t "comistream make_folder_image_run.sh[$$]" -p local1.error "Require fd command. '$search_target_dir'"
   # テストしてないのでfindは非対応
   # # findでディレクトリのみを検索 (-type d) し、結果をヌル文字区切りでxargsに渡す
   # # find は指定したパス自身も返すことがあるので、-mindepth 1 を追加して避ける (search_target_dir が . の場合を除く)
@@ -196,4 +196,4 @@ else
   #   xargs -0 -I{} -P ${multiProc} bash -c 'make_folder_icon "{}" 2>>'"$errorLog"
 fi
 
-logger -t "comistream make_folder_icon_run.sh[$$]" -p local1.info "Folder icon generation process finished."
+logger -t "comistream make_folder_image_run.sh[$$]" -p local1.info "Folder icon generation process finished."

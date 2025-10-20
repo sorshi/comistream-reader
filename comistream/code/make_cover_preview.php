@@ -659,8 +659,31 @@ if (strcasecmp($ext, 'epub') == 0) {
         // $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 - | $convert - -quality $quality -define webp:lossless=false \"$previewFile\"";
         // 一時ファイルに出力するルン！バイナリデータはexec()の$outputに入らないルンから！
         $tmpMergedPng = "$shmDir/__previde.png";
+
+        // 実際に存在するプレビューファイルのリストを作成するルン！ページ数が12未満でも対応するルン！
+        $previewFiles = [];
+        for ($i = 1; $i <= 12; $i++) {
+            $filename = sprintf("%03d.png", $i);
+            $filepath = "$shmDir/$filename";
+            if (file_exists($filepath)) {
+                $previewFiles[] = $filepath;
+            }
+        }
+
+        // 存在するファイルがない場合はエラーで終了するルン
+        if (empty($previewFiles)) {
+            writelog('ERROR No preview images were created', $writelog_process_name);
+            clean_shm_dir();
+            exit(1);
+        }
+
+        // montageコマンドを構築（実際に存在するファイルだけを使うルン）
+        $fileList = implode(' ', $previewFiles);
+        $actualFileCount = count($previewFiles);
+        writelog("DEBUG Created $actualFileCount preview images for montage", $writelog_process_name);
+
         // 標準エラー出力もキャプチャするために 2>&1 を追加するルン
-        $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 $tmpMergedPng 2>&1";
+        $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $fileList -tile 4x3 $tmpMergedPng 2>&1";
         writelog("DEBUG concatCmd:$concatCmd", $writelog_process_name);
 
         // パフォーマンス計測開始ルン！
