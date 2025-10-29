@@ -228,28 +228,28 @@ function normalizeKanaForSort(str) {
 function compareWithDakuten(strA, strB) {
   // 最初にIntl.Collatorで基本比較
   const basicCompare = collator.compare(strA, strB);
-  
+
   // 基本比較で同じ場合のみ、濁点・半濁点の詳細比較を行う
   if (basicCompare !== 0) {
     return basicCompare;
   }
-  
+
   // 文字単位で濁点・半濁点の順序を比較
   const minLength = Math.min(strA.length, strB.length);
   for (let i = 0; i < minLength; i++) {
     const charA = strA[i];
     const charB = strB[i];
-    
+
     if (charA !== charB) {
       const orderA = dakutenOrder[charA] || '1';
       const orderB = dakutenOrder[charB] || '1';
-      
+
       if (orderA !== orderB) {
         return orderA.localeCompare(orderB);
       }
     }
   }
-  
+
   // 長さで最終比較
   return strA.length - strB.length;
 }
@@ -259,10 +259,10 @@ function saveScrollPosition() {
   try {
     const scrollY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop;
     const currentPath = window.location.pathname;
-    
+
     sessionStorage.setItem('comistream_scroll_y', scrollY.toString());
     sessionStorage.setItem('comistream_scroll_path', currentPath);
-    
+
     debugLog('DEBUG saveScrollPosition: Saved scroll position ' + scrollY + ' for path: ' + currentPath);
   } catch (e) {
     console.warn('Failed to save scroll position:', e);
@@ -275,19 +275,19 @@ function restoreScrollPosition() {
     const savedScrollY = sessionStorage.getItem('comistream_scroll_y');
     const savedPath = sessionStorage.getItem('comistream_scroll_path');
     const currentPath = window.location.pathname;
-    
+
     // 保存されたパスと現在のパスが一致する場合のみ復元するルン
     if (savedScrollY && savedPath === currentPath) {
       const scrollY = parseInt(savedScrollY, 10);
-      
+
       debugLog('DEBUG restoreScrollPosition: Restoring scroll position ' + scrollY + ' for path: ' + currentPath);
-      
+
       // コンテンツが完全にレンダリングされるまで少し待つルン
       // 画像読み込みやレイアウト計算の完了を待つため
       setTimeout(function() {
         window.scrollTo(0, scrollY);
         debugLog('DEBUG restoreScrollPosition: Scroll restored to ' + scrollY);
-        
+
         // 復元後は保存データをクリアするルン（次回の遷移に影響しないように）
         sessionStorage.removeItem('comistream_scroll_y');
         sessionStorage.removeItem('comistream_scroll_path');
@@ -544,6 +544,16 @@ function linkhook(e) {
     return false;
   }
 
+  // ★クリックされた行をハイライト表示するルン！（視覚的フィードバック）
+  try {
+    const clickedRow = targetElement.closest('tr');
+    if (clickedRow) {
+      clickedRow.classList.add('row-clicked');
+    }
+  } catch (err) {
+    debugLog('DEBUG linkhook: Row highlight failed: ' + err.message);
+  }
+
   // ★ スクロール位置を保存するルン！（遷移前に保存）
   saveScrollPosition();
 
@@ -552,6 +562,8 @@ function linkhook(e) {
     targetElement.href &&
     targetElement.href.match(/\.(jpe?g|png|gif|webp|avif|bmp|svg|tiff?|heic|heif)$/i)
   ) {
+    // ★スピナーを表示するルン！（画像を開く前のフィードバック）
+    showFileLoadingSpinner('画像を開いています...');
     return true; // onclick="return linkhook(event)" のため true でデフォルト遷移
   }
 
@@ -561,6 +573,8 @@ function linkhook(e) {
     targetElement.href.match(/\.(mp3|m4a|aac|flac|aiff|aif|wav|wave|ogg|oga|wma)$/i)
   ) {
     e.preventDefault();
+    // ★スピナーを表示するルン！（音楽プレイヤーを開く前のフィードバック）
+    showFileLoadingSpinner('音楽プレイヤーを起動しています...');
     // 音楽プレイヤーを開く
     var musicPlayerHref =
       "/cgi-bin/music_player.php?file=" + fileLink + "&mode=open";
@@ -580,6 +594,8 @@ function linkhook(e) {
     targetElement.href &&
     targetElement.href.match(/\.(m2t|ts|iso|mp4|m4v|avi|mkv|wmv|mpg|m2p|webm)$/i)
   ) {
+    // ★スピナーを表示するルン！（動画を開く前のフィードバック）
+    showFileLoadingSpinner('動画を開いています...');
     // 動画ファイルの場合
     if (loginuser == "" || loginuser == null || loginuser == "guest") {
       // 未ログインやゲストはHLS不許可
@@ -605,6 +621,8 @@ function linkhook(e) {
       }
     }
   } else if (targetElement.href && targetElement.href.match(/\.(zip|cbz|rar|cbr|7z|cb7|pdf)$/i)) {
+    // ★スピナーを表示するルン！（書籍を開く前のフィードバック）
+    showFileLoadingSpinner('書籍を開いています...');
     // 書籍アーカイブの場合
     targetElement.parentNode.parentNode.firstChild.firstChild.firstChild.src =
       iconPath + "open.png";
@@ -622,6 +640,8 @@ function linkhook(e) {
       "</a>";
     location.href = openHref;
   } else if (targetElement.href && targetElement.href.match(/\.epub$/i)) {
+    // ★スピナーを表示するルン！（ePubを開く前のフィードバック）
+    showFileLoadingSpinner('ePubを開いています...');
     // ePubの場合（comistream.php経由で処理）
     targetElement.parentNode.parentNode.firstChild.firstChild.firstChild.src =
       iconPath + "open.png";
@@ -635,6 +655,8 @@ function linkhook(e) {
       "</a>";
     location.href = openHref;
   } else {
+    // ★スピナーを表示するルン！（その他のファイルを開く前のフィードバック）
+    showFileLoadingSpinner('ファイルを開いています...');
     // それ以外はそのまま
     // 通常のファイルアクセス処理（リーダー起動: mode=open を付与）
     location.href = cgiPath + "?mode=open&file=" + fileLink;
@@ -769,7 +791,7 @@ function toggleSortPanel() {
 // ヘッダーリンククリック時のソート処理（ページリロードなし・トグル動作）
 function handleHeaderSort(sortBy) {
   let sortOrder;
-  
+
   if (currentSortBy === sortBy) {
     // 現在のソート対象と同じカラムがクリックされた場合は逆順にする
     sortOrder = (currentSortOrder === 'asc') ? 'desc' : 'asc';
@@ -778,7 +800,7 @@ function handleHeaderSort(sortBy) {
     if (sortBy === 'lastmod') {
       // 更新日時順への切り替えは常に降順から開始
       sortOrder = 'desc';
-      
+
       // デフォルトの名前順・昇順から更新日時順への切り替えをログ出力
       if (currentSortBy === 'name' && currentSortOrder === 'asc') {
         debugLog("INFO: Switching from default name/asc to lastmod/desc");
@@ -791,7 +813,7 @@ function handleHeaderSort(sortBy) {
   }
   // ソート設定を更新
   changeSort(sortBy, sortOrder);
-  
+
   // ソートパネルのselect要素も同期更新
   const sortBySelect = document.getElementById("sortBy");
   const sortOrderSelect = document.getElementById("sortOrder");
@@ -801,10 +823,10 @@ function handleHeaderSort(sortBy) {
   if (sortOrderSelect) {
     sortOrderSelect.value = sortOrder;
   }
-  
+
   // ヘッダーのCSSクラスを更新
   updateHeaderSortClasses(sortBy, sortOrder);
-  
+
   // applySortChange()と同じソート処理を実行
   applySortChangeCore();
 }
@@ -816,7 +838,7 @@ function updateHeaderSortClasses(currentSortBy, currentSortOrder) {
   headerCells.forEach(cell => {
     cell.classList.remove('sort-asc', 'sort-desc');
   });
-  
+
   // 現在のソート項目にクラスを追加
   let targetClass = '';
   switch (currentSortBy) {
@@ -830,7 +852,7 @@ function updateHeaderSortClasses(currentSortBy, currentSortOrder) {
       targetClass = 'indexcolsize';
       break;
   }
-  
+
   if (targetClass) {
     const targetCell = document.querySelector(`th.${targetClass}`);
     if (targetCell) {
@@ -1414,68 +1436,68 @@ function showPreview(imageSrc, element) {
 // 問題文字をパーセントエンコードする関数（PHP側のescape_problematic_chars()と同等）
 function escapeProblematicChars(filepath) {
   if (!filepath) return "";
-  
+
   // PHP側と同じ問題文字リスト（%は除外して二重エンコードを防ぐ）
   const problematicChars = ['#', '?', '&', '=', '\\', ':', '@', '<', '>', '"', "'", '|', '*', ' '];
-  
+
   let result = filepath;
   problematicChars.forEach(char => {
     result = result.replaceAll(char, encodeURIComponent(char));
   });
-  
+
   return result;
 }
 
 // 表紙画像を動的に追加する関数（リスト→カバービュー切り替え時）
 function addCoverImages() {
 
-  
+
   // 全てのファイル行を取得（parent-dir-rowは除外）
   const tableBody = document.querySelector("#table-tbody");
   const rows = tableBody.querySelectorAll("tr:not(.parent-dir-row)");
-  
+
   let addedCount = 0;
   rows.forEach(function(row) {
     const nameCell = row.querySelector(".indexcolname");
     const anchor = nameCell ? nameCell.querySelector("a") : null;
-    
+
     if (!anchor) return;
-    
+
     // ディレクトリの場合は除外（hrefが/で終わるかdata-filepathで判断）
     const dataFilepath = anchor.getAttribute("data-filepath");
     const isDirectory = dataFilepath && dataFilepath.endsWith("/");
-    
+
     if (isDirectory) {
       return;
     }
-    
+
     // 既に表紙画像が存在する場合はスキップ
     if (nameCell.querySelector("img")) {
       return;
     }
-    
+
     // 表紙画像パスを生成
     const coverImagePath = generateCoverImagePath(dataFilepath);
     if (!coverImagePath) return;
-    
+
     // img要素を作成
     const img = document.createElement("img");
     img.src = coverImagePath;
     img.alt = "Cover";
     img.style.display = "block"; // 初期表示
-    
+
     // エラー時は非表示にする
     img.onerror = function() {
       this.style.display = "none";
     };
-    
+
     // nameCell の先頭に挿入（aタグの前）
     nameCell.insertBefore(img, anchor);
     addedCount++;
-    
+
 
   });
-  
+
 
 }
 
@@ -1498,16 +1520,16 @@ function removeCoverImages() {
 // 表紙画像パスを生成する関数（PHP側の処理と同等）
 function generateCoverImagePath(rawFilepath) {
   if (!rawFilepath) return null;
-  
+
   // data-filepath から拡張子を.jpgに変更
   const coverPath = rawFilepath.replace(/\.[^.]+$/, '.jpg');
-  
+
   // 問題文字をエスケープ
   const escapedCoverPath = escapeProblematicChars(coverPath);
-  
+
   // 表紙画像URLを生成
   const coverImageUrl = '/theme/covers' + escapedCoverPath;
-  
+
 
   return coverImageUrl;
 }
@@ -1863,6 +1885,50 @@ function addMouseOutEvent() {
     cover[i]._mouseoutHandler = mouseoutHandler;
     // イベントリスナーを登録
     cover[i].addEventListener("mouseout", mouseoutHandler);
+  }
+}
+
+// ファイル読み込み中のスピナー表示関数（ファイルクリック時のフィードバック用ルン）
+function showFileLoadingSpinner(message) {
+  try {
+    const spinner = document.getElementById('file-loading-spinner');
+    const spinnerMessage = document.getElementById('spinner-message');
+
+    if (spinner && spinnerMessage) {
+      // メッセージを設定
+      spinnerMessage.textContent = message || '読み込み中...';
+
+      // スピナーを表示（フェードイン）
+      spinner.classList.add('show');
+
+      debugLog('DEBUG showFileLoadingSpinner: Showing spinner with message: ' + message);
+    } else {
+      debugLog('WARNING showFileLoadingSpinner: Spinner elements not found');
+    }
+  } catch (e) {
+    console.error('ERROR showFileLoadingSpinner:', e);
+  }
+}
+
+// ファイル読み込み中のスピナー非表示関数（ページ遷移がキャンセルされた場合用ルン）
+function hideFileLoadingSpinner() {
+  try {
+    const spinner = document.getElementById('file-loading-spinner');
+
+    if (spinner) {
+      // スピナーを非表示（フェードアウト）
+      spinner.classList.remove('show');
+
+      // クリックされた行のハイライトもクリア
+      const clickedRows = document.querySelectorAll('tr.row-clicked');
+      clickedRows.forEach(function(row) {
+        row.classList.remove('row-clicked');
+      });
+
+      debugLog('DEBUG hideFileLoadingSpinner: Spinner hidden');
+    }
+  } catch (e) {
+    console.error('ERROR hideFileLoadingSpinner:', e);
   }
 }
 

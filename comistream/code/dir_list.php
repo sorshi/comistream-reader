@@ -284,7 +284,7 @@ function normalize_kana_for_sort($str)
                 $test_result = @mb_convert_kana('テスト', 'c', 'UTF-8');
                 if ($test_result !== false && $test_result !== null) {
                     // 半角カタカナを全角カタカナに変換: 'H'
-                    // 全角カタカナをひらがなに変換: 'c'  
+                    // 全角カタカナをひらがなに変換: 'c'
                     // 全角・半角英数字を半角に変換: 'as'
                     $normalized = mb_convert_kana($normalized, 'cHas', 'UTF-8');
                 } else {
@@ -580,7 +580,7 @@ if ($is_404_mode) {
     <link rel="icon" type="image/png" href="/theme/icons/comistream.png" />
     <link rel="apple-touch-icon" href="/theme/icons/comistreamapp.png" />
     <link id="stylesheet" rel="stylesheet" href="<?php echo $stylesheet_path; ?>">
-    <link rel="stylesheet" href="/theme/skeleton.css?2025082601">
+    <link rel="stylesheet" href="/theme/skeleton.css?2025102901">
     <script>
         // スケルトンローディング制御関数
         function showSkeletonLoading() {
@@ -911,6 +911,14 @@ if ($is_404_mode) {
     <div id="modal" style="display: none">
         <div id="modal-content">
             <img id="modal-image" src="" alt="プレビュー画像" width="800" height="600" />
+        </div>
+    </div>
+
+    <!-- ファイル読み込み中のスピナー（ファイルクリック時のフィードバック用ルン） -->
+    <div id="file-loading-spinner">
+        <div class="spinner-container">
+            <div class="spinner-circle"></div>
+            <div class="spinner-message" id="spinner-message">読み込み中...</div>
         </div>
     </div>
 
