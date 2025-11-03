@@ -212,7 +212,7 @@ function make_image() {
       grep_pattern="/$outputBasename"
       # find -name用はワイルドカード文字だけエスケープするルン！
       escaped_output_basename=$(printf '%s\n' "$outputBasename" | sed 's/[][\\*?]/\\&/g')
-      
+
       # 単一ファイルモードでは既存画像チェックをスキップして無条件生成するルン！
       if [ "$BATCH_MODE" != "true" ]; then
         logger -t "comistream make_image_run.sh[$$]" -p local1.debug "single file mode: skip reuse check, force regenerate: $1 ($imageType)"
@@ -232,7 +232,12 @@ function make_image() {
         elif [ "$imageType" == "preview" ] && [ -n "$IMAGE_CACHE_PREVIEW" ] && [ -f "$IMAGE_CACHE_PREVIEW" ]; then
           image_cache="$IMAGE_CACHE_PREVIEW"
         fi
-        
+
+        # オヨ！バッチモードなのにキャッシュが無いのは異常ルン！
+        if [ "$BATCH_MODE" = "true" ] && [ -z "$image_cache" ]; then
+          logger -t "comistream make_image_run.sh[$$]" -p local1.warning "batch mode but no image cache available; it may have been deleted during processing"
+        fi
+
         if [ -n "$image_cache" ]; then
           # キャッシュから検索するルン！高速ルン！
           # 圧縮されている場合は展開して読むルン！
@@ -240,21 +245,21 @@ function make_image() {
           if [[ "$image_cache" == *.zst ]]; then
             cache_reader="zstdcat"
           fi
-          
+
           logger -t "comistream make_image_run.sh[$$]" -p local1.debug "searching for pattern in cache: $grep_pattern"
-          
+
           # デバッグ：grepの結果をカウントするルン
           local grep_match_count=0
           grep_match_count=$($cache_reader "$image_cache" 2>/dev/null | grep -F -c "$grep_pattern" || echo 0)
           logger -t "comistream make_image_run.sh[$$]" -p local1.debug "grep found $grep_match_count potential matches in cache"
-          
+
           while IFS= read -r existingFile; do
             # ファイルが実際に存在するか確認するルン！
             if [ ! -f "$existingFile" ]; then
               logger -t "comistream make_image_run.sh[$$]" -p local1.debug "cache entry does not exist on disk: $existingFile"
               continue
             fi
-            
+
             total_candidates=$((total_candidates + 1))
             if [ "$existingFile" == "$outputFile" ]; then
               logger -t "comistream make_image_run.sh[$$]" -p local1.debug "skipping self: $existingFile"
@@ -380,12 +385,12 @@ function make_image() {
         # オヨオヨ？元ebookが見つからない画像があったルン！ファイル移動かチェックするルン！
         if [ "$link_created" != true ] && [ ${#missing_candidates[@]} -gt 0 ]; then
           logger -t "comistream make_image_run.sh[$$]" -p local1.debug "found ${#missing_candidates[@]} missing ebook candidate(s); checking if file was moved"
-          
+
           # ファイル名のみ（拡張子込み、ディレクトリパスなし）を取得するルン！
           target_filename=$(basename "$1")
           target_name_only="${target_filename%.*}"
           same_name_count=0
-          
+
           # searchPath全体で同名のebookファイルを全てカウントするルン！
           # キャッシュがあればそれを使い、なければfindするルン！
           if [ -n "$EBOOK_CACHE_FILE" ] && [ -f "$EBOOK_CACHE_FILE" ]; then
@@ -395,7 +400,7 @@ function make_image() {
             if [[ "$EBOOK_CACHE_FILE" == *.zst ]]; then
               ebook_cache_reader="zstdcat"
             fi
-            
+
             # オヨ！grepで先にファイル名フィルタリングして候補を絞り込むルン！
             # これで数万ファイルから数個に削減できるルン！
             # grep -F（固定文字列検索）はエスケープ不要ルン！
@@ -406,7 +411,7 @@ function make_image() {
                 logger -t "comistream make_image_run.sh[$$]" -p local1.debug "cache entry does not exist: $found_file"
                 continue
               fi
-              
+
               found_filename=$(basename "$found_file")
               found_name_only="${found_filename%.*}"
               # 拡張子を除いたファイル名で比較するルン！
@@ -422,24 +427,32 @@ function make_image() {
             done < <($ebook_cache_reader "$EBOOK_CACHE_FILE" 2>/dev/null | grep -F "$grep_ebook_pattern")
           else
             # キャッシュがないからfindを使うルン（単一ファイルモード用）
-            while IFS= read -r -d '' found_file; do
-              found_filename=$(basename "$found_file")
-              found_name_only="${found_filename%.*}"
-              # 拡張子を除いたファイル名で比較するルン！
-              if [ "$found_name_only" == "$target_name_only" ]; then
-                same_name_count=$((same_name_count + 1))
-                logger -t "comistream make_image_run.sh[$$]" -p local1.debug "found same-name ebook: $found_file"
-                # オヨ！2個以上見つかったらもう移動じゃないから早期終了するルン！
-                if [ "$same_name_count" -ge 2 ]; then
-                  logger -t "comistream make_image_run.sh[$$]" -p local1.debug "multiple same-name files found; early exit from search"
-                  break
+            # オヨ！バッチモード中にキャッシュが消えた場合は全体スキャンを避けるルン！
+            if [ "$BATCH_MODE" = "true" ]; then
+              logger -t "comistream make_image_run.sh[$$]" -p local1.warning "cache unavailable during batch mode; skipping file move detection for: $1"
+            else
+              # 単一ファイルモードでのみfind実行（タイムアウト付き）
+              logger -t "comistream make_image_run.sh[$$]" -p local1.debug "single file mode: using find with timeout"
+              local find_timeout=30  # 30秒でタイムアウト
+              while IFS= read -r -d '' found_file; do
+                found_filename=$(basename "$found_file")
+                found_name_only="${found_filename%.*}"
+                # 拡張子を除いたファイル名で比較するルン！
+                if [ "$found_name_only" == "$target_name_only" ]; then
+                  same_name_count=$((same_name_count + 1))
+                  logger -t "comistream make_image_run.sh[$$]" -p local1.debug "found same-name ebook: $found_file"
+                  # オヨ！2個以上見つかったらもう移動じゃないから早期終了するルン！
+                  if [ "$same_name_count" -ge 2 ]; then
+                    logger -t "comistream make_image_run.sh[$$]" -p local1.debug "multiple same-name files found; early exit from search"
+                    break
+                  fi
                 fi
-              fi
-            done < <(find "$searchPath" -type f \( -name "*.zip" -o -name "*.ZIP" -o -name "*.cbz" -o -name "*.CBZ" -o -name "*.rar" -o -name "*.RAR" -o -name "*.cbr" -o -name "*.CBR" -o -name "*.7z" -o -name "*.7Z" -o -name "*.cb7" -o -name "*.CB7" -o -name "*.pdf" -o -name "*.PDF" -o -name "*.epub" -o -name "*.EPUB" -o -name "*.ePub" \) -print0 2>/dev/null)
+              done < <(timeout "$find_timeout" find "$searchPath" -type f \( -name "*.zip" -o -name "*.ZIP" -o -name "*.cbz" -o -name "*.CBZ" -o -name "*.rar" -o -name "*.RAR" -o -name "*.cbr" -o -name "*.CBR" -o -name "*.7z" -o -name "*.7Z" -o -name "*.cb7" -o -name "*.CB7" -o -name "*.pdf" -o -name "*.PDF" -o -name "*.epub" -o -name "*.EPUB" -o -name "*.ePub" \) -print0 2>/dev/null)
+            fi
           fi
-          
+
           logger -t "comistream make_image_run.sh[$$]" -p local1.debug "same-name ebook count in searchPath: $same_name_count"
-          
+
           # 同名ファイルが1つだけ（現在処理中のファイル）なら移動と判定するルン！
           if [ "$same_name_count" -eq 1 ]; then
             if [ ${#missing_candidates[@]} -eq 1 ]; then
@@ -501,15 +514,30 @@ else
   # バッチモード：キャッシュファイルを作成するルン！
   logger -t "comistream make_image_run.sh[$$]" -p local1.info "batch mode: creating cache files for faster processing"
   export BATCH_MODE=true
-  
+
   # 一時ディレクトリを作成（前回の残骸があれば削除するルン！）
   if [ -n "$comistream_tmp_dir_root" ] && [ -d "$comistream_tmp_dir_root" ]; then
-    # 1時間以上前のcache_*ディレクトリを削除するルン！
-    find "$comistream_tmp_dir_root" -maxdepth 1 -type d -name "cache_*" -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+    # 6時間以上前のcache_*ディレクトリを削除するルン！
+    # ただし実行中のプロセスのキャッシュは保護するルン！
+    logger -t "comistream make_image_run.sh[$$]" -p local1.debug "cleaning up old cache directories"
+    find "$comistream_tmp_dir_root" -maxdepth 1 -type d -name "cache_*" -mmin +360 2>/dev/null | while read -r old_cache; do
+      cache_basename=$(basename "$old_cache")
+      cache_pid="${cache_basename#cache_}"
+
+      # PIDが数字で、そのプロセスが存在しないことを確認してから削除するルン！
+      if [[ "$cache_pid" =~ ^[0-9]+$ ]]; then
+        if ! kill -0 "$cache_pid" 2>/dev/null; then
+          logger -t "comistream make_image_run.sh[$$]" -p local1.info "removing stale cache: $old_cache (PID $cache_pid not running)"
+          rm -rf "$old_cache" || true
+        else
+          logger -t "comistream make_image_run.sh[$$]" -p local1.debug "keeping active cache: $old_cache (PID $cache_pid still running)"
+        fi
+      fi
+    done
   fi
   cache_dir="${comistream_tmp_dir_root}/cache_$$"
   mkdir -p "$cache_dir"
-  
+
   # zstdコマンドが利用可能かチェックするルン！
   USE_ZSTD=false
   if command -v zstd >/dev/null 2>&1; then
@@ -524,7 +552,7 @@ else
     export IMAGE_CACHE_COVERS="$cache_dir/images_covers.txt"
     export IMAGE_CACHE_PREVIEW="$cache_dir/images_preview.txt"
   fi
-  
+
   # ebookファイル一覧を作成するルン！
   logger -t "comistream make_image_run.sh[$$]" -p local1.info "building ebook file cache..."
   if [ "$USE_ZSTD" = true ]; then
@@ -535,7 +563,7 @@ else
     ebook_count=$(wc -l < "$EBOOK_CACHE_FILE")
   fi
   logger -t "comistream make_image_run.sh[$$]" -p local1.info "ebook cache built: $ebook_count files"
-  
+
   # 表紙画像一覧を作成するルン！
   logger -t "comistream make_image_run.sh[$$]" -p local1.info "building cover image cache..."
   if [ "$USE_ZSTD" = true ]; then
@@ -546,7 +574,7 @@ else
     cover_count=$(wc -l < "$IMAGE_CACHE_COVERS")
   fi
   logger -t "comistream make_image_run.sh[$$]" -p local1.info "cover cache built: $cover_count files"
-  
+
   # プレビュー画像一覧を作成するルン！
   logger -t "comistream make_image_run.sh[$$]" -p local1.info "building preview image cache..."
   if [ "$USE_ZSTD" = true ]; then
@@ -557,7 +585,7 @@ else
     preview_count=$(wc -l < "$IMAGE_CACHE_PREVIEW")
   fi
   logger -t "comistream make_image_run.sh[$$]" -p local1.info "preview cache built: $preview_count files"
-  
+
   logger -t "comistream make_image_run.sh[$$]" -p local1.info "cache files created successfully! starting batch processing..."
 
   # 引数が渡されなかった場合は、findコマンドを使用して処理する
@@ -573,7 +601,7 @@ else
     # ループで実行
     find $cover_subDir -type f -not -name '.*' | xargs -I{} -d '\n' -P ${multiProc} bash -c 'make_image "{}" 2>'"$errorLog"
   fi
-  
+
   # キャッシュディレクトリを削除するルン！
   logger -t "comistream make_image_run.sh[$$]" -p local1.info "cleaning up cache files..."
   rm -rf "$cache_dir"
