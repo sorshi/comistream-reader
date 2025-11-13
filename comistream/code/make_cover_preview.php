@@ -661,8 +661,10 @@ if (strcasecmp($ext, 'epub') == 0) {
         $tmpMergedPng = "$shmDir/__previde.png";
 
         // 実際に存在するプレビューファイルのリストを作成するルン！ページ数が12未満でも対応するルン！
+        // montageで正しく表示するために 4,3,2,1 / 8,7,6,5 / 12,11,10,9 の順に並べるルン！
         $previewFiles = [];
-        for ($i = 1; $i <= 12; $i++) {
+        $targetOrder = [4, 3, 2, 1, 8, 7, 6, 5, 12, 11, 10, 9];
+        foreach ($targetOrder as $i) {
             $filename = sprintf("%03d.png", $i);
             $filepath = "$shmDir/$filename";
             if (file_exists($filepath)) {
