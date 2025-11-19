@@ -261,23 +261,56 @@ if (strcasecmp($ext, 'epub') == 0) {
 
         // 画像を処理し、$coverFileに保存（libvips優先、フォールバック：ImageMagick）
         if ($isVipsAvailable) {
-            writelog("DEBUG: Using libvips for cover image processing", $writelog_process_name);
+            writelog("DEBUG: Using libvips for EPUB cover image processing", $writelog_process_name);
 
             try {
-                // 画像を読み込み
-                $image = \Jcupitt\Vips\Image::newFromFile($coverFilePath);
-
-                // リサイズ処理（ImageMagick形式の'x400'から数値を抽出）
+                // リサイズ処理のターゲットサイズを計算（ImageMagick形式の'x400'から数値を抽出）
                 $targetSize = intval(preg_replace('/[^0-9]/', '', $resize));
                 if ($targetSize <= 0) {
                     $targetSize = 400; // フォールバック値
                 }
-                $scale = $targetSize / max($image->width, $image->height);
 
-                if ($scale < 1) {
-                    $image = $image->resize($scale, ['kernel' => 'lanczos3']);
-                    writelog("DEBUG: Cover image resized with scale: $scale", $writelog_process_name);
+                // 画像情報を取得して最適な処理方法を選択するルン（オーバーヘッドはほぼゼロ！）
+                $imageInfo = @getimagesize($coverFilePath);
+                $shouldUseThumbnailImage = false;
+
+                if ($imageInfo !== false) {
+                    $imgWidth = $imageInfo[0];
+                    $imgHeight = $imageInfo[1];
+                    $mimeType = $imageInfo['mime'];
+                    $maxDimension = max($imgWidth, $imgHeight);
+
+                    // JPEG/WebP かつ 3000px以上の大きい画像の場合のみthumbnail_image()を使用するルン
+                    $shouldUseThumbnailImage = (
+                        ($mimeType === 'image/jpeg' || $mimeType === 'image/webp') &&
+                        $maxDimension >= 3000
+                    );
+
+                    writelog("DEBUG: EPUB cover analysis - format:$mimeType size:{$imgWidth}x{$imgHeight} max:$maxDimension use_thumbnail_image:" . ($shouldUseThumbnailImage ? 'YES' : 'NO'), $writelog_process_name);
+                } else {
+                    writelog("WARNING: Could not get EPUB cover info, using thumbnail_image() as fallback", $writelog_process_name);
+                    $shouldUseThumbnailImage = true;
                 }
+
+                // 画像特性に応じた最適な処理方法を選択するルン！
+                if ($shouldUseThumbnailImage) {
+                    // 大きいJPEG/WebP: thumbnail_image()でshrink-on-load（高速！）
+                    $image = \Jcupitt\Vips\Image::thumbnail($coverFilePath, $targetSize, [
+                        'height' => $targetSize,
+                        'size' => 'down'
+                    ]);
+                    writelog("DEBUG: EPUB cover used thumbnail_image() (shrink-on-load)", $writelog_process_name);
+                } else {
+                    // AVIF/小さい画像: 従来のnewFromFile() + resize()（高速！）
+                    $image = \Jcupitt\Vips\Image::newFromFile($coverFilePath);
+                    $scale = $targetSize / max($image->width, $image->height);
+                    if ($scale < 1) {
+                        $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                    }
+                    writelog("DEBUG: EPUB cover used newFromFile() + resize()", $writelog_process_name);
+                }
+
+                writelog("DEBUG: EPUB cover resized - targetSize:$targetSize final size:" . $image->width . "x" . $image->height, $writelog_process_name);
 
                 // JPEG形式で保存（strip=メタデータ削除）
                 $image->jpegsave($coverFile, ['Q' => 80, 'strip' => true]);
@@ -353,18 +386,43 @@ if (strcasecmp($ext, 'epub') == 0) {
             // libvipsが利用可能なら高速処理を使用（ライブラリ版）
             if ($isVipsAvailable) {
                 try {
-                    // 画像を読み込み
-                    $image = \Jcupitt\Vips\Image::newFromFile($imageFiles[$i]);
-
-                    // リサイズ処理（ImageMagick形式の'x400'から数値を抽出）
+                    // リサイズ処理のターゲットサイズを計算（ImageMagick形式の'x400'から数値を抽出）
                     $targetSize = intval(preg_replace('/[^0-9]/', '', $resize));
                     if ($targetSize <= 0) {
                         $targetSize = 400; // フォールバック値
                     }
-                    $scale = $targetSize / max($image->width, $image->height);
 
-                    if ($scale < 1) {
-                        $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                    // 画像情報を取得して最適な処理方法を選択するルン（オーバーヘッドはほぼゼロ！）
+                    $imageInfo = @getimagesize($imageFiles[$i]);
+                    $shouldUseThumbnailImage = false;
+
+                    if ($imageInfo !== false) {
+                        $imgWidth = $imageInfo[0];
+                        $imgHeight = $imageInfo[1];
+                        $mimeType = $imageInfo['mime'];
+                        $maxDimension = max($imgWidth, $imgHeight);
+
+                        // JPEG/WebP かつ 3000px以上の大きい画像の場合のみthumbnail()を使用するルン
+                        $shouldUseThumbnailImage = (
+                            ($mimeType === 'image/jpeg' || $mimeType === 'image/webp') &&
+                            $maxDimension >= 3000
+                        );
+                    }
+
+                    // 画像特性に応じた最適な処理方法を選択するルン！
+                    if ($shouldUseThumbnailImage) {
+                        // 大きいJPEG/WebP: thumbnail()でshrink-on-load（高速！）
+                        $image = \Jcupitt\Vips\Image::thumbnail($imageFiles[$i], $targetSize, [
+                            'height' => $targetSize,
+                            'size' => 'down'
+                        ]);
+                    } else {
+                        // AVIF/小さい画像: 従来のnewFromFile() + resize()（高速！）
+                        $image = \Jcupitt\Vips\Image::newFromFile($imageFiles[$i]);
+                        $scale = $targetSize / max($image->width, $image->height);
+                        if ($scale < 1) {
+                            $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                        }
                     }
 
                     // PNG形式で保存（strip=メタデータ削除）
@@ -448,22 +506,54 @@ if (strcasecmp($ext, 'epub') == 0) {
                     throw new Exception("Failed to get image data from outputPage command");
                 }
 
-                // libvipsで画像データを読み込み
-                $image = \Jcupitt\Vips\Image::newFromBuffer($imageData);
-                unset($imageData);
-                // リサイズ処理（ImageMagick形式の'x400'から数値を抽出）
+                // リサイズ処理のターゲットサイズを計算（ImageMagick形式の'x400'から数値を抽出）
                 $targetSize = intval(preg_replace('/[^0-9]/', '', $resize));
                 if ($targetSize <= 0) {
                     $targetSize = 400; // フォールバック値
                 }
-                $scale = $targetSize / max($image->width, $image->height);
 
-                if ($scale < 1) {
-                    $image = $image->resize($scale, ['kernel' => 'lanczos3']);
-                    writelog("DEBUG: Cover image resized with scale:$scale targetSize:" . $targetSize . " image->width:" . $image->width . " image->height:" . $image->height, $writelog_process_name);
+                // 画像情報を取得して最適な処理方法を選択するルン（オーバーヘッドはほぼゼロ！）
+                $imageInfo = @getimagesizefromstring($imageData);
+                $shouldUseThumbnailBuffer = false;
+
+                if ($imageInfo !== false) {
+                    $imgWidth = $imageInfo[0];
+                    $imgHeight = $imageInfo[1];
+                    $mimeType = $imageInfo['mime'];
+                    $maxDimension = max($imgWidth, $imgHeight);
+
+                    // JPEG/WebP かつ 3000px以上の大きい画像の場合のみthumbnail_buffer()を使用するルン
+                    $shouldUseThumbnailBuffer = (
+                        ($mimeType === 'image/jpeg' || $mimeType === 'image/webp') &&
+                        $maxDimension >= 3000
+                    );
+
+                    writelog("DEBUG: Cover image analysis - format:$mimeType size:{$imgWidth}x{$imgHeight} max:$maxDimension use_thumbnail_buffer:" . ($shouldUseThumbnailBuffer ? 'YES' : 'NO'), $writelog_process_name);
                 } else {
-                    writelog("ERROR: Cover image not resized scale:$scale", $writelog_process_name);
+                    writelog("WARNING: Could not get cover image info, using thumbnail_buffer() as fallback", $writelog_process_name);
+                    $shouldUseThumbnailBuffer = true;
                 }
+
+                // 画像特性に応じた最適な処理方法を選択するルン！
+                if ($shouldUseThumbnailBuffer) {
+                    // 大きいJPEG/WebP: thumbnail_buffer()でshrink-on-load（高速！）
+                    $image = \Jcupitt\Vips\Image::thumbnail_buffer($imageData, $targetSize, [
+                        'height' => $targetSize,
+                        'size' => 'down'
+                    ]);
+                    writelog("DEBUG: Cover used thumbnail_buffer() (shrink-on-load)", $writelog_process_name);
+                } else {
+                    // AVIF/小さい画像: 従来のnewFromBuffer() + resize()（高速！）
+                    $image = \Jcupitt\Vips\Image::newFromBuffer($imageData);
+                    $scale = $targetSize / max($image->width, $image->height);
+                    if ($scale < 1) {
+                        $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                    }
+                    writelog("DEBUG: Cover used newFromBuffer() + resize()", $writelog_process_name);
+                }
+                unset($imageData);
+
+                writelog("DEBUG: Cover image resized - targetSize:$targetSize final size:" . $image->width . "x" . $image->height, $writelog_process_name);
 
                 // JPEG形式で保存（strip=メタデータ削除）
                 $image->jpegsave($coverFile, ['Q' => intval($conf["quality"]), 'strip' => true]);
@@ -541,38 +631,70 @@ if (strcasecmp($ext, 'epub') == 0) {
                 writelog("DEBUG: Using libvips for preview image processing (page $page)", $writelog_process_name);
 
                 try {
-                    // outputPageのコマンドを実行して画像データを取得
+                    // outputPageのコマンドを実行して画像データを取得するルン
                     $imageData = shell_exec($pageOutCmd);
 
                     if ($imageData === null || strlen($imageData) === 0) {
                         throw new Exception("Failed to get image data from outputPage command");
                     }
 
-                    // libvipsで画像データを読み込み
-                    $image = \Jcupitt\Vips\Image::newFromBuffer($imageData);
-                    unset($imageData);
-
-                    // トリミング処理（libvipsでは自動トリミング機能がないためスキップ）
-                    // writelog("DEBUG: Trimming skipped when using libvips (not supported)", $writelog_process_name);
-
-                    // リサイズ処理（ImageMagick形式の'x400'から数値を抽出）
+                    // リサイズ処理のターゲットサイズを計算するルン（ImageMagick形式の'x400'から数値を抽出）
                     $targetSize = intval(preg_replace('/[^0-9]/', '', $global_resize));
                     if ($targetSize <= 0) {
-                        $targetSize = 400; // フォールバック値
+                        $targetSize = 400; // フォールバック値ルン
                     }
-                    $scale = $targetSize / max($image->width, $image->height);
 
-                    if ($scale < 1) {
-                        $image = $image->resize($scale, ['kernel' => 'lanczos3']);
-                        writelog("DEBUG: Preview image resized with scale: $scale", $writelog_process_name);
+                    // 画像情報を取得して最適な処理方法を選択するルン（オーバーヘッドはほぼゼロ！）
+                    $imageInfo = @getimagesizefromstring($imageData);
+                    $shouldUseThumbnailBuffer = false;
+
+                    if ($imageInfo !== false) {
+                        $imgWidth = $imageInfo[0];
+                        $imgHeight = $imageInfo[1];
+                        $mimeType = $imageInfo['mime'];
+                        $maxDimension = max($imgWidth, $imgHeight);
+
+                        // JPEG/WebP かつ 3000px以上の大きい画像の場合のみthumbnail_buffer()を使用するルン
+                        // それ以外（AVIF、小さい画像など）は従来のnewFromBuffer() + resize()の方が速いルン！
+                        $shouldUseThumbnailBuffer = (
+                            ($mimeType === 'image/jpeg' || $mimeType === 'image/webp') &&
+                            $maxDimension >= 3000
+                        );
+
+                        writelog("DEBUG: Image analysis - format:$mimeType size:{$imgWidth}x{$imgHeight} max:$maxDimension use_thumbnail_buffer:" . ($shouldUseThumbnailBuffer ? 'YES' : 'NO'), $writelog_process_name);
+                    } else {
+                        writelog("WARNING: Could not get image info, using thumbnail_buffer() as fallback", $writelog_process_name);
+                        $shouldUseThumbnailBuffer = true; // 情報取得失敗時はthumbnail_buffer()を使うルン
                     }
+
+                    // 画像特性に応じた最適な処理方法を選択するルン！
+                    if ($shouldUseThumbnailBuffer) {
+                        // 大きいJPEG/WebP: thumbnail_buffer()でshrink-on-load（高速！）
+                        $image = \Jcupitt\Vips\Image::thumbnail_buffer($imageData, $targetSize, [
+                            'height' => $targetSize,
+                            'size' => 'down'
+                        ]);
+                        writelog("DEBUG: Used thumbnail_buffer() (shrink-on-load)", $writelog_process_name);
+                    } else {
+                        // AVIF/小さい画像: 従来のnewFromBuffer() + resize()（高速！）
+                        $image = \Jcupitt\Vips\Image::newFromBuffer($imageData);
+                        $scale = $targetSize / max($image->width, $image->height);
+                        if ($scale < 1) {
+                            $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                        }
+                        writelog("DEBUG: Used newFromBuffer() + resize()", $writelog_process_name);
+                    }
+                    unset($imageData);
+
+                    // トリミング処理（libvipsでは自動トリミング機能がないためスキップするルン）
+                    // writelog("DEBUG: Trimming skipped when using libvips (not supported)", $writelog_process_name);
 
                     // 画像の縦横サイズ情報を取得するルン
                     $vipsImageWidth = $image->width;
                     $vipsImageHeight = $image->height;
-                    writelog("DEBUG: Image dimensions - width: $vipsImageWidth, height: $vipsImageHeight", $writelog_process_name);
+                    writelog("DEBUG: Image dimensions after processing - width: $vipsImageWidth, height: $vipsImageHeight (target: $targetSize)", $writelog_process_name);
 
-                    // PNG形式で保存（strip=メタデータ削除）
+                    // PNG形式で保存（strip=メタデータ削除）するルン
                     $image->pngsave($outputFile, ['strip' => true]);
 
                     $imageProcessed = true;

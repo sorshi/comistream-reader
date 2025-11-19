@@ -1195,7 +1195,7 @@ function outputPage($isFileout = false)
                 }
             }
         }
-    // フルサイズの送出処理終わり
+        // フルサイズの送出処理終わり
     } else {
         // モバイル向けの圧縮して画像を出力
         if ($als == 1) {
@@ -1223,18 +1223,48 @@ function outputPage($isFileout = false)
                         exit(1);
                     }
                     if (strlen($imageBinary) > 0) {
-                        // バイナリから画像を読み込み
-                        $image = \Jcupitt\Vips\Image::newFromBuffer($imageBinary);
-                        unset($imageBinary);
-
-                        // 縮小処理
-                        $currentWidth = $image->width;
+                        // 画像情報を取得して最適な処理方法を選択するルン（オーバーヘッドはほぼゼロ！）
+                        $imageInfo = @getimagesizefromstring($imageBinary);
+                        $shouldUseThumbnailBuffer = false;
                         $targetWidth = intval($width);
 
-                        if ($targetWidth > 0 && $currentWidth > $targetWidth) {
-                            $scale = $targetWidth / $currentWidth;
-                            $image = $image->resize($scale, ['kernel' => 'lanczos3']);
-                            writelog("DEBUG outputPage() vips resized with scale: $scale");
+                        if ($imageInfo !== false && $targetWidth > 0) {
+                            $imgWidth = $imageInfo[0];
+                            $imgHeight = $imageInfo[1];
+                            $mimeType = $imageInfo['mime'];
+                            $maxDimension = max($imgWidth, $imgHeight);
+
+                            // JPEG/WebP かつ 3000px以上 かつ 縮小が必要な場合のみthumbnail_buffer()を使用するルン
+                            $shouldUseThumbnailBuffer = (
+                                ($mimeType === 'image/jpeg' || $mimeType === 'image/webp') &&
+                                $maxDimension >= 3000 &&
+                                $imgWidth > $targetWidth
+                            );
+
+                            writelog("DEBUG outputPage() WebP - format:$mimeType size:{$imgWidth}x{$imgHeight} target:$targetWidth use_thumbnail:" . ($shouldUseThumbnailBuffer ? 'YES' : 'NO'));
+                        }
+
+                        // 画像特性に応じた最適な処理方法を選択するルン！
+                        if ($shouldUseThumbnailBuffer) {
+                            // 大きいJPEG/WebP: thumbnail_buffer()でshrink-on-load（高速！）
+                            $image = \Jcupitt\Vips\Image::thumbnail_buffer($imageBinary, $targetWidth, [
+                                'height' => 100000000,  // 高さは制限なし（幅基準）
+                                'size' => 'down'
+                            ]);
+                            writelog("DEBUG outputPage() WebP used thumbnail_buffer() (shrink-on-load)");
+                        } else {
+                            // AVIF/小さい画像/縮小不要: 従来のnewFromBuffer() + resize()（高速！）
+                            $image = \Jcupitt\Vips\Image::newFromBuffer($imageBinary);
+
+                            // 縮小処理
+                            $currentWidth = $image->width;
+                            if ($targetWidth > 0 && $currentWidth > $targetWidth) {
+                                $scale = $targetWidth / $currentWidth;
+                                $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                                writelog("DEBUG outputPage() WebP used newFromBuffer() + resize() scale: $scale");
+                            } else {
+                                writelog("DEBUG outputPage() WebP used newFromBuffer() no resize needed");
+                            }
                         }
 
                         // WebP形式でバッファに出力
@@ -1251,6 +1281,7 @@ function outputPage($isFileout = false)
                             writelog("DEBUG outputPage() vips filesize:" . strlen($pageImg));
                         }
                         // メモリ解放
+                        unset($imageBinary);
                         unset($image);
                         unset($pageImg);
                     } else {
@@ -1271,19 +1302,50 @@ function outputPage($isFileout = false)
                     $imageBinary = shell_exec($inputCmd);
 
                     if (strlen($imageBinary) > 0) {
-                        // バイナリから画像を読み込み
-                        $image = \Jcupitt\Vips\Image::newFromBuffer($imageBinary);
-                        unset($imageBinary);
-
-                        // 縮小処理
-                        $currentWidth = $image->width;
+                        // 画像情報を取得して最適な処理方法を選択するルン（オーバーヘッドはほぼゼロ！）
+                        $imageInfo = @getimagesizefromstring($imageBinary);
+                        $shouldUseThumbnailBuffer = false;
                         $targetWidth = intval($width);
 
-                        if ($targetWidth > 0 && $currentWidth > $targetWidth) {
-                            $scale = $targetWidth / $currentWidth;
-                            $image = $image->resize($scale, ['kernel' => 'lanczos3']);
-                            writelog("DEBUG outputPage() vips resized with scale: $scale");
+                        if ($imageInfo !== false && $targetWidth > 0) {
+                            $imgWidth = $imageInfo[0];
+                            $imgHeight = $imageInfo[1];
+                            $mimeType = $imageInfo['mime'];
+                            $maxDimension = max($imgWidth, $imgHeight);
+
+                            // JPEG/WebP かつ 3000px以上 かつ 縮小が必要な場合のみthumbnail_buffer()を使用するルン
+                            $shouldUseThumbnailBuffer = (
+                                ($mimeType === 'image/jpeg' || $mimeType === 'image/webp') &&
+                                $maxDimension >= 3000 &&
+                                $imgWidth > $targetWidth
+                            );
+
+                            writelog("DEBUG outputPage() JPEG - format:$mimeType size:{$imgWidth}x{$imgHeight} target:$targetWidth use_thumbnail:" . ($shouldUseThumbnailBuffer ? 'YES' : 'NO'));
                         }
+
+                        // 画像特性に応じた最適な処理方法を選択するルン！
+                        if ($shouldUseThumbnailBuffer) {
+                            // 大きいJPEG/WebP: thumbnail_buffer()でshrink-on-load（高速！）
+                            $image = \Jcupitt\Vips\Image::thumbnail_buffer($imageBinary, $targetWidth, [
+                                'height' => 100000000,  // 高さは制限なし（幅基準）
+                                'size' => 'down'
+                            ]);
+                            writelog("DEBUG outputPage() JPEG used thumbnail_buffer() (shrink-on-load)");
+                        } else {
+                            // AVIF/小さい画像/縮小不要: 従来のnewFromBuffer() + resize()（高速！）
+                            $image = \Jcupitt\Vips\Image::newFromBuffer($imageBinary);
+
+                            // 縮小処理
+                            $currentWidth = $image->width;
+                            if ($targetWidth > 0 && $currentWidth > $targetWidth) {
+                                $scale = $targetWidth / $currentWidth;
+                                $image = $image->resize($scale, ['kernel' => 'lanczos3']);
+                                writelog("DEBUG outputPage() JPEG used newFromBuffer() + resize() scale: $scale");
+                            } else {
+                                writelog("DEBUG outputPage() JPEG used newFromBuffer() no resize needed");
+                            }
+                        }
+                        unset($imageBinary);
 
                         // JPEG形式でバッファに出力
                         $pageImg = $image->writeToBuffer('.jpg', ['Q' => intval($quality)]);
@@ -2540,7 +2602,7 @@ function makeIndex($maxPage)
 
     // I18nインスタンスを取得
     $i18n = I18n::getInstance();
-    
+
     // XSS対策：$maxPageを必ず整数化するルン！
     $maxPage = intval($maxPage);
 
@@ -3093,7 +3155,7 @@ function get_book_author_keyword($baseFile)
 
     $book_search_url = $conf["book_search_url"];
     $str = '';
-    
+
     // XSS対策：$book_search_urlをエスケープするルン！
     $safeSearchUrl = htmlspecialchars($book_search_url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
@@ -3132,14 +3194,14 @@ function get_book_title($bookName)
     $onlyBookName = '';
     $bookName = trim($bookName);
     $bookName = preg_replace('/^\(.*?\) */', '', $bookName); // ファイル名先頭の (...) を削除
-    
+
     // まず全ての文字列操作を行ってから、最後にエスケープするルン！
     // $onlyBookNameの作成（HTMLタグなし、純粋なテキストのみ）
     $onlyBookName = $bookName;
     $onlyBookName = preg_replace('/\[(.*?)\] */', '', $onlyBookName); // [ ] 内削除
     $onlyBookName = preg_replace('/(\(|\[)[0-9]{4}-[0-9]{2}-[0-9]{2}(\)|\])/', '', $onlyBookName); // YYYY-MM-DD を削除
     $onlyBookName = preg_replace('/(.+)(\.[^.]+)$/', '$1', $onlyBookName); // 拡張子を削除
-    
+
     // $bookNameの作成（HTMLタグあり）
     // まずエスケープしてから、信頼できるHTMLタグ（<small>等）を追加するルン！
     $bookName = htmlspecialchars($bookName, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8'); // XSS対策：先にエスケープルン！
@@ -3147,13 +3209,13 @@ function get_book_title($bookName)
     $bookName = preg_replace('/(\(|\[)[0-9]{4}-[0-9]{2}-[0-9]{2}(\)|\])/', '', $bookName); // YYYY-MM-DD を削除
     $bookName = preg_replace('/(.+)(\.[^.]+)$/', '$1', $bookName); // 拡張子を削除
     $bookName = preg_replace('/\[(.*?)\] */', '', $bookName); // [ ] を捨てる
-    
+
     // $pageTitleの作成（<title>タグ用、HTMLタグなし）
     $pageTitle = $bookName;
     $pageTitle = preg_replace('/<("[^"]*"|\'[^\']*\'|[^\'">])*>/', '', $pageTitle); // タグ削除（エスケープされた&lt;も削除される）
     $pageTitle = strip_tags($pageTitle); // 念のため、残ったタグも全て削除するルン！
     // $pageTitleは既に$bookNameから派生してエスケープ済みルン！でも念のため再エスケープしても問題ないルン
-    
+
     // $onlyBookNameもエスケープするルン！
     $onlyBookName = htmlspecialchars($onlyBookName, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
 
@@ -3183,7 +3245,7 @@ function print_book_notfound_error($bookName)
         $bookName = "<a href=\"" . $safeSearchUrl . $urlEncodedBookName . "\">" . $bookName . "</a>";
     }
     // $bookNameは既にエスケープ済みルン！
-    
+
     $authors = get_book_author_keyword($baseFile);
     writelog("DEBUG print_book_notfound_error() bookName:" . $bookName . " authors:" . $authors);
 
