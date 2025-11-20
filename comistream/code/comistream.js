@@ -182,7 +182,7 @@ class PreCache {
 
     // ページめくり速度に基づいて調整
     let plusPageCacheRate = 1;
-    if(size === 'FULL') {
+    if (size === "FULL") {
       // ネットワークに余裕があるはずのフルサイズ時は先読み倍に
       plusPageCacheRate = 2;
     }
@@ -242,6 +242,9 @@ var startY, endY; // 親指上スワイプ用Y座標
 var isSkipPageFwdFlag = false;
 var unixtime = 0;
 var timeout = null;
+// ページ保存制御用の変数 ルン！
+var lastSaveTime = 0; // 最後にsaveCurrentPage()を実行した時刻
+var savePageTimer = null; // 5秒後保存用のタイマー
 // 拡張light wide split
 var req;
 var autoLightSplitMode = false; //false:縦長なのでそのまま true:横長を自動分割表示
@@ -339,11 +342,22 @@ window.addEventListener(
     if (startX != -1 && endX != -1 && startY != -1 && endY != -1) {
       let deltaX = startX - endX;
       let deltaY = startY - endY;
-      
+
       // 親指上スワイプ判定（画面下半分での上向きスワイプ）
-      if (startY > window.innerHeight / 2 && deltaY > 50 && Math.abs(deltaX) < 30) {
+      if (
+        startY > window.innerHeight / 2 &&
+        deltaY > 50 &&
+        Math.abs(deltaX) < 30
+      ) {
         // 画面下半分で開始し、上向きスワイプ（50px以上）かつ横移動が少ない（30px未満）
-        debugLog("Thumb up swipe detected: startY=" + startY + " deltaY=" + deltaY + " deltaX=" + deltaX);
+        debugLog(
+          "Thumb up swipe detected: startY=" +
+            startY +
+            " deltaY=" +
+            deltaY +
+            " deltaX=" +
+            deltaX
+        );
         next(); // ページ送り
       } else if (deltaX < -50) {
         leftward();
@@ -585,20 +599,26 @@ function resetZoom() {
   if (viewport && originalViewportContent) {
     // maximum-scale=1.0 を一瞬でも適用すると Android でピンチが永久無効になるバグ回避ルン
     // initial-scale のみを指定して強制再レイアウトし、その後元に戻すルン☆
-    viewport.setAttribute('content', 'width=device-width, initial-scale=1.0');
+    viewport.setAttribute("content", "width=device-width, initial-scale=1.0");
 
     // 位置をリセット
     window.scrollTo(0, 0);
 
     // 元の viewport 設定に戻す（短い遅延を入れてレイアウトを安定させる）
     setTimeout(() => {
-      viewport.setAttribute('content', originalViewportContent);
+      viewport.setAttribute("content", originalViewportContent);
     }, 50);
   }
 }
 
 function saveCurrentPage() {
   // ページ離脱時に最終ページ保存
+  // タイマーが残っていたらクリアするルン！
+  if (savePageTimer) {
+    clearTimeout(savePageTimer);
+    savePageTimer = null;
+  }
+
   let localPage = page;
   if (mode == 2) {
     localPage = page + 1;
@@ -827,8 +847,32 @@ function loadPage(dir) {
     autoLightSplitMode = false;
     // changeAutoLightSplitMode(autoLightSplitMode);
   }
-  // 現在ページを保存
-  saveCurrentPage();
+
+  // 既存の保存タイマーをクリアするルン！
+  if (savePageTimer) {
+    clearTimeout(savePageTimer);
+    savePageTimer = null;
+  }
+
+  // 現在ページを保存（5秒以内の連続実行を制御するルン！）
+  const now = Date.now();
+  if (now - lastSaveTime >= 5000) {
+    // 5秒以上経過していたら即座に保存するルン！
+    saveCurrentPage();
+    lastSaveTime = now;
+    debugLog("saveCurrentPage() executed immediately (>5sec)");
+  } else {
+    // 5秒以内だったらスキップして、タイマーで後で保存するルン！
+    debugLog("saveCurrentPage() skipped (<5sec), will save after 5sec");
+  }
+
+  // 5秒そのページに留まったら保存するタイマーを設定するルン！
+  savePageTimer = setTimeout(() => {
+    saveCurrentPage();
+    lastSaveTime = Date.now();
+    savePageTimer = null;
+    debugLog("saveCurrentPage() executed by timer (stayed 5sec)");
+  }, 5000);
   if (mode == 2) {
     if (page % 2 == 1) page--;
     page = page + fixPage;
@@ -1033,12 +1077,13 @@ function restorePage() {
     page = parseInt(window.localStorage.getItem(file) || page);
   }
   mode = parseInt(window.localStorage.getItem("pagemode") || mode);
-  
+
   // ページモードボタンの表示を現在のモードに合わせて設定 ルン！
   if (mode == 2) {
     // 見開モードの場合
     document.getElementById("pageMode").className = "button spread button-mode";
-    document.getElementById("pageMode").textContent = window.i18n.toc_button_spread;
+    document.getElementById("pageMode").textContent =
+      window.i18n.toc_button_spread;
     document.getElementById("image").style.width = "50%";
     document.getElementById("image").style.backgroundPosition = direction;
     document.getElementById("image").style.float = position;
@@ -1048,7 +1093,8 @@ function restorePage() {
   } else {
     // 単頁モードの場合（デフォルト）
     document.getElementById("pageMode").className = "button single button-mode";
-    document.getElementById("pageMode").textContent = window.i18n.toc_button_single;
+    document.getElementById("pageMode").textContent =
+      window.i18n.toc_button_single;
     document.getElementById("image").style.width = "100%";
     document.getElementById("image").style.backgroundPosition = "center";
     document.getElementById("image").style.float = "none";
@@ -1156,7 +1202,8 @@ function togglePageMode() {
     // 単頁 → 見開に切り替え
     mode = 2;
     document.getElementById("pageMode").className = "button spread button-mode";
-    document.getElementById("pageMode").textContent = window.i18n.toc_button_spread;
+    document.getElementById("pageMode").textContent =
+      window.i18n.toc_button_spread;
     document.getElementById("image").style.width = "50%";
     document.getElementById("image").style.backgroundPosition = direction;
     document.getElementById("image").style.float = position;
@@ -1167,7 +1214,8 @@ function togglePageMode() {
     // 見開 → 単頁に切り替え
     mode = 1;
     document.getElementById("pageMode").className = "button single button-mode";
-    document.getElementById("pageMode").textContent = window.i18n.toc_button_single;
+    document.getElementById("pageMode").textContent =
+      window.i18n.toc_button_single;
     document.getElementById("image").style.width = "100%";
     document.getElementById("image").style.backgroundPosition = "center";
     document.getElementById("image").style.float = "none";
@@ -1183,7 +1231,8 @@ function single() {
   if (mode === 1) return; // 既に単頁モードなら何もしない
   mode = 1;
   document.getElementById("pageMode").className = "button single button-mode";
-  document.getElementById("pageMode").textContent = window.i18n.toc_button_single;
+  document.getElementById("pageMode").textContent =
+    window.i18n.toc_button_single;
   document.getElementById("image").style.width = "100%";
   document.getElementById("image").style.backgroundPosition = "center";
   document.getElementById("image").style.float = "none";
@@ -1197,7 +1246,8 @@ function spread() {
   if (mode === 2) return; // 既に見開モードなら何もしない
   mode = 2;
   document.getElementById("pageMode").className = "button spread button-mode";
-  document.getElementById("pageMode").textContent = window.i18n.toc_button_spread;
+  document.getElementById("pageMode").textContent =
+    window.i18n.toc_button_spread;
   document.getElementById("image").style.width = "50%";
   document.getElementById("image").style.backgroundPosition = direction;
   document.getElementById("image").style.float = position;
@@ -1294,16 +1344,20 @@ function toggleDirection() {
     position = "left";
     document.getElementById("progress").className = "progress-right";
     document.getElementById("slider").style.transform = "rotateY(0deg)";
-    document.getElementById("direction").className = "button left-to-right button-mode";
-    document.getElementById("direction").textContent = window.i18n.toc_button_direction_left;
+    document.getElementById("direction").className =
+      "button left-to-right button-mode";
+    document.getElementById("direction").textContent =
+      window.i18n.toc_button_direction_left;
   } else {
     // 左綴じ → 右綴じに切り替え
     direction = "left";
     position = "right";
     document.getElementById("progress").className = "progress-left";
     document.getElementById("slider").style.transform = "rotateY(180deg)";
-    document.getElementById("direction").className = "button right-to-left button-mode";
-    document.getElementById("direction").textContent = window.i18n.toc_button_direction_right;
+    document.getElementById("direction").className =
+      "button right-to-left button-mode";
+    document.getElementById("direction").textContent =
+      window.i18n.toc_button_direction_right;
   }
   if (mode == 2) spread();
 }
