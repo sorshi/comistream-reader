@@ -718,6 +718,15 @@ function next() {
           " mode:" +
           mode
       );
+      // 最終ページ到達時は即座にページ位置を保存するルン！
+      if (savePageTimer) {
+        clearTimeout(savePageTimer);
+        savePageTimer = null;
+      }
+      saveCurrentPage();
+      lastSaveTime = Date.now();
+      debugLog("saveCurrentPage() executed on reaching last page");
+
       // jQuery UI Dialogの代替: suggest要素を表示する
       const suggestElement = document.getElementById("suggest");
       const overlayElement = document.getElementById("overlay"); // 既存のオーバーレイを使用
@@ -1260,6 +1269,15 @@ function spread() {
 }
 
 function backListPage() {
+  // リーダーを閉じる前に確実にページ位置を保存するルン！
+  if (savePageTimer) {
+    clearTimeout(savePageTimer);
+    savePageTimer = null;
+  }
+  saveCurrentPage();
+  lastSaveTime = Date.now();
+  debugLog("saveCurrentPage() executed before closing reader");
+
   if (document.cancelFullScreen) {
     document.cancelFullScreen();
   } else if (document.mozCancelFullScreen) {
@@ -1608,6 +1626,15 @@ async function sugguestbook() {
 
 //続刊へ移動
 function toNextBook(nextlocation) {
+  // 次の本へ移動する前に確実にページ位置を保存するルン！
+  if (savePageTimer) {
+    clearTimeout(savePageTimer);
+    savePageTimer = null;
+  }
+  saveCurrentPage();
+  lastSaveTime = Date.now();
+  debugLog("saveCurrentPage() executed before moving to next book");
+
   location.replace(nextlocation);
 }
 
