@@ -863,15 +863,21 @@ function loadPage(dir) {
     savePageTimer = null;
   }
 
-  // 現在ページを保存（5秒以内の連続実行を制御するルン！）
+  // 現在ページを保存（戻る操作と5秒以上経過時は即座に保存するルン！）
   const now = Date.now();
-  if (now - lastSaveTime >= 5000) {
+  if (dir < 0) {
+    // ページを戻る操作は頻度が低いので即座に保存するルン！
+    // これでdevicePageSync()での誤判定を防ぐルン☆
+    saveCurrentPage();
+    lastSaveTime = now;
+    debugLog("saveCurrentPage() executed immediately (backward)");
+  } else if (now - lastSaveTime >= 5000) {
     // 5秒以上経過していたら即座に保存するルン！
     saveCurrentPage();
     lastSaveTime = now;
     debugLog("saveCurrentPage() executed immediately (>5sec)");
   } else {
-    // 5秒以内だったらスキップして、タイマーで後で保存するルン！
+    // 5秒以内の前進はスキップして、タイマーで後で保存するルン！
     debugLog("saveCurrentPage() skipped (<5sec), will save after 5sec");
   }
 
