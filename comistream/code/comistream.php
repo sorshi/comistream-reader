@@ -180,6 +180,7 @@ $COOKIE = getCookie();
 $user = !empty($COOKIE['comistreamUser']) ? $COOKIE['comistreamUser'] : 'guest';
 
 // サイズ設定の取得
+// URLパラメータ(size)が優先、未設定の場合はCookieを確認するルン！
 if ($size !== 'FULL' && $size !== 'comp') {
     // sizeパラメータが未設定の場合はcookieを確認
     if (!empty($COOKIE['rawMode'])) {
@@ -203,7 +204,16 @@ if ($size !== 'FULL' && $size !== 'comp') {
         $_SESSION['packetSave'] = true;
         writelog("DEBUG size setting by default:" . $size);
     }
+} else {
+    // URLパラメータでsize指定がある場合
+    if ($size === 'FULL') {
+        $_SESSION['packetSave'] = false;
+    } else {
+        $_SESSION['packetSave'] = true;
+    }
+    writelog("DEBUG size setting by url param:" . $size);
 }
+
 
 if ($mode === 'delete' && !empty($orgname)) {
 

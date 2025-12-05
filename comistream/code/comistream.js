@@ -1485,22 +1485,32 @@ function toggleRaw() {
   data.append("file", escapedFile);
   data.append("page", page);
   navigator.sendBeacon("comistream.php", data);
-  let reload_url = location.href;
+
+  // URLからsizeパラメータを削除してCookie設定を優先させるルン！
+  // URLオブジェクトを使うとエンコーディングが変わるので正規表現で削除するルン
+  let reload_url = location.href
+    .replace(/([?&])size=[^&]*(&|$)/g, function (match, p1, p2) {
+      // &size=xxx& → & or ?size=xxx& → ?
+      // &size=xxx(末尾) → 空 or ?size=xxx(末尾) → ?のまま（後で処理）
+      if (p1 === "?" && p2 === "&") return "?";
+      if (p1 === "&") return p2 === "&" ? "&" : "";
+      return p1;
+    })
+    .replace(/\?$/, ""); // 末尾の?を削除
+
   if (document.getElementById("rawMode").classList.contains("raw")) {
     document.getElementById("rawMode").className = "button cmp";
     document.getElementById("rawMode").textContent =
       window.i18n.toc_button_compress;
     document.cookie = "rawMode=cmp; path=/; max-age=31536000";
-    // console.log("size toggle cmp");
-    // let reload_url = location.href.replace("&size=FULL", "");
+    debugLog("toggleRaw() size toggle to cmp, reload_url:" + reload_url);
     location.replace(reload_url);
   } else {
     document.getElementById("rawMode").className = "button raw";
     document.getElementById("rawMode").textContent =
       window.i18n.toc_button_full;
     document.cookie = "rawMode=raw; path=/; max-age=31536000";
-    // console.log("size toggle raw");
-    // let reload_url = location.href + "&size=FULL";
+    debugLog("toggleRaw() size toggle to raw, reload_url:" + reload_url);
     location.replace(reload_url);
   }
 }
