@@ -43,6 +43,9 @@ if ($global_use_db_flag == 1) {
             $dbh = new PDO($DSN);
             $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             $dbh->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+            // SQLite WALモード（読み取りと書き込みの並行実行を可能にする）ルン
+            $dbh->exec('PRAGMA journal_mode = WAL');
+            $dbh->exec('PRAGMA busy_timeout = 3000');
         } catch (PDOException $e) {
             echo '接続エラー: ' . $e->getMessage();
             die();
@@ -214,6 +217,11 @@ if ($size !== 'FULL' && $size !== 'comp') {
     writelog("DEBUG size setting by url param:" . $size);
 }
 
+// セッションへの書き込みが完了したので、セッションを閉じて並行リクエストのブロックを防ぐ
+// PHPのセッションはファイルベースでロックされるため、早期解放が重要
+if ($mode !== 'login') {
+    session_write_close();
+}
 
 if ($mode === 'delete' && !empty($orgname)) {
 
@@ -280,28 +288,33 @@ if ($mode === 'delete' && !empty($orgname)) {
     // 閲覧履歴取得
     getRecentBooks();
 } elseif ($mode === 'close' && !empty($file)) {
-
     // 最近開いたファイル取得
     saveBookmark();
 } elseif ($mode === 'check_loading' && !empty($file)) {
-
+    // check_loading前にDB接続を閉じてロック解放（SQLiteロック競合防止）
+    if (isset($dbh)) {
+        $dbh = null;
+    }
     // Loading画面用ステータスを返す
     checkLoading($file);
 } elseif ($mode !== 'open' && $page !== '0' && !empty($file)) {
-
+    // 画像出力前にDB接続を閉じてロック解放（SQLiteロック競合防止）
+    if (isset($dbh)) {
+        $dbh = null;
+    }
     // 指定されたページをjpg/webpストリームとして出力する
     outputPage();
     exit(0);
 } elseif ($mode === 'open' && !empty($file)) {
     // ファイルオープン
     $originalFile = $file; // 元のファイル名を保存
-    
+
     // EPUBファイルの場合は特別処理
     if (preg_match('/\.epub$/i', $originalFile)) {
         handleEpubOpen();
         exit(0);
     }
-    
+
     // if (isset($pageGenerator)) {
     //     // 明示的設定がある場合はその値を採用
     //     // セキュリティ確保のため、明示的設定値が1か0以外の場合はデフォルトの0とする
@@ -334,6 +347,7 @@ if ($mode === 'delete' && !empty($orgname)) {
 
     // 通常のコミックビューアーを使用
     printHTML();
+
     makeCover($escapedFile, $coverFile, $previewFile);
     exit(0);
 } elseif ($mode === 'config') {

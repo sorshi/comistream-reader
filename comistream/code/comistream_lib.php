@@ -89,28 +89,28 @@ function getCookie()
 
 /**
  * syslogにログメッセージを出力します
- * 
+ *
  * アプリケーションのログメッセージをsyslogに書き込みます。
  * メッセージ内容に応じてログレベルを自動判定し、ファイル名と行番号情報を付加します。
  * 文字エンコーディングも自動変換するため、日本語メッセージも安全に出力できます。
- * 
+ *
  * @param string $messages ログメッセージ（改行文字は自動的にスペースに変換される）
  * @param string $processname プロセス名（デフォルト: 'Comistream'）
  * @return void
- * 
+ *
  * @example
  * // デバッグメッセージ
  * writelog("DEBUG 画像処理開始: input.jpg");
- * 
+ *
  * // エラーメッセージ
  * writelog("ERROR ファイルが見つかりません: /path/to/file.jpg");
- * 
+ *
  * // カスタムプロセス名
  * writelog("INFO カバー生成完了", "CoverGenerator");
- * 
+ *
  * // 緊急メッセージ（EMERG、ALERTなどを含む場合、適切なログレベルで記録）
  * writelog("EMERG システムが不安定な状態です");
- * 
+ *
  * @since 1.0.0
  * @author Comistream Project
  */
@@ -157,33 +157,33 @@ function writelog($messages, $processname = 'Comistream')
 
 /**
  * エラー画面を表示してスクリプトを終了します
- * 
+ *
  * カスタマイズされたエラー画面を表示し、適切なHTTPステータスコードを設定して
  * スクリプトの実行を終了します。国際化対応しており、ユーザーの言語設定に
  * 応じて翻訳されたエラーメッセージを表示します。
- * 
+ *
  * @param string $titleKey エラーページのタイトルの翻訳キー
  * @param string $messageKey エラーメッセージ本文の翻訳キー（省略時はtitleKeyと同じ）
  * @param bool $isError trueの場合404エラー、falseの場合は通常レスポンス（デフォルト: true）
  * @param array $params 翻訳メッセージのパラメータ（sprintf形式、省略可）
  * @return void スクリプトはこの関数内で終了します（exit）
- * 
+ *
  * @example
  * // ファイル不存在エラー
  * errorExit('file_not_found', 'file_not_found_detail');
- * 
+ *
  * // 権限エラー
  * errorExit('access_denied', 'permission_denied_detail', true);
- * 
+ *
  * // 単なる情報表示（エラーではない）
  * errorExit('processing_complete', null, false);
- * 
+ *
  * // データベース接続エラー
  * errorExit('system_error', 'database_connection_error');
- * 
+ *
  * // パラメータ付きメッセージ（将来の拡張用）
  * errorExit('config_not_found', 'config_not_found', true, ['comistream.css']);
- * 
+ *
  * @since 1.0.0
  * @author Comistream Project
  */
@@ -618,10 +618,28 @@ function makeBookmark()
             $dirname = '/' . $dirname;
         }
         writelog("DEBUG makeBookmark() bookmarkPath:$bookmarkPath dirname:$dirname with DB");
+
+        // SQLite busy timeout対策（DBロック待ちを5秒に制限）ルン
+        $dbh->setAttribute(PDO::ATTR_TIMEOUT, 5);
+        $dbh->exec('PRAGMA busy_timeout = 5000');
+
         $query = "INSERT INTO book_history (user, request_uri, path_hash, relative_path, base_file, base_file_hash, current_page, max_page) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user, base_file) DO UPDATE SET current_page = excluded.current_page, max_page = excluded.max_page, request_uri = excluded.request_uri, path_hash = excluded.path_hash, relative_path = excluded.relative_path";
 
+        $sqlStartTime = microtime(true);
+
         $stmt = $dbh->prepare($query);
-        $stmt->execute([$user, $request_uri, $file, $dirname, $base_file_utf, $base_file_hash, $page, $maxPage]);
+
+        try {
+            $stmt->execute([$user, $request_uri, $file, $dirname, $base_file_utf, $base_file_hash, $page, $maxPage]);
+        } catch (PDOException $e) {
+            // DBロックエラーをキャッチしてスキップするルン
+            writelog("WARNING makeBookmark() SQL execute failed (likely DB lock): " . $e->getMessage());
+        }
+
+        // SQL実行時間の計測ルン
+        $sqlEndTime = microtime(true);
+        $sqlDuration = round(($sqlEndTime - $sqlStartTime) * 1000);
+        writelog("DEBUG makeBookmark() SQL execute done in {$sqlDuration}ms");
 
         if ($dbh->errorInfo()[2]) {
             writelog("ERROR makeBookmark() SQL error: " . $dbh->errorInfo()[2] . " $query:$user, $request_uri, $file, $dirname, $base_file_utf, $base_file_hash, $page, $maxPage");
@@ -805,6 +823,9 @@ function saveBookmark()
 {
     global $bookmarkDir, $user, $global_use_db_flag, $dbh, $file, $page, $maxPage;
 
+    // beaconリクエストはbest-effortなので、タイムアウトを短く設定
+    set_time_limit(5);
+
     if ($user !== "guest") {
         $file = preg_replace('/\.\.\//', '', $file);
         $file = str_replace('+', '%2B', $file);
@@ -822,13 +843,30 @@ function saveBookmark()
         }
 
         if ($global_use_db_flag == 1) {
+            // beaconリクエスト用に専用のDB接続を作成（グローバル$dbhから独立させる）
+            try {
+                $DSN = "sqlite:" . __DIR__ . '/../data/db/comistream.sqlite';
+                $beacon_dbh = new PDO($DSN);
+                $beacon_dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                $beacon_dbh->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+                $beacon_dbh->exec('PRAGMA journal_mode = WAL');
+                $beacon_dbh->exec('PRAGMA busy_timeout = 1000');
+                $beacon_dbh->exec('PRAGMA synchronous = NORMAL');
+            } catch (PDOException $e) {
+                writelog("WARNING saveBookmark() dedicated DB connection failed: " . $e->getMessage());
+                exit(0);
+            }
+
             $baseFileUtf = $baseFile;
             $query = "SELECT max_page, has_read FROM book_history WHERE user = ? AND base_file = ? ORDER BY updated_at DESC LIMIT 1";
-            $stmt = $dbh->prepare($query);
+            $stmt = $beacon_dbh->prepare($query);
             $stmt->execute([$user, $baseFileUtf]);
             $row = $stmt->fetch(PDO::FETCH_NUM);
             $maxPage = $row[0];
             $has_read = $row[1];
+            // SELECTのカーソルを閉じてREADロックを解放
+            $stmt->closeCursor();
+            $stmt = null;
 
             writelog("DEBUG saveBookmark() $baseFileUtf");
 
@@ -845,13 +883,21 @@ function saveBookmark()
             // favはここではいじらない
             $baseFileHash = basefilename2hash($baseFileUtf);
             $query = "UPDATE book_history SET current_page = ?, max_page = ?, has_read = ? WHERE user = ? AND base_file = ?";
-            $stmt = $dbh->prepare($query);
-            $stmt->execute([$page, $maxPage, $has_read, $user, $baseFileUtf]);
 
-            if ($dbh->errorInfo()[2]) {
-                writelog("ERROR saveBookmark() SQL error: " . $dbh->errorInfo()[2] . " query: $query");
+            // UPDATEをtry-catchでラップし、タイムアウト時は諦める（beaconはbest-effort）
+            try {
+                $stmt = $beacon_dbh->prepare($query);
+                $stmt->execute([$page, $maxPage, $has_read, $user, $baseFileUtf]);
+
+                if ($beacon_dbh->errorInfo()[2]) {
+                    writelog("ERROR saveBookmark() SQL error: " . $beacon_dbh->errorInfo()[2] . " query: $query");
+                }
+                writelog("DEBUG saveBookmark() $page, $maxPage, $has_read, $user, $baseFileHash, $baseFileUtf with DB");
+            } catch (PDOException $e) {
+                writelog("WARNING saveBookmark() UPDATE failed (timeout or lock): " . $e->getMessage());
+            } finally {
+                $beacon_dbh = null;
             }
-            writelog("DEBUG saveBookmark() $page, $maxPage, $has_read, $user, $baseFileHash, $baseFileUtf with DB");
         } else {
             // ブックマークファイル内のページ書き換え
             $result = shell_exec("grep -nF \"$baseFile\" \"$bookmarkPath/bookmark\"");
@@ -875,6 +921,7 @@ function saveBookmark()
             }
         }
     }
+
     exit(0);
 } //end function saveBookmark
 
@@ -1439,27 +1486,27 @@ function deleteCacheDirAndReload()
 
 /**
  * 画像データが最大サイズ制限を超えているかと破損をチェックし、超過時にエラー処理を実行します
- * 
+ *
  * VIPSライブラリを使用して画像バッファからサイズ情報を取得し、
  * 幅8000px・高さ8000pxの制限を超えているかどうかを判定します。
  * 制限を超えている場合や画像処理でエラーが発生した場合は、
  * HTTPステータス413またはエラー画像を表示してtrueを返します。
- * 
+ *
  * @param string $pageImg 画像データのバイナリ
  * @return bool 画像サイズが制限を超えているかエラーが発生した場合はtrue、正常な場合はfalse
- * 
+ *
  * @throws \Jcupitt\Vips\Exception VIPS処理でエラーが発生した場合（内部でキャッチして処理）
- * 
+ *
  * @example
  * $imageData = file_get_contents('large_image.jpg');
  * if (isImageSizeOverLimitAndErrorOutout($imageData)) {
  *     // エラー処理は関数内で実行済み
  *     exit();
  * }
- * 
+ *
  * @see showReloadRequiredImg() エラー画像の表示に使用
  * @see writelog() エラーログの出力に使用
- * 
+ *
  * @since 20250802
  * @author Comistream Project
  */
@@ -1512,14 +1559,14 @@ function isImageSizeOverLimitAndErrorOutout($pageImg)
 
 /**
  * libvipsライブラリが利用可能かどうかを判定します
- * 
+ *
  * 以下の条件を全て満たした場合にtrueを返します:
  * - PECL vips拡張がロードされている
  * - Composerのautoloadファイルが存在する
  * - Jcupitt\Vips\Imageクラスが存在する
- * 
+ *
  * @return bool libvipsが利用可能ならtrue、利用不可能ならfalse
- * 
+ *
  * @example
  * if (isVipsAvailable()) {
  *     // libvipsを使用した高速画像処理
@@ -1528,12 +1575,12 @@ function isImageSizeOverLimitAndErrorOutout($pageImg)
  *     // ImageMagickなどのフォールバック処理
  *     $result = shell_exec("convert input.jpg -resize 800x output.webp");
  * }
- * 
+ *
  * @see vipsConvert()
  * @see vipsResizeStream()
  * @see vipsThumbnail()
  * @see vipsGetImageInfo()
- * 
+ *
  * @since 20250721
  * @author Comistream Project
  */
@@ -1652,10 +1699,10 @@ function isVipsAvailable($fullLog = false)
 
 /**
  * libvipsを使用してファイルからファイルへの画像変換・処理を行います
- * 
+ *
  * この関数は現在未使用ですが、将来的な利用のために保持されています。
  * 高速な画像処理が可能で、リサイズ、フォーマット変換、品質調整などが行えます。
- * 
+ *
  * @param string $input 入力画像ファイルのパス
  * @param string $output 出力画像ファイルのパス
  * @param array $options 処理オプション
@@ -1664,15 +1711,15 @@ function isVipsAvailable($fullLog = false)
  *                       - 'quality': int JPEG品質（1-100）
  *                       - 'format': string 出力フォーマット（'webp', 'jpeg', 'png'）
  * @return bool 処理成功時はtrue、失敗時はfalse
- * 
+ *
  * @example
  * // JPEGをWebPに変換してリサイズ
  * $success = vipsConvert(
- *     '/path/to/input.jpg', 
+ *     '/path/to/input.jpg',
  *     '/path/to/output.webp',
  *     ['resize' => 800, 'quality' => 80, 'format' => 'webp', 'strip' => true]
  * );
- * 
+ *
  * @since 未実装
  * @author Comistream Project
  */
@@ -1735,18 +1782,18 @@ function vipsConvert($input, $output, $options = [])
 
 /**
  * libvipsを使用してメモリ上で画像をリサイズし、バイナリデータとして返します
- * 
+ *
  * この関数は現在未使用ですが、将来的な利用のために保持されています。
  * ファイルまたはバイナリデータから画像を読み込み、指定幅にリサイズして
  * 指定フォーマットのバイナリデータとして返します。Webアプリケーションの
  * 画像配信に適しています。
- * 
+ *
  * @param string|resource $input 入力画像（ファイルパスまたはバイナリデータ）
  * @param int $width リサイズ後の幅（ピクセル）。アスペクト比は保持されます
  * @param int $quality 画像品質（1-100）。PNG以外のフォーマットで有効
  * @param string $format 出力フォーマット（'jpeg', 'webp', 'png'）
  * @return string|false 成功時は画像バイナリデータ、失敗時はfalse
- * 
+ *
  * @example
  * // ファイルからWebP形式でリサイズ
  * $imageData = vipsResizeStream('/path/to/image.jpg', 800, 85, 'webp');
@@ -1754,11 +1801,11 @@ function vipsConvert($input, $output, $options = [])
  *     header('Content-Type: image/webp');
  *     echo $imageData;
  * }
- * 
- * // バイナリデータからJPEGでリサイズ  
+ *
+ * // バイナリデータからJPEGでリサイズ
  * $inputData = file_get_contents('/path/to/image.png');
  * $resizedData = vipsResizeStream($inputData, 600, 75, 'jpeg');
- * 
+ *
  * @since 未実装
  * @author Comistream Project
  */
@@ -1817,27 +1864,27 @@ function vipsResizeStream($input, $width, $quality = 75, $format = 'jpeg')
 
 /**
  * libvipsを使用してサムネイル画像を生成します
- * 
+ *
  * この関数は現在未使用ですが、将来的な利用のために保持されています。
  * 入力画像から指定サイズのサムネイルを作成し、ファイルに保存します。
  * アスペクト比を保持しながら、最大辺が指定サイズになるようにリサイズします。
- * 
+ *
  * @param string $input 入力画像ファイルのパス
  * @param string $output 出力サムネイルファイルのパス（拡張子で形式を判定）
  * @param int $size サムネイルサイズ（最大辺の長さをピクセルで指定）
  * @param int $quality 画像品質（1-100）。JPEG/WebPで有効、PNGでは無視
  * @return bool 処理成功時はtrue、失敗時はfalse
- * 
+ *
  * @example
  * // 300pxのJPEGサムネイルを作成
  * $success = vipsThumbnail('/path/to/large_image.jpg', '/path/to/thumb.jpg', 300, 85);
- * 
+ *
  * // WebPサムネイルを作成（拡張子で自動判定）
  * $success = vipsThumbnail('/path/to/photo.png', '/path/to/thumb.webp', 200, 80);
- * 
+ *
  * // PNGサムネイル（品質設定は無効）
  * $success = vipsThumbnail('/path/to/logo.svg', '/path/to/thumb.png', 150);
- * 
+ *
  * @since 未実装
  * @author Comistream Project
  */
@@ -1897,29 +1944,29 @@ function vipsThumbnail($input, $output, $size, $quality = 75)
 
 /**
  * libvipsを使用して画像ファイルの基本情報を取得します
- * 
+ *
  * 指定された画像ファイルから幅、高さ、アスペクト比を高速で取得します。
  * libvipsが利用できない場合はfalseを返します。
- * 
+ *
  * @param string $imagePath 画像ファイルのパス
  * @return array|false 成功時は画像情報の連想配列、失敗時はfalse
  *                     連想配列の形式: ['width' => int, 'height' => int, 'ratio' => float]
- * 
+ *
  * @example
  * $info = vipsGetImageInfo('/path/to/image.jpg');
  * if ($info !== false) {
  *     echo "サイズ: {$info['width']}x{$info['height']}\n";
  *     echo "比率: {$info['ratio']}\n";
- *     
+ *
  *     if ($info['ratio'] > 1) {
  *         echo "横長画像\n";
  *     } elseif ($info['ratio'] < 1) {
- *         echo "縦長画像\n";  
+ *         echo "縦長画像\n";
  *     } else {
  *         echo "正方形画像\n";
  *     }
  * }
- * 
+ *
  * @since 20250721
  * @author Comistream Project
  */
@@ -1962,13 +2009,13 @@ function vipsGetImageInfo($imagePath)
 
 /**
  * 許可されたディレクトリ内でのパス削除が安全かチェックします
- * 
+ *
  * ディレクトリトラバーサル攻撃や不正なパスアクセスを防ぐため、
  * 削除対象パスが許可されたベースディレクトリ内にあることを確認します。
- * 
+ *
  * @param string $path 検証するパス
  * @return bool 削除が許可される場合はtrue、危険な場合はfalse
- * 
+ *
  * @since 2.0.0
  * @author Comistream Project
  */
@@ -2115,30 +2162,30 @@ function isPathAllowedForDeletion($path)
 
 /**
  * ディレクトリを安全に再帰的に削除します（セキュリティ強化版）
- * 
+ *
  * 指定されたディレクトリとその中身を完全に削除します。
  * ディレクトリトラバーサル攻撃やパスインジェクション攻撃を防ぐため、
  * 厳格なパス検証とアクセス制御を実装しています。
  * 削除可能なディレクトリは設定で定義されたベースディレクトリ配下のみです。
- * 
+ *
  * @param string $dir 削除するディレクトリのパス
  * @return bool 削除に成功した場合はtrue、失敗した場合はfalse
- * 
+ *
  * @example
  * // 一時ディレクトリを削除
  * $tempDir = $conf["comistream_tmp_dir_root"] . '/temp_' . uniqid();
  * if (deleteDirectory($tempDir)) {
  *     echo "ディレクトリが安全に削除されました";
  * }
- * 
+ *
  * // キャッシュディレクトリをクリーンアップ
  * $cacheDir = $conf["cacheDir"] . '/book_123';
  * deleteDirectory($cacheDir);
- * 
+ *
  * @warning この関数は指定されたディレクトリを完全に削除します。
  *          セキュリティ上、許可されたベースディレクトリ配下のみ削除可能です。
  *          ディレクトリトラバーサル攻撃対策により、../などの危険なパスは拒否されます。
- * 
+ *
  * @since 1.0.0 (2.0.0でセキュリティ強化)
  * @author Comistream Project
  */
@@ -2280,32 +2327,32 @@ function showReloadRequiredImg($imageType = 1)
 
 /**
  * HTTPレスポンスコンテンツを圧縮します
- * 
+ *
  * クライアントがサポートする圧縮方式（zstd、gzip）を自動判定し、
  * 最適な圧縮方式でコンテンツを圧縮します。対応状況に応じて
  * 適切なContent-Encodingヘッダーも設定します。
- * 
+ *
  * @param string $content 圧縮対象のコンテンツ
  * @return string 圧縮済みのコンテンツ（圧縮できない場合は元のコンテンツをそのまま返す）
- * 
+ *
  * @example
  * // HTMLコンテンツを圧縮
  * $html = '<html><body>大きなHTMLコンテンツ...</body></html>';
  * $compressed = compressResponse($html);
  * echo $compressed;
- * 
+ *
  * // JSONレスポンスを圧縮
  * $jsonData = json_encode($largeDataArray);
  * header('Content-Type: application/json');
  * echo compressResponse($jsonData);
- * 
+ *
  * // 画像データなど（すでに圧縮済みのデータは効果が少ない）
  * $imageData = file_get_contents('large_image.jpg');
  * echo compressResponse($imageData);
- * 
+ *
  * @note クライアントのAccept-Encodingヘッダーを確認し、サポートされている場合のみ圧縮を行います
  * @note zstd > gzip > 無圧縮の優先順位で選択されます
- * 
+ *
  * @since 1.0.0
  * @author Comistream Project
  */
@@ -2390,6 +2437,10 @@ function openPage()
     global $tempDir, $cacheDir, $cacheSize, $sharePath, $publicDir, $md5cmd, $dbh,
         $page, $file, $baseFile, $maxPage, $user, $openFile, $escapedFile, $coverFile,
         $previewFile, $existDir, $direction, $position, $degree, $fileSize, $averagePageBytes, $bookName;
+
+    // クライアント切断対策ルン（スクリプトを確実に続行）
+    ignore_user_abort(true);
+    set_time_limit(300);
 
     // テンポラリ領域がなければ作成
     writelog("DEBUG openPage() tempDir:" . $tempDir);
@@ -2536,11 +2587,8 @@ function openPage()
         writelog("DEBUG openPage() $page overwrite from argument.");
     } else {
         $page = 1;
-        if ($user !== "guest") {
-            makeBookmark();
-        } else {
-            $baseFile = basename($openFile);
-        }
+        // baseFileを設定（履歴保存はmode=close時に行われる）ルン
+        $baseFile = basename($openFile);
     }
     // 表紙画像とプレビュー画像作成
     // メインに移動
@@ -2743,8 +2791,11 @@ function openZipRar()
                 $fileSizeBytes = filesize($openFile);
                 $fileSizeMB = round($fileSizeBytes / (1000 * 1000));
                 printLoading($fileSizeMB);
-                // $result = shell_exec("LANG=ja_JP.UTF8 bash " . $conf["comistream_tool_dir"] . "/code/nestedExtracter.sh \"$openFile\" $cacheDir/$file");
-                $result = shell_exec($command_list);
+                // nestedExtractor.shをバックグラウンドで実行してPHP-FPMワーカーを即座に解放する
+                // shell_exec()は同期実行でワーカーが占有され続けるため、exec()でバックグラウンド実行に変更
+                $bg_command = $command_list . ' > /dev/null 2>&1 &';
+                writelog("DEBUG openZipRar() executing nestedExtractor in background: " . $bg_command);
+                exec($bg_command);
                 exit(0);
             } else {
                 // バッチ処理で表紙作成を開いた場合
@@ -3063,31 +3114,31 @@ function checkContentsIndexArray($indexArray)
 
 /**
  * 別プロセスを起動して表紙画像とプレビュー画像を作成します
- * 
+ *
  * 指定されたファイル（書籍・漫画ファイル）から表紙画像とプレビュー画像を
  * バックグラウンドプロセスで非同期生成します。すでに画像が存在する場合は
  * スキップされ、不要な重複処理を避けます。
- * 
+ *
  * @param string $coverProcessFile 処理対象ファイルのパス（URL エンコード対応）
  * @param string $coverFile 出力される表紙画像ファイルのパス
  * @param string $previewFile 出力されるプレビュー画像ファイルのパス
  * @return void 戻り値はありません（バックグラウンド処理で実行）
- * 
+ *
  * @example
  * // 書籍の表紙とプレビュー画像を生成
  * $bookPath = '/path/to/book.zip';
- * $coverPath = '/path/to/covers/book_cover.jpg';  
+ * $coverPath = '/path/to/covers/book_cover.jpg';
  * $previewPath = '/path/to/preview/book_preview.webp';
  * makeCover($bookPath, $coverPath, $previewPath);
- * 
+ *
  * // PDFファイルの場合
  * $pdfPath = '/path/to/document.pdf';
  * $coverPath = '/path/to/covers/pdf_cover.jpg';
  * $previewPath = '/path/to/preview/pdf_preview.webp';
  * makeCover($pdfPath, $coverPath, $previewPath);
- * 
+ *
  * @see make_cover_preview.php バックグラウンドで実行される実際の画像生成スクリプト
- * 
+ *
  * @since 1.0.0
  * @author Comistream Project
  */
@@ -3860,17 +3911,19 @@ EOF;
     ignore_user_abort(true);
     set_time_limit(0);
 
-    // レスポンスを圧縮して出力
-    ob_flush();
-    flush();
-    // Content-Type ヘッダーを設定
+    // Loading画面のヘッダー設定（キャッシュ無効化）ルン
     header('Content-Type: text/html; charset=utf-8');
+    // header('Cache-Control: no-cache, no-store, must-revalidate');
+    // header('Pragma: no-cache');
+    // header('Expires: 0');
     echo compressResponse($htmlContent);
-    ob_flush();
+    // 出力をフラッシュするルン
+    if (ob_get_level() > 0) {
+        ob_flush();
+    }
     flush();
-    ob_end_flush();
-    ob_implicit_flush(1);
-
+    // ob_end_flush();
+    // ob_implicit_flush(1);
     if (function_exists('fastcgi_finish_request')) {
         fastcgi_finish_request();
         writelog("DEBUG printLoading() fastcgi_finish_request()");
@@ -3878,10 +3931,10 @@ EOF;
         // 代替方法
         session_write_close();
         header("Connection: close");
-        header("Content-Length: " . ob_get_length());
-        ob_end_flush();
+        if (ob_get_level() > 0) {
+            ob_end_flush();
+        }
         flush();
-        writelog("DEBUG printLoading() ");
     }
     writelog("DEBUG printLoading done.");
 } //end function printLoading
@@ -3892,26 +3945,27 @@ function checkLoading($file)
 {
     global $cacheDir;
     $isDone = file_exists("$cacheDir/$file/DONE");
-    writelog("DEBUG checkLoading() $file $isDone");
-    echo $isDone ? "true" : "false";
+    $response = $isDone ? "true" : "false";
+    writelog("DEBUG checkLoading() file:$file isDone:$isDone");
+    echo $response;
     exit;
 } //end function checkLoading
 
 
 /**
  * 画像ファイルのアスペクト比（縦横比）を取得します
- * 
+ *
  * 指定された画像ファイルの縦横比を計算します。libvipsが利用可能な場合は
  * 高速処理を行い、利用できない場合はImageMagickにフォールバックします。
  * ファイルの存在チェックとサイズ検証も行います。
- * 
+ *
  * @param string $file_with_path 画像ファイルのフルパス
  * @return float|int 画像のアスペクト比（幅/高さ）。
  *                   - 1.0より大きい場合: 横長画像
- *                   - 1.0の場合: 正方形画像  
+ *                   - 1.0の場合: 正方形画像
  *                   - 1.0未満の場合: 縦長画像
  *                   - 0: ファイルが存在しないかエラーが発生
- * 
+ *
  * @example
  * // 画像の向きを判定
  * $ratio = get_image_aspect_ratio('/path/to/image.jpg');
@@ -3924,11 +3978,11 @@ function checkLoading($file)
  * } else {
  *     echo "画像ファイルが読み込めませんでした\n";
  * }
- * 
+ *
  * // レイアウト判定での使用例
  * $aspectRatio = get_image_aspect_ratio($imagePath);
  * $isLandscape = ($aspectRatio > 1.33); // 4:3より横長
- * 
+ *
  * @since 1.0.0
  * @author Comistream Project
  */
@@ -4631,110 +4685,122 @@ function readConfig($dbh)
     // $sharePath = "/home/user/public_html/nas";
     // $sharePath = ＄conf["webRoot"].$publicDir;
 
-    //データ取得
+    // データ取得（fetchAll()で一度に取得し、即座にカーソルを閉じてロック解放）
     $query = "SELECT key, value FROM system_config";
     $rs = sql_query($dbh, $query, "DBクエリに失敗しました");
-    $rowdata = $rs->fetch();
-    if (!$rowdata) {
+    $allRows = $rs->fetchAll(PDO::FETCH_ASSOC);
+    // 即座にカーソルを閉じてシェアードロックを解放
+    $rs->closeCursor();
+    $rs = null;
+
+    if (empty($allRows)) {
         writelog("ERROR readConfig() NO DATA");
     } else {
-        //配列に代入
-        do {
+        // メモリ上の配列をループ（DBロックなし）
+        foreach ($allRows as $rowdata) {
             $conf[$rowdata['key']] = $rowdata['value'];
-            // writelog("DEBUG readConfig() key:".$rowdata['key']." value:".$rowdata['value']);
-        } while ($rowdata = $rs->fetch());
-
-        //グローバル変数に代入
-        // ベースディレクトリの末尾のスラッシュを確実に除去
+        }
+    }
+    //グローバル変数に代入
+    // ベースディレクトリの末尾のスラッシュを確実に除去
+    if (isset($conf["webRoot"])) {
         $conf["webRoot"] = rtrim($conf["webRoot"], DIRECTORY_SEPARATOR);
+    }
 
+    if (isset($conf["sharePath"])) {
         $conf["sharePath"] = rtrim($conf["sharePath"], DIRECTORY_SEPARATOR);
         $sharePath = $conf["sharePath"];
+    }
+    if (isset($conf["publicDir"])) {
         $conf["publicDir"] = rtrim($conf["publicDir"], DIRECTORY_SEPARATOR);
         $publicDir = $conf["publicDir"];
-        $md5cmd = $conf["md5cmd"];
-        $convert = $conf["convert"];
-        $montage = $conf["montage"];
-        $unzip = $conf["unzip"];
-        $unrar = $conf["unrar"];
-        $cpdf = $conf["cpdf"];
-        $p7zip = $conf["p7zip"];
-        $ffmpeg = $conf["ffmpeg"];
-        $book_search_url = $conf["book_search_url"];
-        $cacheSize = $conf["cacheSize"];
-        $isPageSave = $conf["isPageSave"];
-        $isPreCache = $conf["isPreCache"];
-        $async = $conf["async"];
-        $width = $conf["width"];
-        $quality = $conf["quality"];
-        $fullsize_png_compress = $conf["fullsize_png_compress"];
+    }
+    $md5cmd = $conf["md5cmd"] ?? '';
+    $convert = $conf["convert"] ?? '';
+    $montage = $conf["montage"] ?? '';
+    $unzip = $conf["unzip"] ?? '';
+    $unrar = $conf["unrar"] ?? '';
+    $cpdf = $conf["cpdf"] ?? '';
+    $p7zip = $conf["p7zip"] ?? '';
+    $ffmpeg = $conf["ffmpeg"] ?? '';
+    $book_search_url = $conf["book_search_url"] ?? '';
+    $cacheSize = $conf["cacheSize"] ?? 3000;
+    $isPageSave = $conf["isPageSave"] ?? 1;
+    $isPreCache = $conf["isPreCache"] ?? 1;
+    $async = $conf["async"] ?? '';
+    $width = $conf["width"] ?? 800;
+    $quality = $conf["quality"] ?? 75;
+    $fullsize_png_compress = $conf["fullsize_png_compress"] ?? 0;
 
-        // libvipsコマンドの設定
-        // $vips = $conf["vips"] ?? '';
-        // $vipsthumbnail = $conf["vipsthumbnail"] ?? '';
-        // $conf["vips"] = $vips;
-        // $conf["vipsthumbnail"] = $vipsthumbnail;
+    // libvipsコマンドの設定
+    // $vips = $conf["vips"] ?? '';
+    // $vipsthumbnail = $conf["vipsthumbnail"] ?? '';
+    // $conf["vips"] = $vips;
+    // $conf["vipsthumbnail"] = $vipsthumbnail;
 
-        // デバッグモード
-        if ($conf["isDebugMode"] == 1) {
-            $global_debug_flag = true;
-        } else {
-            $global_debug_flag = false;
-        }
-        // 低メモリモード
-        if (!(isset($conf["isLowMemoryMode"]))) {
-            sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('isLowMemoryMode', 1);", "クエリに失敗しました");
-            $conf["isLowMemoryMode"] = 1;
-        } elseif ((isset($conf["isLowMemoryMode"])) && ($conf["isLowMemoryMode"] === 0)) {
-            $conf["isLowMemoryMode"] = 0;
-        } else {
-            $conf["isLowMemoryMode"] = 1;
-        }
-        // mutoolのパスを確認
-        if (!(isset($conf["mutool"]))) {
-            $mutool = exec('which mutool') ?: '';
-            sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('mutool', ?);", "クエリに失敗しました", array($mutool));
-            $conf["mutool"] = $mutool;
-        }
+    // デバッグモード
+    if (isset($conf["isDebugMode"]) && $conf["isDebugMode"] == 1) {
+        $global_debug_flag = true;
+    } else {
+        $global_debug_flag = false;
+    }
+    // 低メモリモード
+    if (!(isset($conf["isLowMemoryMode"])) && isset($dbh)) {
+        sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('isLowMemoryMode', 1);", "クエリに失敗しました");
+        $conf["isLowMemoryMode"] = 1;
+    } elseif ((isset($conf["isLowMemoryMode"])) && ($conf["isLowMemoryMode"] === 0)) {
+        $conf["isLowMemoryMode"] = 0;
+    } else {
+        $conf["isLowMemoryMode"] = 1;
+    }
+    // mutoolのパスを確認
+    if (!(isset($conf["mutool"])) && isset($dbh)) {
+        $mutool = exec('which mutool') ?: '';
+        sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('mutool', ?);", "クエリに失敗しました", array($mutool));
+        $conf["mutool"] = $mutool;
+    }
+    if (isset($conf["comistream_tmp_dir_root"])) {
         $conf["comistream_tmp_dir_root"] = rtrim($conf["comistream_tmp_dir_root"], DIRECTORY_SEPARATOR);
         $tempDir = $conf["comistream_tmp_dir_root"] . "/reader";
+    }
+    if (isset($conf["comistream_tool_dir"])) {
         $conf["comistream_tool_dir"] = rtrim($conf["comistream_tool_dir"], DIRECTORY_SEPARATOR);
         $cacheDir = $conf["comistream_tool_dir"] . "/data/cache";
         $bookmarkDir = $conf["comistream_tool_dir"] . '/data/bm';
         $traceFile = $conf["comistream_tool_dir"] . "/data/etc/comistream.log";
         $conf["cacheDir"] = $cacheDir;
-        $global_resize = $conf["global_resize"];
-        $usm = ' ' . $conf["usm"] . ' ';
     }
+    $global_resize = $conf["global_resize"] ?? 1;
+    $usm = ' ' . ($conf["usm"] ?? '') . ' ';
 } //end function readConfig
 
 /**
  * データベースクエリを安全に実行します
- * 
+ *
  * PDOを使用してプリペアードステートメントでSQL文を実行し、
  * SQLインジェクション攻撃を防ぎます。エラーが発生した場合は
  * 適切なエラーハンドリングを行います。
- * 
+ *
  * @param PDO $dbh データベースハンドル
  * @param string $query 実行するSQL文（プレースホルダーを使用可能）
  * @param string $errmessage エラー発生時に表示するメッセージ
  * @param array|null $paramarray バインドするパラメータ配列（オプション）
  * @return PDOStatement 実行済みのPDOStatementオブジェクト
- * 
+ *
  * @throws PDOException データベースエラーが発生した場合
- * 
+ *
  * @example
  * // パラメータなしのクエリ
  * $result = sql_query($dbh, "SELECT * FROM books", "書籍データの取得に失敗しました");
- * 
+ *
  * // パラメータありのクエリ
  * $result = sql_query(
- *     $dbh, 
- *     "SELECT * FROM books WHERE id = ?", 
+ *     $dbh,
+ *     "SELECT * FROM books WHERE id = ?",
  *     "書籍の検索に失敗しました",
  *     [$bookId]
  * );
- * 
+ *
  * // 名前付きパラメータの使用
  * $result = sql_query(
  *     $dbh,
@@ -4742,7 +4808,7 @@ function readConfig($dbh)
  *     "ブックマークの保存に失敗しました",
  *     [':file' => $filename, ':page' => $pageNum, ':user' => $username]
  * );
- * 
+ *
  * @since 1.0.0
  * @author Comistream Project
  */
@@ -4800,14 +4866,14 @@ function recursiveCopy($srcDir, $destDir)
 
 /**
  * ディレクトリが存在しない場合に作成します
- * 
+ *
  * 指定されたディレクトリパスが存在しない場合、必要な親ディレクトリも含めて
  * 再帰的に作成します。適切なパーミッション（0777）が設定され、作成状況は
  * ログに記録されます。既に存在する場合はtrueを返します。
- * 
+ *
  * @param string $dir 作成するディレクトリのパス
  * @return bool 作成成功または既に存在する場合はtrue、失敗時はfalse
- * 
+ *
  * @example
  * // キャッシュディレクトリを作成
  * if (chkAndMakeDir('/var/cache/comistream/temp')) {
@@ -4815,16 +4881,16 @@ function recursiveCopy($srcDir, $destDir)
  * } else {
  *     echo "ディレクトリ作成に失敗しました\n";
  * }
- * 
+ *
  * // 多階層のディレクトリも一度に作成
  * chkAndMakeDir('/app/data/books/covers/thumbnails');
- * 
+ *
  * // 条件付きディレクトリ作成
  * $uploadDir = '/uploads/user_' . $userId;
  * if (!chkAndMakeDir($uploadDir)) {
  *     errorExit("ディレクトリ作成エラー", "アップロード用ディレクトリを作成できませんでした");
  * }
- * 
+ *
  * @since 1.0.0
  * @author Comistream Project
  */
@@ -5198,8 +5264,8 @@ function printPdfViewerHTML()
         <div class="loading" id="loading">
             {$i18n->get('loading')}...
         </div>
-        <iframe 
-            class="pdf-iframe" 
+        <iframe
+            class="pdf-iframe"
             id="pdfFrame"
             src="$publicDir/$encodedPdfPath"
             style="display: none;"

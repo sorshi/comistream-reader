@@ -20,7 +20,7 @@
 
 /**
  * HTML生成関数 ルン！テストしやすいようにHTML文字列を返すルン！
- * 
+ *
  * @return string 生成されたHTML文字列
  */
 function generateHTML()
@@ -343,6 +343,7 @@ function printHTML()
 {
     // HTML文字列を生成 ルン！
     $html = generateHTML();
+    writelog("DEBUG printHTML() HTML generated: length=" . strlen($html) . " bytes");
 
     // ヘッダーがまだ送信されていない場合のみContent-Typeヘッダーを設定 ルン！
     if (!headers_sent()) {
