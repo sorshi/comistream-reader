@@ -2587,8 +2587,12 @@ function openPage()
         writelog("DEBUG openPage() $page overwrite from argument.");
     } else {
         $page = 1;
-        // baseFileを設定（履歴保存はmode=close時に行われる）ルン
-        $baseFile = basename($openFile);
+        // ゲストユーザー以外は履歴レコードを作成するルン
+        if ($user !== "guest") {
+            makeBookmark();
+        } else {
+            $baseFile = basename($openFile);
+        }
     }
     // 表紙画像とプレビュー画像作成
     // メインに移動
