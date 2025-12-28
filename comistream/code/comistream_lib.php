@@ -1103,14 +1103,28 @@ function outputPage($isFileout = false)
                     });
                 }
                 shell_exec("cd $cpdfTempDir; $cpdf -extract-images -i $cacheDir/$file/file $page -o $file-$page");
-                if (preg_match('/\.jpg$/i', shell_exec("ls $cpdfTempDir/*$file-$page* | head -n 1"))) {
+                // 抽出されたファイルの拡張子を確認するルン
+                $extractedFile = trim(shell_exec("ls $cpdfTempDir/*$file-$page* 2>/dev/null | head -n 1"));
+                $extractedExt = strtolower(pathinfo($extractedFile, PATHINFO_EXTENSION));
+                writelog("DEBUG outputPage() PDF extracted file: $extractedFile ext: $extractedExt");
+
+                if ($extractedExt === 'jpg' || $extractedExt === 'jpeg') {
+                    // JPEGはそのまま使用するルン
                     $pageInput = "cat $cpdfTempDir/*{$file}-{$page}* ";
                     $input_format = "jpg:-";
                     writelog("DEBUG outputPage() PDF Extract jpg");
+                } elseif ($extractedExt === 'png') {
+                    // PNGはそのまま使用するルン
+                    $pageInput = "cat $cpdfTempDir/*{$file}-{$page}* ";
+                    $input_format = "png:-";
+                    $pagefile = "$page.png";
+                    writelog("DEBUG outputPage() PDF Extract png");
                 } else {
-                    // png,gif,tiff,jpg2000が規格上あり得る
-                    $pageInput = "cat $cpdfTempDir/*{$file}-{$page}* | $convert jpeg:- ";
-                    writelog("DEBUG outputPage() PDF convert jpg");
+                    // pnm,ppm,tiff,jpg2000などはImageMagickでJPEGに変換するルン
+                    // 入力形式は自動認識（-）、出力形式はjpegを明示
+                    $pageInput = "cat $cpdfTempDir/*{$file}-{$page}* | $convert - jpeg:- ";
+                    $input_format = "jpg:-";
+                    writelog("DEBUG outputPage() PDF convert to jpg from $extractedExt");
                 }
             } else {
                 // テキストを含むPDFは mutool > pdftoppm の優先順位でレンダリング
@@ -1512,7 +1526,7 @@ function deleteCacheDirAndReload()
  */
 function isImageSizeOverLimitAndErrorOutout($pageImg)
 {
-    global $dbh;
+    global $dbh, $convert;
     // 最大イメージサイズ
     // DBから設定値を取得するルン！
     $maxWidth = checkSystemConfig($dbh, 'image_max_width', 8000);
@@ -1530,29 +1544,105 @@ function isImageSizeOverLimitAndErrorOutout($pageImg)
         $maxHeight = 8000;
     }
     $maxHeightLimit = intval($maxHeight);
+
+    $imageWidth = 0;
+    $imageHeight = 0;
+    $vipsSuccess = false;
+
+    // まずVIPSで試すルン
     if (isVipsAvailable()) {
         try {
             $image = \Jcupitt\Vips\Image::newFromBuffer($pageImg);
-
-            if ($image->width > $maxWidthLimit || $image->height > $maxHeightLimit) {
-                // エラー処理: 解像度が大きすぎます。
-                writelog("NOTICE isImageSizeOverLimitAndErrorOutout() image size is too large: " . $image->width . "x" . $image->height);
-                header("HTTP/1.1 413 Content Too Large");
-                // 画像表示 // ページサイズが大きすぎる
-                showReloadRequiredImg(3);
-                return true;
-            } else {
-                return false;
-            }
+            $imageWidth = $image->width;
+            $imageHeight = $image->height;
+            $vipsSuccess = true;
+            writelog("DEBUG isImageSizeOverLimitAndErrorOutout() vips success: {$imageWidth}x{$imageHeight}");
         } catch (\Jcupitt\Vips\Exception $e) {
-            // VipsExceptionがスローされた場合は、破損している可能性が高い
-            // 例外メッセージをログに出力しておくとデバッグに役立ちます
-            writelog("ERROR isImageSizeOverLimitAndErrorOutout() vips processing failed,may be broken image: " . $e->getMessage());
-            showReloadRequiredImg(2);
-            return true;
+            // VIPSが失敗した場合はフォールバックへ進むルン
+            writelog("DEBUG isImageSizeOverLimitAndErrorOutout() vips failed, trying fallback: " . $e->getMessage());
+            $vipsSuccess = false;
         }
+    }
+
+    // VIPSが失敗した場合、ImageMagickにフォールバックするルン
+    if (!$vipsSuccess) {
+        writelog("DEBUG isImageSizeOverLimitAndErrorOutout() Fallback to ImageMagick identify");
+
+        // ImageMagickのidentifyコマンドでサイズを取得するルン
+        $identify = dirname($convert) . '/identify';
+        if (!is_executable($identify)) {
+            // identifyが見つからない場合は$convertと同じディレクトリを探すルン
+            $identify = 'identify'; // PATHから探すルン
+        }
+
+        // proc_openでパイプから画像を渡してサイズを取得するルン
+        $descriptorspec = [
+            0 => ['pipe', 'r'],  // stdin
+            1 => ['pipe', 'w'],  // stdout
+            2 => ['pipe', 'w']   // stderr
+        ];
+
+        $cmd = "$identify -format '%wx%h' -";
+        $process = proc_open($cmd, $descriptorspec, $pipes);
+
+        if (is_resource($process)) {
+            // 画像データをstdinに書き込むルン
+            fwrite($pipes[0], $pageImg);
+            fclose($pipes[0]);
+
+            // 結果を読み取るルン
+            $output = stream_get_contents($pipes[1]);
+            fclose($pipes[1]);
+            $stderr = stream_get_contents($pipes[2]);
+            fclose($pipes[2]);
+
+            $returnCode = proc_close($process);
+
+            if ($returnCode === 0 && preg_match('/^(\d+)x(\d+)$/', trim($output), $matches)) {
+                $imageWidth = intval($matches[1]);
+                $imageHeight = intval($matches[2]);
+                writelog("DEBUG isImageSizeOverLimitAndErrorOutout() ImageMagick identify success: {$imageWidth}x{$imageHeight}");
+            } else {
+                // ImageMagickでも失敗した場合はgetimagesizefromstringを試すルン
+                writelog("DEBUG isImageSizeOverLimitAndErrorOutout() ImageMagick identify failed (code:$returnCode), trying getimagesizefromstring. stderr: " . trim($stderr));
+                $imageInfo = @getimagesizefromstring($pageImg);
+                if ($imageInfo !== false) {
+                    $imageWidth = $imageInfo[0];
+                    $imageHeight = $imageInfo[1];
+                    writelog("DEBUG isImageSizeOverLimitAndErrorOutout() getimagesizefromstring success: {$imageWidth}x{$imageHeight}");
+                } else {
+                    // すべて失敗した場合はエラーとするルン
+                    writelog("ERROR isImageSizeOverLimitAndErrorOutout() All methods failed to get image size. May be broken image.");
+                    showReloadRequiredImg(2);
+                    return true;
+                }
+            }
+        } else {
+            // proc_openが失敗した場合
+            writelog("ERROR isImageSizeOverLimitAndErrorOutout() proc_open failed for identify command");
+            // getimagesizefromstringを試すルン
+            $imageInfo = @getimagesizefromstring($pageImg);
+            if ($imageInfo !== false) {
+                $imageWidth = $imageInfo[0];
+                $imageHeight = $imageInfo[1];
+                writelog("DEBUG isImageSizeOverLimitAndErrorOutout() getimagesizefromstring success: {$imageWidth}x{$imageHeight}");
+            } else {
+                writelog("ERROR isImageSizeOverLimitAndErrorOutout() All methods failed to get image size.");
+                showReloadRequiredImg(2);
+                return true;
+            }
+        }
+    }
+
+    // サイズチェックを行うルン
+    if ($imageWidth > $maxWidthLimit || $imageHeight > $maxHeightLimit) {
+        // エラー処理: 解像度が大きすぎます。
+        writelog("NOTICE isImageSizeOverLimitAndErrorOutout() image size is too large: {$imageWidth}x{$imageHeight}");
+        header("HTTP/1.1 413 Content Too Large");
+        // 画像表示 // ページサイズが大きすぎる
+        showReloadRequiredImg(3);
+        return true;
     } else {
-        writelog("CRITICAL isImageSizeOverLimitAndErrorOutout() vips is not available");
         return false;
     }
 } //end function isImageSizeOverLimitAndErrorOutout
