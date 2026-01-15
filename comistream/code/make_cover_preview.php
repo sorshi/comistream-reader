@@ -173,11 +173,108 @@ if (strcasecmp($ext, 'epub') == 0) {
         });
     }
     // 7zzコマンドを使用してEPUBファイルを展開
-    $cmd = $p7zip . " x -o\"$epubTempDir\" \"$fullpathFile\"";
+    // ファイル名に特殊文字（!、()、;、~など）が含まれる場合があるのでescapeshellarg()でエスケープするルン
+
+    // ファイルの存在確認（デバッグ用）
+    writelog("DEBUG EPUB file existence check: " . (file_exists($fullpathFile) ? "EXISTS" : "NOT FOUND"), $writelog_process_name);
+    writelog("DEBUG EPUB file path bytes: " . bin2hex($fullpathFile), $writelog_process_name);
+
+    if (!file_exists($fullpathFile)) {
+        // ファイルが見つからない場合、ディレクトリ内のファイル一覧を取得して類似ファイルを探すルン
+        $parentDir = dirname($fullpathFile);
+        $targetBasename = basename($fullpathFile);
+        writelog("DEBUG Parent directory: $parentDir", $writelog_process_name);
+        writelog("DEBUG Target basename: $targetBasename", $writelog_process_name);
+        writelog("DEBUG Target basename bytes: " . bin2hex($targetBasename), $writelog_process_name);
+        writelog("DEBUG Normalizer class exists: " . (class_exists('Normalizer') ? "YES" : "NO"), $writelog_process_name);
+
+        if (is_dir($parentDir)) {
+            $filesInDir = scandir($parentDir);
+
+            // 類似ファイル名を探す（Unicode正規化の違いを吸収）
+            $foundMatch = false;
+            $epubCount = 0;
+            foreach ($filesInDir as $fileInDir) {
+                if (stripos($fileInDir, '.epub') !== false) {
+                    $epubCount++;
+
+                    // NFC/NFD正規化を試みるルン（両方の方向で試す）
+                    if (class_exists('Normalizer')) {
+                        // ターゲットをNFCに正規化
+                        $normalizedTargetNFC = \Normalizer::normalize($targetBasename, \Normalizer::NFC);
+                        // ファイル名をNFCに正規化
+                        $normalizedFileNFC = \Normalizer::normalize($fileInDir, \Normalizer::NFC);
+                        // ターゲットをNFDに正規化
+                        $normalizedTargetNFD = \Normalizer::normalize($targetBasename, \Normalizer::NFD);
+                        // ファイル名をNFDに正規化
+                        $normalizedFileNFD = \Normalizer::normalize($fileInDir, \Normalizer::NFD);
+
+                        // NFC同士、NFD同士、または交差で比較
+                        if ($normalizedTargetNFC === $normalizedFileNFC ||
+                            $normalizedTargetNFD === $normalizedFileNFD ||
+                            $normalizedTargetNFC === $normalizedFileNFD ||
+                            $normalizedTargetNFD === $normalizedFileNFC) {
+                            writelog("DEBUG Found matching file with different normalization: $fileInDir", $writelog_process_name);
+                            writelog("DEBUG Matched file bytes: " . bin2hex($fileInDir), $writelog_process_name);
+                            $fullpathFile = $parentDir . '/' . $fileInDir;
+                            $foundMatch = true;
+                            break;
+                        }
+                    } else {
+                        // Normalizerがない場合は単純比較
+                        if ($targetBasename === $fileInDir) {
+                            $fullpathFile = $parentDir . '/' . $fileInDir;
+                            $foundMatch = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            writelog("DEBUG Scanned $epubCount epub files, match found: " . ($foundMatch ? "YES" : "NO"), $writelog_process_name);
+
+            // まだ見つからない場合、ファイル名の一部で検索（最初の10文字）
+            if (!$foundMatch) {
+                $targetPrefix = mb_substr($targetBasename, 0, 10, 'UTF-8');
+                $normalizedPrefix = class_exists('Normalizer') ? \Normalizer::normalize($targetPrefix, \Normalizer::NFC) : $targetPrefix;
+                writelog("DEBUG Trying partial match with prefix: $targetPrefix", $writelog_process_name);
+
+                foreach ($filesInDir as $fileInDir) {
+                    if (stripos($fileInDir, '.epub') !== false) {
+                        $filePrefix = mb_substr($fileInDir, 0, 10, 'UTF-8');
+                        $normalizedFilePrefix = class_exists('Normalizer') ? \Normalizer::normalize($filePrefix, \Normalizer::NFC) : $filePrefix;
+
+                        if ($normalizedPrefix === $normalizedFilePrefix) {
+                            writelog("DEBUG Found partial matching file: $fileInDir", $writelog_process_name);
+                            writelog("DEBUG Partial matched file bytes: " . bin2hex($fileInDir), $writelog_process_name);
+                            $fullpathFile = $parentDir . '/' . $fileInDir;
+                            $foundMatch = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!$foundMatch) {
+                writelog("DEBUG No matching file found after all attempts", $writelog_process_name);
+            }
+        }
+    }
+
+    $escapedEpubTempDir = escapeshellarg($epubTempDir);
+    $escapedFullpathFile = escapeshellarg($fullpathFile);
+    // LANG環境変数を明示的に設定してUTF-8ファイル名を正しく扱うルン
+    $cmd = "LANG=ja_JP.UTF-8 " . $p7zip . " x -o" . $escapedEpubTempDir . " " . $escapedFullpathFile;
+    writelog("DEBUG EPUB extract command: $cmd", $writelog_process_name);
     exec($cmd, $output, $return_var);
 
     if ($return_var !== 0) {
-        writelog("ERROR: Failed to extract EPUB file: $cmd", $writelog_process_name);
+        writelog("ERROR: Failed to extract EPUB file: $cmd (return_var=$return_var)", $writelog_process_name);
+        if (!empty($output)) {
+            writelog("ERROR: 7zz output: " . implode("\n", $output), $writelog_process_name);
+        }
+        // 再度ファイル存在確認
+        writelog("ERROR: File exists after failure: " . (file_exists($fullpathFile) ? "YES" : "NO"), $writelog_process_name);
         deleteDirectory($epubTempDir);
         clean_shm_dir();
         exit(1);
@@ -187,79 +284,199 @@ if (strcasecmp($ext, 'epub') == 0) {
         // EPUBファイルの処理
         writelog("DEBUG fullpathFile:$fullpathFile", $writelog_process_name);
 
+        // EPUB表紙作成開始ログ
+        writelog("DEBUG [EPUB-COVER] === EPUB表紙作成処理開始 ===", $writelog_process_name);
+        writelog("DEBUG [EPUB-COVER] 対象ファイル: $fullpathFile", $writelog_process_name);
+        writelog("DEBUG [EPUB-COVER] 展開先: $epubTempDir", $writelog_process_name);
+        writelog("DEBUG [EPUB-COVER] 出力先: $coverFile", $writelog_process_name);
 
         // container.xmlファイルを探す
-        $containerXml = file_get_contents("$epubTempDir/META-INF/container.xml");
+        $containerXmlPath = "$epubTempDir/META-INF/container.xml";
+        writelog("DEBUG [EPUB-COVER] container.xml読み込み: $containerXmlPath", $writelog_process_name);
+        $containerXml = file_get_contents($containerXmlPath);
         if ($containerXml === false) {
-            writelog("ERROR: container.xml not found in EPUB file: $file", $writelog_process_name);
+            writelog("ERROR [EPUB-COVER] container.xml not found in EPUB file: $file", $writelog_process_name);
             deleteDirectory($epubTempDir);
             clean_shm_dir();
             exit(1);
         }
+        writelog("DEBUG [EPUB-COVER] container.xml読み込み成功 (サイズ: " . strlen($containerXml) . " bytes)", $writelog_process_name);
 
         // content.opfファイルのパスを取得
         $xml = new SimpleXMLElement($containerXml);
         $contentOpfPath = $xml->rootfiles->rootfile['full-path'];
+        writelog("DEBUG [EPUB-COVER] content.opfパス: $contentOpfPath", $writelog_process_name);
 
         // content.opfファイルの内容を取得
-        $contentOpf = file_get_contents("$epubTempDir/$contentOpfPath");
+        $contentOpfFullPath = "$epubTempDir/$contentOpfPath";
+        writelog("DEBUG [EPUB-COVER] content.opf読み込み: $contentOpfFullPath", $writelog_process_name);
+        if (!file_exists($contentOpfFullPath)) {
+            writelog("ERROR [EPUB-COVER] content.opfファイルが存在しません: $contentOpfFullPath", $writelog_process_name);
+            deleteDirectory($epubTempDir);
+            clean_shm_dir();
+            exit(1);
+        }
+        $contentOpf = file_get_contents($contentOpfFullPath);
         $contentXml = new SimpleXMLElement($contentOpf);
+        writelog("DEBUG [EPUB-COVER] content.opf読み込み成功 (サイズ: " . strlen($contentOpf) . " bytes)", $writelog_process_name);
 
         // 表紙画像のファイル名を探す
         $coverFileName = null;
+        // 相対パスの場合、content.opfファイルのディレクトリを基準にするルン
+        $contentOpfDir = dirname($contentOpfPath);
+        writelog("DEBUG [EPUB-COVER] contentOpfDir: $contentOpfDir", $writelog_process_name);
+
+        // manifestの全アイテムをログ出力（デバッグ用）
+        writelog("DEBUG [EPUB-COVER] --- manifestアイテム一覧 ---", $writelog_process_name);
+        $manifestItemCount = 0;
         foreach ($contentXml->manifest->item as $item) {
-            if ((string)$item['id'] === 'cover' || (string)$item['properties'] === 'cover-image') {
-                $coverFileName = (string)$item['href'];
-                writelog("DEBUG coverFileName:$coverFileName", $writelog_process_name);
+            $itemId = (string)$item['id'];
+            $itemHref = (string)$item['href'];
+            $itemProps = (string)$item['properties'];
+            $itemMediaType = (string)$item['media-type'];
+            writelog("DEBUG [EPUB-COVER]   id:$itemId href:$itemHref props:$itemProps media-type:$itemMediaType", $writelog_process_name);
+            $manifestItemCount++;
+
+            if ($itemId === 'cover' || $itemProps === 'cover-image') {
+                $coverFileName = $itemHref;
+                writelog("DEBUG [EPUB-COVER] >>> 表紙候補発見 (id=$itemId, props=$itemProps): $coverFileName", $writelog_process_name);
                 break;
             }
         }
+        writelog("DEBUG [EPUB-COVER] manifestアイテム総数: $manifestItemCount", $writelog_process_name);
 
         // 表紙画像が見つからない場合、または.xhtmlファイルだった場合の処理
         if ($coverFileName === null || pathinfo($coverFileName, PATHINFO_EXTENSION) === 'xhtml') {
+            writelog("DEBUG [EPUB-COVER] 表紙が未発見またはxhtml。manifestから画像を直接探索...", $writelog_process_name);
             foreach ($contentXml->manifest->item as $item) {
-                if (in_array(pathinfo((string)$item['href'], PATHINFO_EXTENSION), ['jpg', 'jpeg', 'png', 'gif'])) {
-                    $coverFileName = (string)$item['href'];
-                    writelog("DEBUG coverFileName (from manifest):$coverFileName", $writelog_process_name);
+                $itemHref = (string)$item['href'];
+                $itemExt = pathinfo($itemHref, PATHINFO_EXTENSION);
+                if (in_array($itemExt, ['jpg', 'jpeg', 'png', 'gif'])) {
+                    $coverFileName = $itemHref;
+                    writelog("DEBUG [EPUB-COVER] >>> manifest内の最初の画像を表紙として採用: $coverFileName", $writelog_process_name);
                     break;
                 }
             }
 
             // .xhtmlファイルの場合、中身を解析して画像ファイルを探す
-            if (pathinfo($coverFileName, PATHINFO_EXTENSION) === 'xhtml') {
-                $xhtmlContent = file_get_contents("$epubTempDir/$contentOpfDir/$coverFileName");
-                $xhtmlXml = new SimpleXMLElement($xhtmlContent);
-                $xhtmlXml->registerXPathNamespace('xlink', 'http://www.w3.org/1999/xlink');
-                $images = $xhtmlXml->xpath('//image[@xlink:href]');
-                if (!empty($images)) {
-                    $coverFileName = (string)$images[0]['xlink:href'];
-                    writelog("DEBUG coverFileName (from xhtml):$coverFileName", $writelog_process_name);
+            if ($coverFileName !== null && pathinfo($coverFileName, PATHINFO_EXTENSION) === 'xhtml') {
+                writelog("DEBUG [EPUB-COVER] xhtmlファイルを解析中: $coverFileName", $writelog_process_name);
+                $xhtmlFullPath = "$epubTempDir/$contentOpfDir/$coverFileName";
+                if (file_exists($xhtmlFullPath)) {
+                    $xhtmlContent = file_get_contents($xhtmlFullPath);
+                    $xhtmlXml = new SimpleXMLElement($xhtmlContent);
+                    $xhtmlXml->registerXPathNamespace('xlink', 'http://www.w3.org/1999/xlink');
+                    $images = $xhtmlXml->xpath('//image[@xlink:href]');
+                    if (!empty($images)) {
+                        $coverFileName = (string)$images[0]['xlink:href'];
+                        writelog("DEBUG [EPUB-COVER] >>> xhtmlから画像参照を抽出: $coverFileName", $writelog_process_name);
+                    } else {
+                        writelog("WARNING [EPUB-COVER] xhtml内にimage要素が見つかりません", $writelog_process_name);
+                    }
+                } else {
+                    writelog("WARNING [EPUB-COVER] xhtmlファイルが存在しません: $xhtmlFullPath", $writelog_process_name);
                 }
             }
         }
 
+        writelog("DEBUG [EPUB-COVER] 表紙ファイル名（SVG解析前）: " . ($coverFileName ?? "null"), $writelog_process_name);
+
+        // SVGファイルの場合、SVG内の画像参照を解析するルン
+        if ($coverFileName !== null && strtolower(pathinfo($coverFileName, PATHINFO_EXTENSION)) === 'svg') {
+            writelog("DEBUG [EPUB-COVER] SVGファイルを検出: $coverFileName", $writelog_process_name);
+            $svgFilePath = "$epubTempDir/$contentOpfDir/$coverFileName";
+            writelog("DEBUG [EPUB-COVER] SVGファイルパス: $svgFilePath", $writelog_process_name);
+            writelog("DEBUG [EPUB-COVER] SVGファイル存在確認: " . (file_exists($svgFilePath) ? "存在する" : "存在しない"), $writelog_process_name);
+
+            if (file_exists($svgFilePath)) {
+                $svgContent = file_get_contents($svgFilePath);
+                writelog("DEBUG [EPUB-COVER] SVGコンテンツ (先頭500文字): " . substr($svgContent, 0, 500), $writelog_process_name);
+                $svgDir = dirname($coverFileName);
+                writelog("DEBUG [EPUB-COVER] SVGディレクトリ (相対パス解決用): '$svgDir'", $writelog_process_name);
+
+                $extractedImage = extractImageFromSvg($svgContent, $svgDir);
+                writelog("DEBUG [EPUB-COVER] extractImageFromSvg結果: " . ($extractedImage ?? "null"), $writelog_process_name);
+
+                if ($extractedImage !== null) {
+                    writelog("DEBUG [EPUB-COVER] >>> SVGから画像パス抽出成功: $extractedImage", $writelog_process_name);
+                    $coverFileName = $extractedImage;
+                } else {
+                    writelog("WARNING [EPUB-COVER] SVGから画像を抽出できませんでした", $writelog_process_name);
+                }
+            }
+        }
+
+        writelog("DEBUG [EPUB-COVER] 最終的な表紙ファイル名: " . ($coverFileName ?? "null"), $writelog_process_name);
+
+        // 表紙が見つからない場合、フォールバック検索を行うルン
         if ($coverFileName === null) {
-            writelog("ERROR: Cover image not found in EPUB file: $file", $writelog_process_name);
+            writelog("DEBUG [EPUB-COVER] === フォールバック検索開始 ===", $writelog_process_name);
+            writelog("DEBUG [EPUB-COVER] 展開ディレクトリ内から *cover* パターンの画像を検索...", $writelog_process_name);
+
+            $fallbackCover = findFallbackCoverImage($epubTempDir);
+
+            if ($fallbackCover !== null) {
+                // フォールバックで見つかった場合、相対パスに変換するルン
+                // $epubTempDir/$contentOpfDir/ からの相対パスにする
+                $baseDir = "$epubTempDir/$contentOpfDir";
+                if (strpos($fallbackCover, $baseDir) === 0) {
+                    $coverFileName = substr($fallbackCover, strlen($baseDir) + 1);
+                } else {
+                    // baseDirの外にある場合は$epubTempDirからの相対パスを使うルン
+                    $coverFileName = substr($fallbackCover, strlen($epubTempDir) + 1);
+                    // contentOpfDirを考慮して調整
+                    if ($contentOpfDir !== '.') {
+                        // 親ディレクトリに戻る必要があるかもしれないルン
+                        $depthCount = substr_count($contentOpfDir, '/') + 1;
+                        $coverFileName = str_repeat('../', $depthCount) . $coverFileName;
+                    }
+                }
+                writelog("DEBUG [EPUB-COVER] >>> フォールバック検索で表紙発見: $coverFileName", $writelog_process_name);
+                writelog("DEBUG [EPUB-COVER] >>> 元のフルパス: $fallbackCover", $writelog_process_name);
+            } else {
+                writelog("DEBUG [EPUB-COVER] フォールバック検索でも表紙が見つかりませんでした", $writelog_process_name);
+            }
+        }
+
+        if ($coverFileName === null) {
+            writelog("ERROR [EPUB-COVER] Cover image not found in EPUB file: $file", $writelog_process_name);
             deleteDirectory($epubTempDir);
             clean_shm_dir();
             exit(1);
         }
 
-        // 相対パスの場合、content.opfファイルのディレクトリを基準にする
-        $contentOpfDir = dirname($contentOpfPath);
-        $coverFilePath = realpath("$epubTempDir/$contentOpfDir/$coverFileName");
+        // 最終的なパスを構築して確認
+        $coverFilePathRaw = "$epubTempDir/$contentOpfDir/$coverFileName";
+        writelog("DEBUG [EPUB-COVER] 表紙画像パス（realpath前）: $coverFilePathRaw", $writelog_process_name);
+        writelog("DEBUG [EPUB-COVER] ファイル存在確認（realpath前）: " . (file_exists($coverFilePathRaw) ? "存在する" : "存在しない"), $writelog_process_name);
+
+        $coverFilePath = realpath($coverFilePathRaw);
+        writelog("DEBUG [EPUB-COVER] 表紙画像パス（realpath後）: " . ($coverFilePath ?: "false"), $writelog_process_name);
 
         if ($coverFilePath === false || !file_exists($coverFilePath)) {
-            writelog("ERROR: Cover image file not found: $coverFilePath", $writelog_process_name);
+            writelog("ERROR [EPUB-COVER] Cover image file not found: $coverFilePath", $writelog_process_name);
+            // ディレクトリ内のファイル一覧を出力
+            $dirToList = dirname($coverFilePathRaw);
+            if (is_dir($dirToList)) {
+                $filesInDir = scandir($dirToList);
+                writelog("DEBUG [EPUB-COVER] ディレクトリ '$dirToList' 内のファイル: " . implode(", ", $filesInDir), $writelog_process_name);
+            }
             deleteDirectory($epubTempDir);
             clean_shm_dir();
             exit(1);
         }
+
+        writelog("DEBUG [EPUB-COVER] 表紙画像ファイル確認OK: $coverFilePath", $writelog_process_name);
+        writelog("DEBUG [EPUB-COVER] 表紙画像ファイルサイズ: " . filesize($coverFilePath) . " bytes", $writelog_process_name);
 
         // 作成ファイルのディレクトリを作成
         create_cover_dir($coverFile);
+        writelog("DEBUG [EPUB-COVER] 出力ディレクトリ作成完了", $writelog_process_name);
 
         // 画像を処理し、$coverFileに保存（libvips優先、フォールバック：ImageMagick）
+        writelog("DEBUG [EPUB-COVER] === 画像変換処理開始 ===", $writelog_process_name);
+        writelog("DEBUG [EPUB-COVER] libvips利用可能: " . ($isVipsAvailable ? "YES" : "NO"), $writelog_process_name);
+
         if ($isVipsAvailable) {
             writelog("DEBUG: Using libvips for EPUB cover image processing", $writelog_process_name);
 
@@ -269,6 +486,7 @@ if (strcasecmp($ext, 'epub') == 0) {
                 if ($targetSize <= 0) {
                     $targetSize = 400; // フォールバック値
                 }
+                writelog("DEBUG [EPUB-COVER] リサイズターゲットサイズ: $targetSize", $writelog_process_name);
 
                 // 画像情報を取得して最適な処理方法を選択するルン（オーバーヘッドはほぼゼロ！）
                 $imageInfo = @getimagesize($coverFilePath);
@@ -288,13 +506,14 @@ if (strcasecmp($ext, 'epub') == 0) {
 
                     writelog("DEBUG: EPUB cover analysis - format:$mimeType size:{$imgWidth}x{$imgHeight} max:$maxDimension use_thumbnail_image:" . ($shouldUseThumbnailImage ? 'YES' : 'NO'), $writelog_process_name);
                 } else {
-                    writelog("WARNING: Could not get EPUB cover info, using thumbnail_image() as fallback", $writelog_process_name);
+                    writelog("WARNING [EPUB-COVER] getimagesize()失敗。thumbnail_image()を使用", $writelog_process_name);
                     $shouldUseThumbnailImage = true;
                 }
 
                 // 画像特性に応じた最適な処理方法を選択するルン！
                 if ($shouldUseThumbnailImage) {
                     // 大きいJPEG/WebP: thumbnail_image()でshrink-on-load（高速！）
+                    writelog("DEBUG [EPUB-COVER] thumbnail()メソッドで処理", $writelog_process_name);
                     $image = \Jcupitt\Vips\Image::thumbnail($coverFilePath, $targetSize, [
                         'height' => $targetSize,
                         'size' => 'down'
@@ -302,6 +521,7 @@ if (strcasecmp($ext, 'epub') == 0) {
                     writelog("DEBUG: EPUB cover used thumbnail_image() (shrink-on-load)", $writelog_process_name);
                 } else {
                     // AVIF/小さい画像: 従来のnewFromFile() + resize()（高速！）
+                    writelog("DEBUG [EPUB-COVER] newFromFile() + resize()メソッドで処理", $writelog_process_name);
                     $image = \Jcupitt\Vips\Image::newFromFile($coverFilePath);
                     $scale = $targetSize / max($image->width, $image->height);
                     if ($scale < 1) {
@@ -313,62 +533,149 @@ if (strcasecmp($ext, 'epub') == 0) {
                 writelog("DEBUG: EPUB cover resized - targetSize:$targetSize final size:" . $image->width . "x" . $image->height, $writelog_process_name);
 
                 // JPEG形式で保存（strip=メタデータ削除）
+                writelog("DEBUG [EPUB-COVER] JPEG保存実行: $coverFile", $writelog_process_name);
                 $image->jpegsave($coverFile, ['Q' => 80, 'strip' => true]);
 
                 writelog("DEBUG: Cover image successfully processed with libvips", $writelog_process_name);
             } catch (\Jcupitt\Vips\Exception $e) {
-                writelog("ERROR: Failed to convert cover image with libvips: " . $e->getMessage(), $writelog_process_name);
-                writelog("DEBUG: Falling back to ImageMagick", $writelog_process_name);
+                writelog("WARNING [EPUB-COVER] libvips例外発生、ImageMagickにフォールバック: " . $e->getMessage(), $writelog_process_name);
 
                 // フォールバック：ImageMagick
-                $cmd = "$convert \"$coverFilePath\" $usm -strip -resize $resize -quality 80 -format jpeg jpeg:\"$coverFile\"";
+                // オヨ！ファイル名にバッククォートや特殊文字が含まれる場合があるからescapeshellarg()でエスケープするルン！
+                $escapedCoverFilePath = escapeshellarg($coverFilePath);
+                $escapedCoverFile = escapeshellarg($coverFile);
+                $cmd = "$convert $escapedCoverFilePath $usm -strip -resize $resize -quality 80 -format jpeg jpeg:$escapedCoverFile";
+                writelog("DEBUG [EPUB-COVER] ImageMagickコマンド: $cmd", $writelog_process_name);
                 exec($cmd, $output, $return_var);
 
                 if ($return_var !== 0) {
-                    writelog("ERROR: Failed to convert cover image with ImageMagick: $cmd", $writelog_process_name);
+                    writelog("ERROR [EPUB-COVER] ImageMagick変換失敗 (return_var=$return_var): $cmd", $writelog_process_name);
                     deleteDirectory($epubTempDir);
                     clean_shm_dir();
                     exit(1);
                 }
+                writelog("DEBUG [EPUB-COVER] ImageMagickでの変換成功", $writelog_process_name);
             }
         } else {
             // ImageMagickを使用して画像を処理し、$coverFileに保存
-            $cmd = "$convert \"$coverFilePath\" $usm -strip -resize $resize -quality 80 -format jpeg jpeg:\"$coverFile\"";
+            writelog("DEBUG [EPUB-COVER] ImageMagickで画像変換を実行", $writelog_process_name);
+            // オヨ！ファイル名にバッククォートや特殊文字が含まれる場合があるからescapeshellarg()でエスケープするルン！
+            $escapedCoverFilePath = escapeshellarg($coverFilePath);
+            $escapedCoverFile = escapeshellarg($coverFile);
+            $cmd = "$convert $escapedCoverFilePath $usm -strip -resize $resize -quality 80 -format jpeg jpeg:$escapedCoverFile";
+            writelog("DEBUG [EPUB-COVER] ImageMagickコマンド: $cmd", $writelog_process_name);
             exec($cmd, $output, $return_var);
 
             if ($return_var !== 0) {
-                writelog("ERROR: Failed to convert cover image: $cmd", $writelog_process_name);
+                writelog("ERROR [EPUB-COVER] ImageMagick変換失敗 (return_var=$return_var): $cmd", $writelog_process_name);
                 deleteDirectory($epubTempDir);
                 clean_shm_dir();
                 exit(1);
             }
+            writelog("DEBUG [EPUB-COVER] ImageMagickでの変換成功", $writelog_process_name);
+        }
+
+        // 出力ファイルの確認
+        if (file_exists($coverFile)) {
+            $outputFileSize = filesize($coverFile);
+            writelog("DEBUG [EPUB-COVER] === 処理完了 ===", $writelog_process_name);
+            writelog("DEBUG [EPUB-COVER] 出力ファイル: $coverFile", $writelog_process_name);
+            writelog("DEBUG [EPUB-COVER] 出力ファイルサイズ: $outputFileSize bytes", $writelog_process_name);
+            if ($outputFileSize === 0) {
+                writelog("WARNING [EPUB-COVER] 出力ファイルが0バイトです！", $writelog_process_name);
+            }
+        } else {
+            writelog("ERROR [EPUB-COVER] 出力ファイルが作成されませんでした: $coverFile", $writelog_process_name);
         }
 
         // 一時ディレクトリを削除
         deleteDirectory($epubTempDir);
         clean_shm_dir();
+        writelog("DEBUG [EPUB-COVER] 一時ディレクトリ削除完了", $writelog_process_name);
     } else {
         // epubのpreview
         writelog("DEBUG type preview", $writelog_process_name);
 
-        // 画像ファイルを探す
-        $imageFiles = [];
-        $imageDirs = ['images', 'OEBPS/Images', 'OEBPS/images', 'OPS/Images', 'OPS/images'];
+        // container.xmlファイルを探してopfのパスを取得するルン
+        $containerXml = file_get_contents("$epubTempDir/META-INF/container.xml");
+        if ($containerXml === false) {
+            writelog("ERROR: container.xml not found in EPUB file: $file", $writelog_process_name);
+            deleteDirectory($epubTempDir);
+            clean_shm_dir();
+            exit(1);
+        }
 
-        foreach ($imageDirs as $imageDir) {
-            $fullImageDir = $epubTempDir . '/' . $imageDir;
-            if (is_dir($fullImageDir)) {
-                $files = glob($fullImageDir . '/*.{jpg,jpeg,png,gif,webp}', GLOB_BRACE);
-                $imageFiles = array_merge($imageFiles, $files);
+        // content.opfファイルのパスを取得
+        $xml = new SimpleXMLElement($containerXml);
+        $contentOpfPath = (string)$xml->rootfiles->rootfile['full-path'];
+        $contentOpfDir = dirname($contentOpfPath);
+
+        // content.opfファイルの内容を取得してspineを解析するルン
+        $contentOpf = file_get_contents("$epubTempDir/$contentOpfPath");
+        $contentXml = new SimpleXMLElement($contentOpf);
+
+        // manifestからidでhrefを引けるマップを作成
+        $manifestMap = [];
+        foreach ($contentXml->manifest->item as $item) {
+            $manifestMap[(string)$item['id']] = (string)$item['href'];
+        }
+
+        // spineの順序で画像ファイルを収集するルン
+        $imageFiles = [];
+        foreach ($contentXml->spine->itemref as $itemref) {
+            $idref = (string)$itemref['idref'];
+            if (isset($manifestMap[$idref])) {
+                $href = $manifestMap[$idref];
+                $fullPath = "$epubTempDir/$contentOpfDir/$href";
+
+                // SVGファイルの場合、中の画像参照を解析するルン
+                if (strtolower(pathinfo($href, PATHINFO_EXTENSION)) === 'svg' && file_exists($fullPath)) {
+                    $svgContent = file_get_contents($fullPath);
+                    $extractedImage = extractImageFromSvg($svgContent, dirname($href));
+                    if ($extractedImage !== null) {
+                        $imagePath = realpath("$epubTempDir/$contentOpfDir/$extractedImage");
+                        if ($imagePath !== false && file_exists($imagePath)) {
+                            $imageFiles[] = $imagePath;
+                            writelog("DEBUG preview image from SVG: $imagePath", $writelog_process_name);
+                        }
+                    }
+                }
+                // 直接画像ファイルの場合
+                elseif (in_array(strtolower(pathinfo($href, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
+                    if (file_exists($fullPath)) {
+                        $imageFiles[] = $fullPath;
+                    }
+                }
+            }
+
+            // 12枚集まったらループを抜けるルン
+            if (count($imageFiles) >= 12) {
+                break;
             }
         }
 
-        // 画像が見つからない場合、EPUBの全ディレクトリを検索
+        writelog("DEBUG collected " . count($imageFiles) . " images from spine", $writelog_process_name);
+
+        // spineから画像が見つからなかった場合、従来の方法で探すルン
         if (empty($imageFiles)) {
-            $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($epubTempDir));
-            foreach ($iterator as $file) {
-                if ($file->isFile() && in_array(strtolower($file->getExtension()), ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
-                    $imageFiles[] = $file->getPathname();
+            writelog("DEBUG falling back to directory search", $writelog_process_name);
+            $imageDirs = ['images', 'OEBPS/Images', 'OEBPS/images', 'OPS/Images', 'OPS/images'];
+
+            foreach ($imageDirs as $imageDir) {
+                $fullImageDir = $epubTempDir . '/' . $imageDir;
+                if (is_dir($fullImageDir)) {
+                    $files = glob($fullImageDir . '/*.{jpg,jpeg,png,gif,webp}', GLOB_BRACE);
+                    $imageFiles = array_merge($imageFiles, $files);
+                }
+            }
+
+            // 画像が見つからない場合、EPUBの全ディレクトリを検索
+            if (empty($imageFiles)) {
+                $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($epubTempDir));
+                foreach ($iterator as $file) {
+                    if ($file->isFile() && in_array(strtolower($file->getExtension()), ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
+                        $imageFiles[] = $file->getPathname();
+                    }
                 }
             }
         }
@@ -433,7 +740,9 @@ if (strcasecmp($ext, 'epub') == 0) {
                 } catch (\Jcupitt\Vips\Exception $e) {
                     writelog("ERROR: Failed to convert image with libvips: " . $e->getMessage(), $writelog_process_name);
                     // フォールバック：ImageMagick
-                    $cmd = "$convert \"" . $imageFiles[$i] . "\" $usm -strip -resize $resize -quality $quality -format png png:\"$shmDir/" . $outputFileBasename . ".png\"";
+                    // オヨ！ファイル名に特殊文字が含まれる場合があるからescapeshellarg()でエスケープするルン！
+                    $escapedImageFile = escapeshellarg($imageFiles[$i]);
+                    $cmd = "$convert $escapedImageFile $usm -strip -resize $resize -quality $quality -format png png:\"$shmDir/" . $outputFileBasename . ".png\"";
                     exec($cmd, $output, $return_var);
 
                     if ($return_var !== 0) {
@@ -442,7 +751,9 @@ if (strcasecmp($ext, 'epub') == 0) {
                 }
             } else {
                 // ImageMagickを使用
-                $cmd = "$convert \"" . $imageFiles[$i] . "\" $usm -strip -resize $resize -quality $quality -format png png:\"$shmDir/" . $outputFileBasename . ".png\"";
+                // オヨ！ファイル名に特殊文字が含まれる場合があるからescapeshellarg()でエスケープするルン！
+                $escapedImageFile = escapeshellarg($imageFiles[$i]);
+                $cmd = "$convert $escapedImageFile $usm -strip -resize $resize -quality $quality -format png png:\"$shmDir/" . $outputFileBasename . ".png\"";
                 exec($cmd, $output, $return_var);
 
                 if ($return_var !== 0) {
@@ -454,7 +765,9 @@ if (strcasecmp($ext, 'epub') == 0) {
 
         // プレビュー画像を作成
         create_preview_dir($previewFile);
-        $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 - | $convert - -quality $quality -define webp:lossless=false \"$previewFile\"";
+        // オヨ！ファイル名にバッククォートや特殊文字が含まれる場合があるからescapeshellarg()でエスケープするルン！
+        $escapedPreviewFile = escapeshellarg($previewFile);
+        $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 - | $convert - -quality $quality -define webp:lossless=false $escapedPreviewFile";
         writelog("DEBUG concatCmd:$concatCmd", $writelog_process_name);
         exec($concatCmd, $output, $return_var);
 
@@ -564,7 +877,9 @@ if (strcasecmp($ext, 'epub') == 0) {
                 writelog("DEBUG: Falling back to ImageMagick", $writelog_process_name);
 
                 // フォールバック：ImageMagick
-                $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > \"$coverFile\"";
+                // オヨ！ファイル名にバッククォートや特殊文字が含まれる場合があるからescapeshellarg()でエスケープするルン！
+                $escapedCoverFile = escapeshellarg($coverFile);
+                $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > $escapedCoverFile";
                 exec($cmd, $output, $return_var);
 
                 if ($return_var !== 0) {
@@ -576,7 +891,9 @@ if (strcasecmp($ext, 'epub') == 0) {
                 writelog("DEBUG: Falling back to ImageMagick", $writelog_process_name);
 
                 // フォールバック：ImageMagick
-                $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > \"$coverFile\"";
+                // オヨ！ファイル名にバッククォートや特殊文字が含まれる場合があるからescapeshellarg()でエスケープするルン！
+                $escapedCoverFile = escapeshellarg($coverFile);
+                $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > $escapedCoverFile";
                 exec($cmd, $output, $return_var);
 
                 if ($return_var !== 0) {
@@ -586,7 +903,9 @@ if (strcasecmp($ext, 'epub') == 0) {
             }
         } else {
             // ImageMagickを使用
-            $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > \"$coverFile\"";
+            // オヨ！ファイル名にバッククォートや特殊文字が含まれる場合があるからescapeshellarg()でエスケープするルン！
+            $escapedCoverFile = escapeshellarg($coverFile);
+            $cmd = $pageOutCmd . " | $convert - $usm -strip -resize $resize -quality " . $conf["quality"] . " -format jpeg jpeg:- > $escapedCoverFile";
             exec($cmd, $output, $return_var);
 
             if ($return_var !== 0) {
@@ -716,7 +1035,9 @@ if (strcasecmp($ext, 'epub') == 0) {
                     // トリミングが有効な場合のみ -fuzz 10% -trim +repage を追加するルン
                     $trimOption = " -fuzz 10% -trim +repage";
                 }
-                $cmd = $pageOutCmd . " | $convert -" . $trimOption . " -format png -resize $global_resize -quality $quality $outputFile";
+                // オヨ！念のためescapeshellarg()でエスケープするルン！
+                $escapedOutputFile = escapeshellarg($outputFile);
+                $cmd = $pageOutCmd . " | $convert -" . $trimOption . " -format png -resize $global_resize -quality $quality $escapedOutputFile";
                 exec($cmd, $output, $return_var);
 
                 if ($return_var !== 0) {
@@ -922,4 +1243,221 @@ function create_shm_dir()
         exit(1);
     }
     return $shmDir;
+}
+
+/**
+ * SVGファイルから画像パスを抽出するルン
+ * xlink:href属性を持つimage要素を探して、画像ファイルのパスを返すルン
+ *
+ * @param string $svgContent SVGファイルの内容
+ * @param string $svgDir SVGファイルが存在するディレクトリ（相対パス解決用）
+ * @return string|null 画像ファイルのパス（相対パス）、見つからない場合はnull
+ */
+function extractImageFromSvg($svgContent, $svgDir = '')
+{
+    global $writelog_process_name;
+
+    writelog("DEBUG [EPUB-COVER] extractImageFromSvg() 開始", $writelog_process_name);
+    writelog("DEBUG [EPUB-COVER] SVGコンテンツ長（処理前）: " . strlen($svgContent) . " bytes", $writelog_process_name);
+    writelog("DEBUG [EPUB-COVER] svgDir引数: '$svgDir'", $writelog_process_name);
+
+    // SVGファイルの末尾にゴミデータがある場合があるので、</svg>タグまでで切り取るルン
+    $svgEndPos = strpos($svgContent, '</svg>');
+    if ($svgEndPos !== false) {
+        $svgContent = substr($svgContent, 0, $svgEndPos + 6); // '</svg>'の長さは6
+        writelog("DEBUG [EPUB-COVER] SVGコンテンツ長（クリーンアップ後）: " . strlen($svgContent) . " bytes", $writelog_process_name);
+    } else {
+        writelog("WARNING [EPUB-COVER] </svg>タグが見つかりません", $writelog_process_name);
+    }
+
+    // SVGをパースするルン
+    // XMLパースエラーを抑制して処理
+    libxml_use_internal_errors(true);
+    $svg = simplexml_load_string($svgContent);
+
+    if ($svg === false) {
+        $errors = libxml_get_errors();
+        $errorMessages = [];
+        foreach ($errors as $error) {
+            $errorMessages[] = trim($error->message);
+        }
+        writelog("WARNING [EPUB-COVER] SVGパース失敗。エラー: " . implode("; ", $errorMessages), $writelog_process_name);
+        libxml_clear_errors();
+
+        // フォールバック：正規表現でxlink:hrefを直接抽出するルン
+        writelog("DEBUG [EPUB-COVER] フォールバック: 正規表現でxlink:href抽出を試行", $writelog_process_name);
+        if (preg_match('/xlink:href\s*=\s*["\']([^"\']+)["\']/', $svgContent, $matches)) {
+            $imagePath = $matches[1];
+            writelog("DEBUG [EPUB-COVER] 正規表現でxlink:href発見: '$imagePath'", $writelog_process_name);
+            // 相対パスを解決するルン
+            if (!empty($svgDir) && $svgDir !== '.' && !preg_match('/^(https?:|\/)/i', $imagePath)) {
+                $imagePath = $svgDir . '/' . $imagePath;
+            }
+            writelog("DEBUG [EPUB-COVER] >>> 正規表現による最終結果: '$imagePath'", $writelog_process_name);
+            return $imagePath;
+        }
+        writelog("WARNING [EPUB-COVER] 正規表現でもxlink:hrefが見つかりませんでした", $writelog_process_name);
+        return null;
+    }
+    writelog("DEBUG [EPUB-COVER] SVGパース成功", $writelog_process_name);
+
+    // xlink名前空間を登録するルン
+    $svg->registerXPathNamespace('xlink', 'http://www.w3.org/1999/xlink');
+    $svg->registerXPathNamespace('svg', 'http://www.w3.org/2000/svg');
+
+    // SVG内の名前空間を確認
+    $namespaces = $svg->getNamespaces(true);
+    writelog("DEBUG [EPUB-COVER] SVG内の名前空間: " . json_encode($namespaces), $writelog_process_name);
+
+    // image要素のxlink:href属性を探すルン
+    writelog("DEBUG [EPUB-COVER] XPath検索1: '//image/@xlink:href | //svg:image/@xlink:href'", $writelog_process_name);
+    $images = $svg->xpath('//image/@xlink:href | //svg:image/@xlink:href');
+    writelog("DEBUG [EPUB-COVER] XPath検索1結果: " . count($images) . "件", $writelog_process_name);
+
+    // image要素が見つからなかった場合、直接image要素を探すルン
+    if (empty($images)) {
+        writelog("DEBUG [EPUB-COVER] XPath検索2: '//image' (直接image要素を探索)", $writelog_process_name);
+        $images = $svg->xpath('//image');
+        writelog("DEBUG [EPUB-COVER] XPath検索2結果: " . count($images) . "件", $writelog_process_name);
+
+        if (!empty($images)) {
+            $elementNamespaces = $images[0]->getNamespaces(true);
+            writelog("DEBUG [EPUB-COVER] image要素の名前空間: " . json_encode($elementNamespaces), $writelog_process_name);
+
+            if (isset($elementNamespaces['xlink'])) {
+                $xlinkAttrs = $images[0]->attributes($elementNamespaces['xlink']);
+                writelog("DEBUG [EPUB-COVER] xlink属性: " . json_encode((array)$xlinkAttrs), $writelog_process_name);
+
+                if (isset($xlinkAttrs['href'])) {
+                    $imagePath = (string)$xlinkAttrs['href'];
+                    writelog("DEBUG [EPUB-COVER] xlink:href発見（生の値）: '$imagePath'", $writelog_process_name);
+
+                    // 相対パスを解決するルン
+                    if (!empty($svgDir) && $svgDir !== '.' && !preg_match('/^(https?:|\/)/i', $imagePath)) {
+                        $originalPath = $imagePath;
+                        $imagePath = $svgDir . '/' . $imagePath;
+                        writelog("DEBUG [EPUB-COVER] 相対パス解決: '$originalPath' -> '$imagePath'", $writelog_process_name);
+                    }
+                    writelog("DEBUG extractImageFromSvg: found image path: $imagePath", $writelog_process_name);
+                    return $imagePath;
+                } else {
+                    writelog("WARNING [EPUB-COVER] xlink:href属性が見つかりません", $writelog_process_name);
+                }
+            } else {
+                writelog("WARNING [EPUB-COVER] xlink名前空間が見つかりません", $writelog_process_name);
+            }
+        }
+    }
+
+    if (!empty($images)) {
+        $imagePath = (string)$images[0];
+        writelog("DEBUG [EPUB-COVER] XPath結果から画像パス取得（生の値）: '$imagePath'", $writelog_process_name);
+
+        // 相対パスを解決するルン
+        if (!empty($svgDir) && $svgDir !== '.' && !preg_match('/^(https?:|\/)/i', $imagePath)) {
+            $originalPath = $imagePath;
+            $imagePath = $svgDir . '/' . $imagePath;
+            writelog("DEBUG [EPUB-COVER] 相対パス解決: '$originalPath' -> '$imagePath'", $writelog_process_name);
+        }
+        writelog("DEBUG extractImageFromSvg: found image path: $imagePath", $writelog_process_name);
+        return $imagePath;
+    }
+
+    writelog("DEBUG extractImageFromSvg: no image found in SVG", $writelog_process_name);
+    writelog("WARNING [EPUB-COVER] SVG内に画像参照が見つかりませんでした", $writelog_process_name);
+    return null;
+}
+
+/**
+ * 規格外EPUBで表紙が見つからない場合のフォールバック検索ルン
+ * 展開ディレクトリ内から *cover* パターンの画像ファイルを探すルン
+ *
+ * @param string $epubTempDir EPUBを展開したディレクトリ
+ * @return string|null 見つかった画像ファイルのフルパス、見つからない場合はnull
+ */
+function findFallbackCoverImage($epubTempDir)
+{
+    global $writelog_process_name;
+
+    $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    $coverCandidates = [];
+
+    // 再帰的にディレクトリを検索するルン
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($epubTempDir, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+
+    foreach ($iterator as $file) {
+        if (!$file->isFile()) {
+            continue;
+        }
+
+        $filename = $file->getFilename();
+        $extension = strtolower($file->getExtension());
+
+        // 画像ファイルのみを対象にするルン
+        if (!in_array($extension, $imageExtensions)) {
+            continue;
+        }
+
+        $filenameLower = strtolower($filename);
+        $filepath = $file->getPathname();
+        $filesize = $file->getSize();
+
+        // "cover" を含むファイル名を優先候補にするルン
+        if (strpos($filenameLower, 'cover') !== false) {
+            // 優先度を付けて追加（ファイルサイズも考慮）
+            $priority = 100;
+
+            // ファイル名が "cover" で始まる場合はさらに優先
+            if (strpos($filenameLower, 'cover') === 0) {
+                $priority += 50;
+            }
+
+            // "_cover" や "-cover" のようなパターンも高優先度
+            if (preg_match('/[_\-]cover/i', $filenameLower)) {
+                $priority += 30;
+            }
+
+            // ファイルサイズが大きい方を優先（表紙画像は通常それなりのサイズがあるルン）
+            // 10KB以上のファイルにボーナス
+            if ($filesize > 10240) {
+                $priority += 20;
+            }
+            // 100KB以上ならさらにボーナス
+            if ($filesize > 102400) {
+                $priority += 10;
+            }
+
+            $coverCandidates[] = [
+                'path' => $filepath,
+                'filename' => $filename,
+                'priority' => $priority,
+                'size' => $filesize
+            ];
+
+            writelog("DEBUG [EPUB-COVER] フォールバック候補: $filename (優先度:$priority, サイズ:{$filesize}bytes)", $writelog_process_name);
+        }
+    }
+
+    // 候補が見つからなかった場合
+    if (empty($coverCandidates)) {
+        writelog("DEBUG [EPUB-COVER] フォールバック: *cover*パターンの画像が見つかりませんでした", $writelog_process_name);
+        return null;
+    }
+
+    // 優先度でソート（高い順）、同じ優先度ならファイルサイズが大きい順
+    usort($coverCandidates, function($a, $b) {
+        if ($a['priority'] !== $b['priority']) {
+            return $b['priority'] - $a['priority'];
+        }
+        return $b['size'] - $a['size'];
+    });
+
+    $bestCandidate = $coverCandidates[0];
+    writelog("DEBUG [EPUB-COVER] フォールバック: 最有力候補を選択: " . $bestCandidate['filename'] .
+             " (優先度:" . $bestCandidate['priority'] . ", サイズ:" . $bestCandidate['size'] . "bytes)", $writelog_process_name);
+
+    return $bestCandidate['path'];
 }

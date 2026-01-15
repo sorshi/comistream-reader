@@ -207,6 +207,17 @@ function errorExit($titleKey, $messageKey = null, $isError = true, $params = [])
         $message = sprintf($message, ...$params);
     }
 
+    // CLIモードの場合はHTMLを出力しないルン！
+    if (php_sapi_name() === 'cli') {
+        if ($isError) {
+            writelog("ERROR errorExit() $title; $message");
+            exit(1);
+        } else {
+            writelog("INFO errorExit() but NORMAL EXIT $title; $message");
+            exit;
+        }
+    }
+
     // HTMLエスケープ
     $titleEscaped = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
     $messageEscaped = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
@@ -2389,6 +2400,18 @@ function deleteDirectory($dir)
 function showReloadRequiredImg($imageType = 1)
 {
     global $conf;
+
+    // CLIモードの場合は画像を出力しないルン！標準出力にバイナリが流れてしまうルン！
+    if (php_sapi_name() === 'cli') {
+        $errorMessages = [
+            1 => "Reload required",
+            2 => "Page is broken",
+            3 => "Page size is too large"
+        ];
+        $msg = $errorMessages[$imageType] ?? "Unknown error";
+        writelog("ERROR showReloadRequiredImg() CLI mode, skipping image output: $msg");
+        return;
+    }
 
     // キャッシュファイルが存在しない場合はリロードを促す画像を返す
     if ($imageType == 1) {

@@ -592,14 +592,18 @@ else
   cd "$searchPath"
 
   # fdコマンドが利用可能かチェック
+  # オヨ！特殊文字（バッククォート、$、!など）を含むファイル名を安全に処理するため、
+  # -print0/-0とbashの位置パラメータ($1)を使うルン！
   if command -v fd >/dev/null 2>&1; then
     logger -t "comistream make_image_run.sh[$$]" -p local1.debug "using fd command for faster processing"
-    # fdコマンドでファイル検索を実行
-    fd . $cover_subDir --type f --hidden false | xargs -I{} -d '\n' -P ${multiProc} bash -c 'make_image "{}" 2>'"$errorLog"
+    # fdコマンドでファイル検索を実行（NULL区切り出力）
+    # オヨ！--hiddenはフラグで値を取らないルン！falseは検索パスとして解釈されてしまうルン！
+    # fdはデフォルトで隠しファイルを除外するから--hiddenは不要ルン！
+    fd . $cover_subDir --type f --print0 | xargs -0 -n1 -P ${multiProc} bash -c 'make_image "$1" 2>'"$errorLog" _
   else
     logger -t "comistream make_image_run.sh[$$]" -p local1.debug "using find command for processing"
-    # ループで実行
-    find $cover_subDir -type f -not -name '.*' | xargs -I{} -d '\n' -P ${multiProc} bash -c 'make_image "{}" 2>'"$errorLog"
+    # ループで実行（NULL区切り出力）
+    find $cover_subDir -type f -not -name '.*' -print0 | xargs -0 -n1 -P ${multiProc} bash -c 'make_image "$1" 2>'"$errorLog" _
   fi
 
   # キャッシュディレクトリを削除するルン！
