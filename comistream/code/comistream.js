@@ -343,6 +343,22 @@ window.addEventListener(
       let deltaX = startX - endX;
       let deltaY = startY - endY;
 
+      // Android下端ナビゲーションスワイプ対策ルン！
+      // 画面の下端から上方向のスワイプはナビゲーション操作の可能性があるので無視するルン☆
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      const bottomEdgeThreshold = 50; // 下端から50px以内をナビゲーション領域とみなすルン
+      const isBottomEdgeSwipe = startY > window.innerHeight - bottomEdgeThreshold;
+      if (isAndroid && isBottomEdgeSwipe && deltaY > 0) {
+        // Androidの下端から上方向のスワイプは何もしないルン！
+        debugLog(
+          "Android bottom edge swipe detected, ignoring: startY=" +
+            startY +
+            " threshold=" +
+            (window.innerHeight - bottomEdgeThreshold)
+        );
+        return;
+      }
+
       // 親指上スワイプ判定（画面下半分での上向きスワイプ）
       if (
         startY > window.innerHeight / 2 &&
