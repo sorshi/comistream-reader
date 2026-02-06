@@ -20,97 +20,119 @@
  * - タッチ操作対応
  */
 
+/**
+ * ★ PreCache - ブラウザメモリキャッシュウォーマー ルン！
+ *
+ * 先読みした画像の Image オブジェクト参照を imageCache (Map) で保持することで、
+ * ブラウザのメモリキャッシュにデコード済み画像を維持するルン。
+ * サーバーが Pragma: no-cache を返す環境でも、メモリキャッシュから
+ * 即座に画像を返せるため、表示済みページへの再リクエストが発生しないルン。
+ *
+ * このクラスの役割：
+ * - 先読みページ数(size)の管理と動的調整
+ * - Image参照の保持によるメモリキャッシュ維持
+ * - ネットワーク帯域の推定
+ * - ページめくり速度の計測
+ *
+ * 注意: 以前のリングバッファは get() で取り出して使うコードが存在せず
+ * 構造的に無駄だったため廃止し、代わりにシンプルな Map で
+ * Image 参照を保持する方式に変更したルン。
+ */
 class PreCache {
   constructor(size) {
-    this.buffer = new Array(size);
     this.size = size;
-    this.start = 0;
-    this.end = 0;
-
-    //this.currentPage = 0;
-    //this.preloadPages = size; // 初期先読みページ数
-    this.pageLoadTimes = []; // ページめくり速度の記録
-    this.networkSpeed = 0; // ネットワーク帯域
+    this.imageCache = new Map(); // ★ URL→Image参照を保持してメモリキャッシュを維持するルン
+    this.maxCacheEntries = 50;   // ★ メモリキャッシュの最大保持数ルン
+    this.pageLoadTimes = [];     // ページめくり速度の記録ルン
+    this.networkSpeed = 0;       // ネットワーク帯域
     this.networkSpeedKBps = 0;
     this.adjustPreloadPages();
   }
 
-  async addOld(imageUrl) {
-    // 廃止予定旧コード
-    let img = new Image();
-    img.src = imageUrl;
-    await new Promise((resolve) => (img.onload = resolve));
-    this.buffer[this.end] = img;
-    this.end = (this.end + 1) % this.size;
-    if (this.end === this.start) {
-      this.start = (this.start + 1) % this.size;
-    }
-  }
-
+  /**
+   * ★ 画像をブラウザメモリキャッシュに先読みするルン！
+   *
+   * Image()オブジェクトを作成してsrcを設定し、ブラウザが画像をダウンロードするルン。
+   * 読み込み完了後も Image 参照を imageCache に保持することで、
+   * ブラウザのメモリキャッシュにデコード済み画像を維持するルン。
+   * loadPage() 等で同じURLの background-image が指定されたとき、
+   * ネットワークリクエストなしで即座に表示されるルン！
+   *
+   * @param {string} imageUrl 先読みする画像のURL
+   */
   async add(imageUrl) {
+    // ★ 同じURLが既にキャッシュにある場合はスキップするルン
+    if (this.imageCache.has(imageUrl)) {
+      return;
+    }
+
     let img = new Image();
+    // ★ 注意: crossOrigin属性を設定するとCORSヘッダーが必要になるルン
+    // R2 WorkerがCORSヘッダーを返さない場合、画像自体が読み込めなくなるルン
+    // そのため、crossOrigin属性は設定せず、Canvas操作（帯域測定）は諦めるルン
     img.src = imageUrl;
 
-    let fileSizeInBytes;
     let startTime = performance.now();
 
-    await new Promise((resolve, reject) => {
-      img.onload = async () => {
-        let canvas = document.createElement("canvas");
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        canvas.getContext("2d").drawImage(img, 0, 0);
-
-        await new Promise((resolve) =>
-          canvas.toBlob(function (blob) {
-            fileSizeInBytes = blob.size;
-            resolve();
-          })
-        );
-
+    await new Promise((resolve) => {
+      img.onload = () => {
         let endTime = performance.now();
         let durationInMSeconds = endTime - startTime;
-        let bandwidthInKbps = (fileSizeInBytes * 4) / durationInMSeconds; // fileSizeInBytesがなぜか倍のサイズになっている？
-        debugLog(
-          "DEBUG fileSizeInBytes: " +
-            fileSizeInBytes +
-            " durationInMSeconds:" +
-            durationInMSeconds
-        );
 
-        this.networkSpeedKBps = bandwidthInKbps.toFixed(2);
-        this.networkSpeed = bandwidthInKbps / 20000; // ナゾ単位
+        // ★ ダウンロード時間と平均ページサイズから帯域を推定するルン
+        if (typeof averagePageKBytes !== "undefined" && averagePageKBytes > 0 && durationInMSeconds > 0) {
+          let estimatedFileSizeBytes = averagePageKBytes * 1024;
+          let bandwidthInKbps = (estimatedFileSizeBytes * 8) / durationInMSeconds;
 
-        debugLog("Bandwidth: " + bandwidthInKbps.toFixed(2) + " Kbps");
+          this.networkSpeedKBps = bandwidthInKbps.toFixed(2);
+          this.networkSpeed = bandwidthInKbps / 20000;
 
-        // TODO 拡大すると先読みキャッシュに歯抜けが生じる
+          debugLog(
+            "PreCache.add() Estimated bandwidth: " +
+              bandwidthInKbps.toFixed(2) +
+              " Kbps (duration: " +
+              durationInMSeconds.toFixed(0) +
+              "ms, avgPageSize: " +
+              averagePageKBytes +
+              "KB)"
+          );
+        }
+
+        // ★ Image参照をMapに保持してメモリキャッシュを維持するルン
+        // Mapの挿入順序により、古いものから evict できるルン
+        this.imageCache.set(imageUrl, img);
+        this.evictOldEntries();
+
         this.adjustPreloadPages();
-
         resolve();
       };
 
       img.onerror = () => {
-        reject(new Error("Image load error"));
+        // ★ エラー時もPromiseを解決してハングを防ぐルン
+        debugLog("PreCache.add() image load error: " + imageUrl);
+        resolve();
       };
     });
   }
 
-  get(index) {
-    if (index >= this.size || index < 0) {
-      throw new Error("Index out of bounds");
+  /**
+   * ★ キャッシュが上限を超えたら古いエントリを削除するルン
+   * Map の挿入順序を利用して、最も古いものから順に削除するルン
+   */
+  evictOldEntries() {
+    while (this.imageCache.size > this.maxCacheEntries) {
+      const oldestKey = this.imageCache.keys().next().value;
+      this.imageCache.delete(oldestKey);
     }
-    return this.buffer[(this.start + index) % this.size];
   }
 
+  /**
+   * ★ 先読みページ数のサイズを変更するルン
+   *
+   * @param {number} newSize 新しい先読みページ数
+   */
   resize(newSize) {
-    let newBuffer = new Array(newSize);
-    for (let i = 0; i < Math.min(this.size, newSize); i++) {
-      newBuffer[i] = this.buffer[(this.start + i) % this.size];
-    }
     this.size = newSize;
-    this.start = 0;
-    this.end = Math.min(this.size, this.buffer.length);
-    this.buffer = newBuffer;
   }
 
   getSize() {
@@ -121,53 +143,21 @@ class PreCache {
     return Math.floor(this.networkSpeedKBps);
   }
 
-  // ページめくり速度の計測
+  // ★ ページめくり速度の計測ルン
   recordPageTurn() {
     const now = Date.now();
     if (this.lastPageTurnTime) {
       const turnTime = now - this.lastPageTurnTime;
       this.pageLoadTimes.push(turnTime);
       if (this.pageLoadTimes.length > 5) {
-        this.pageLoadTimes.shift(); // 古いデータを削除
+        this.pageLoadTimes.shift(); // 古いデータを削除ルン
       }
     }
     this.lastPageTurnTime = now;
     this.adjustPreloadPages();
   }
 
-  // ネットワーク帯域の測定(旧仕様 もう未使用なはず)
-  measureNetworkSpeed() {
-    // const startTime = Date.now();
-    // fetch("/theme/bench/80KB.dat", {
-    //   method: "GET",
-    //   cache: "no-store",
-    // }).then(() => {
-    //   const endTime = Date.now();
-    //   const duration = endTime - startTime;
-    //   if (duration > 0) {
-    //     this.networkSpeed = 100 / duration; // 非常に単純な帯域計測
-    //     this.networkSpeedKBps = (80 * 1024 * 8) / duration; // 80KBのファイル転送してるから
-    //     debugLog(
-    //       "measureNetworkSpeed() " +
-    //         this.networkSpeed +
-    //         " startTime:" +
-    //         startTime +
-    //         " endTime:" +
-    //         endTime +
-    //         " duration:" +
-    //         duration +
-    //         "msec bandwidth:" +
-    //         this.networkSpeedKBps +
-    //         "Kbps"
-    //     );
-    //   } else {
-    //     debugLog("measureNetworkSpeed() duration is 0");
-    //   }
-    //   this.adjustPreloadPages();
-    // });
-  }
-
-  // 先読みページ数の調整
+  // ★ 先読みページ数の動的調整ルン
   adjustPreloadPages() {
     let averageTurnTime =
       this.pageLoadTimes.reduce((a, b) => a + b, 0) / this.pageLoadTimes.length;
@@ -180,10 +170,9 @@ class PreCache {
       debugLog("adjustPreloadPages() averageTurnTime:" + averageTurnTime);
     }
 
-    // ページめくり速度に基づいて調整
+    // ページめくり速度に基づいて調整ルン
     let plusPageCacheRate = 1;
     if (size === "FULL") {
-      // ネットワークに余裕があるはずのフルサイズ時は先読み倍に
       plusPageCacheRate = 2;
     }
     if (averageTurnTime < 1000) {
@@ -193,11 +182,9 @@ class PreCache {
     } else {
       this.size = 4 * plusPageCacheRate;
     }
-    this.resize(this.size);
     debugLog("Preloading read speed initial " + this.size + " pages");
 
-    // ネットワーク帯域に基づいて調整
-    // 80KBダウンロード 1で6.5Mbps 0.2で1280kbps 0.1で640kbps 0.05で320kbps 0.025で160kbps ← 旧仕様
+    // ★ ネットワーク帯域に基づいて調整ルン
     if (this.networkSpeedKBps < 160) {
       this.size += 15;
     } else if (this.networkSpeedKBps < 320) {
@@ -209,16 +196,14 @@ class PreCache {
     } else if (this.networkSpeedKBps < 4096) {
       this.size += 2;
     }
-    this.resize(this.size);
     debugLog(
       "Preloading adjust " +
         this.size +
         " pages. networkSpeedKBps:" +
         this.networkSpeedKBps
     );
-    // 平均ページサイズが大きい場合は先読み数を増やすルン！
+    // ★ 平均ページサイズが大きい場合は先読み数を増やすルン！
     if (typeof averagePageKBytes !== "undefined" && averagePageKBytes >= 1000) {
-      // 1000KB（約1MB）以上の大きなページサイズの場合は1.5倍にするルン
       this.size = Math.floor(this.size * 1.5);
       debugLog(
         "Large page size detected! Increasing preload pages to " +
@@ -226,6 +211,10 @@ class PreCache {
           " pages"
       );
     }
+
+    // ★ メモリキャッシュの上限も先読み数に連動して調整するルン
+    // 先読み数 + 過去閲覧分のバッファ（最低50、最大80）
+    this.maxCacheEntries = Math.min(Math.max(this.size * 3, 50), 80);
   }
 }
 
