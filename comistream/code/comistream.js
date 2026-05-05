@@ -572,6 +572,14 @@ window.onclick = function (event) {
   var overlay = document.getElementById("overlay");
   var modal = document.getElementById("modal");
   if (event.target == overlay) {
+    // サジェストパネルアニメーション中はsuggest側のハンドラで処理するルン！
+    var suggest = document.getElementById("suggest");
+    if (
+      suggest &&
+      suggest.classList.contains("suggest-animating")
+    ) {
+      return;
+    }
     modal.style.display = "none";
     overlay.style.display = "none";
   }
@@ -675,6 +683,121 @@ function rightIndex() {
   else nextIndex();
 }
 
+// サジェストパネルのアニメーションタイマー管理用ルン！
+let suggestAnimTimers = [];
+
+function clearSuggestTimers() {
+  suggestAnimTimers.forEach((id) => clearTimeout(id));
+  suggestAnimTimers = [];
+}
+
+// カーテンコールアニメーションでサジェストパネルを表示するルン！
+function showSuggestPanel() {
+  const suggestElement = document.getElementById("suggest");
+  const overlayElement = document.getElementById("overlay");
+  if (!suggestElement || !overlayElement) {
+    debugLog("Suggest or Overlay element not found!");
+    return;
+  }
+
+  // 既に開いている場合は何もしない
+  if (
+    suggestElement.classList.contains("suggest-animating") ||
+    suggestElement.classList.contains("suggest-active")
+  ) {
+    return;
+  }
+
+  clearSuggestTimers();
+
+  const itemCount = suggestElement.querySelectorAll("p").length;
+
+  // Phase 1: オーバーレイを右→左にカーテンスワイプ (0~300ms)
+  overlayElement.style.display = "block";
+  overlayElement.classList.add("suggest-curtain");
+  requestAnimationFrame(() => {
+    overlayElement.classList.add("suggest-open");
+  });
+
+  // Phase 2: 300ms後にパネルをバウンスポップ (300~650ms)
+  suggestAnimTimers.push(
+    setTimeout(() => {
+      suggestElement.classList.add("suggest-animating");
+      suggestElement.style.display = "block";
+      requestAnimationFrame(() => {
+        suggestElement.classList.add("suggest-active");
+      });
+    }, 300)
+  );
+
+  // Phase 3: 650ms後にリンク行をスタガーフェードイン
+  suggestAnimTimers.push(
+    setTimeout(() => {
+      const bookItems = suggestElement.querySelectorAll("p");
+      const backButton = suggestElement.querySelector(".button");
+      bookItems.forEach((item, i) => {
+        item.style.transitionDelay = i * 50 + "ms";
+      });
+      if (backButton) {
+        backButton.style.transitionDelay = bookItems.length * 50 + "ms";
+      }
+      suggestElement.classList.add("suggest-stagger");
+    }, 650)
+  );
+
+  // Phase 4: 全スタガー完了後にリンク操作を許可
+  const totalTime = 650 + itemCount * 50 + 200;
+  suggestAnimTimers.push(
+    setTimeout(() => {
+      suggestElement.classList.add("suggest-interactive");
+    }, totalTime)
+  );
+
+  // オーバーレイクリックで閉じるイベントリスナー
+  overlayElement.onclick = () => {
+    hideSuggestPanel();
+  };
+}
+
+// カーテンコールアニメーションでサジェストパネルを閉じるルン！
+function hideSuggestPanel() {
+  clearSuggestTimers();
+
+  const suggestElement = document.getElementById("suggest");
+  const overlayElement = document.getElementById("overlay");
+  if (!suggestElement || !overlayElement) return;
+
+  overlayElement.onclick = null;
+
+  // 子要素のtransition-delayをリセットして即座にフェードアウト
+  suggestElement.querySelectorAll("p").forEach((item) => {
+    item.style.transitionDelay = "";
+  });
+  const backButton = suggestElement.querySelector(".button");
+  if (backButton) {
+    backButton.style.transitionDelay = "";
+  }
+
+  // 閉じるアニメーション: パネルをフェードアウト、オーバーレイをスワイプバック
+  suggestElement.classList.remove(
+    "suggest-active",
+    "suggest-stagger",
+    "suggest-interactive"
+  );
+  suggestElement.classList.add("suggest-closing");
+  overlayElement.classList.remove("suggest-open");
+
+  // アニメーション完了後にクリーンアップ
+  suggestAnimTimers.push(
+    setTimeout(() => {
+      suggestElement.classList.remove("suggest-animating", "suggest-closing");
+      suggestElement.style.display = "none";
+      overlayElement.classList.remove("suggest-curtain");
+      overlayElement.style.display = "none";
+    }, 350)
+  );
+}
+
 function next() {
   if (
     document.getElementById("image").style.backgroundPosition.includes("right")
@@ -732,24 +855,8 @@ function next() {
       lastSaveTime = Date.now();
       debugLog("saveCurrentPage() executed on reaching last page");
 
-      // jQuery UI Dialogの代替: suggest要素を表示する
-      const suggestElement = document.getElementById("suggest");
-      const overlayElement = document.getElementById("overlay"); // 既存のオーバーレイを使用
-      if (suggestElement && overlayElement) {
-        // CSSでスタイルが定義されている前提で、表示を切り替えるだけにするルン！
-        overlayElement.style.display = "block";
-        suggestElement.style.display = "block";
-
-        // 外側クリックで閉じるイベントリスナー
-        overlayElement.onclick = () => {
-          suggestElement.style.display = "none";
-          overlayElement.style.display = "none";
-          // クリックイベントをリセット
-          overlayElement.onclick = null;
-        };
-      } else {
-        debugLog("Suggest or Overlay element not found!"); // 見つからなかった場合のエラーログ
-      }
+      // カーテンコールアニメーションでサジェストパネルを表示するルン！
+      showSuggestPanel();
     }
   }
 }

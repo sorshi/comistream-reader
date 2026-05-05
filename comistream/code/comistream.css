@@ -282,6 +282,16 @@ input[type="range"]::-moz-range-thumb {
   transition: opacity 0.15s;
 }
 
+/* サジェスト用カーテンコールアニメーション: オーバーレイの右→左スワイプ */
+.overlay.suggest-curtain {
+  clip-path: inset(0 0 0 100%);
+  transition: clip-path 300ms ease-out;
+}
+
+.overlay.suggest-curtain.suggest-open {
+  clip-path: inset(0 0 0 0);
+}
+
 .modal {
   display: none;
   position: fixed;
@@ -499,6 +509,54 @@ input[type="range"]::-moz-range-thumb {
     text-decoration: none;
     color: #a9d1ff; /* ホバー色を通常色と同じにする */
   }
+}
+
+/* カーテンコールアニメーション: パネルの初期状態（スケール0・透明） */
+#suggest.suggest-animating {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0);
+  transition: opacity 350ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+
+/* カーテンコールアニメーション: パネルのバウンスポップ表示 */
+#suggest.suggest-active {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* カーテンコールアニメーション: 閉じるときのフェードアウト */
+#suggest.suggest-closing {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.95);
+  transition: opacity 250ms ease-in, transform 250ms ease-in;
+  pointer-events: none;
+}
+
+/* アニメーション完了後にリンク操作を許可 */
+#suggest.suggest-interactive {
+  pointer-events: auto;
+}
+
+/* アニメーション中の子要素: 初期状態は透明＋少し下にずらす */
+#suggest.suggest-animating p,
+#suggest.suggest-animating > .button {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+
+/* .buttonはfloat:rightのため、transform付きのp要素とスタッキングコンテキストが競合するルン */
+#suggest.suggest-animating > .button {
+  z-index: 1;
+}
+
+/* スタガーフェードイン: 子要素を順番に表示 */
+#suggest.suggest-stagger p,
+#suggest.suggest-stagger > .button {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 /* 大きなページサイズ通知用のスタイル */

@@ -792,9 +792,21 @@ if (strcasecmp($ext, 'epub') == 0) {
     $user = 'guest';
     $size = 'FULL';
     openPage();
-    // 画像は余白をトリミングするかどうかを--trimmingオプションで制御するルン
+    // 画像は余白をトリミングするかどうかを制御するルン
     if (isset($options['trimming']) && $options['trimming'] == 2) {
+        // --trimming=2 が明示的に指定された場合はトリミングしないルン
         $view = '';
+    } elseif ($type == 'preview') {
+        // プレビュー画像作成時はusePreviewTrim設定で制御するルン（デフォルト:トリミングしない）
+        // ImageMagickの-fuzz -trim処理はCPU負荷が非常に高いため、デフォルトでは無効ルン
+        $usePreviewTrim = checkSystemConfig($dbh, 'usePreviewTrim', 0);
+        if (intval($usePreviewTrim) === 1) {
+            $view = 'trimming';
+            writelog("DEBUG usePreviewTrim is enabled, trimming mode for preview", $writelog_process_name);
+        } else {
+            $view = '';
+            writelog("DEBUG usePreviewTrim is disabled, skip trimming for preview (CPU saving)", $writelog_process_name);
+        }
     } else {
         $view = 'trimming';
     }
