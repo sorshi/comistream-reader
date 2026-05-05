@@ -899,6 +899,23 @@ function nextIndex() {
       return true;
     }
   }
+  // 次のインデックスが見つからない場合の終端処理ルン
+  if (page >= maxPage) {
+    // 既に最終ページにいる場合はsuggestパネルを表示するルン
+    if (savePageTimer) {
+      clearTimeout(savePageTimer);
+      savePageTimer = null;
+    }
+    saveCurrentPage();
+    lastSaveTime = Date.now();
+    debugLog("nextIndex() reached end at maxPage, showing suggest");
+    showSuggestPanel();
+  } else {
+    // 最終ページへ移動するルン
+    page = maxPage;
+    loadPage(1);
+    debugLog("nextIndex() no more index, jumped to maxPage:" + maxPage);
+  }
 }
 
 function backIndex() {
