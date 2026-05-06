@@ -686,6 +686,48 @@ function rightIndex() {
 // サジェストパネルのアニメーションタイマー管理用ルン！
 let suggestAnimTimers = [];
 
+// iOS Safari (WebKit) では、-webkit-overflow-scrolling:touchコンテナ内でCSS transitionが
+// 進行中の場合、clickイベントの生成が遅延されるルン。
+// そのためclickに依存せず、touchendで直接ボタン操作を処理するルン！
+// "all": 全クリックブロック, "button-only": 戻るボタンのみ許可, null: ガード無効
+let suggestClickGuardMode = null;
+let suggestBackTouchMoved = false;
+let suggestBackHandledByTouch = false;
+
+function suggestClickGuard(e) {
+  if (suggestClickGuardMode === "all") {
+    e.preventDefault();
+    e.stopPropagation();
+  } else if (suggestClickGuardMode === "button-only") {
+    if (e.target.closest(".button")) {
+      if (suggestBackHandledByTouch) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    } else {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+}
+
+function onSuggestBackTouchStart(e) {
+  suggestBackTouchMoved = false;
+  e.preventDefault();
+}
+
+function onSuggestBackTouchMove() {
+  suggestBackTouchMoved = true;
+}
+
+function onSuggestBackTouchEnd() {
+  if (!suggestBackTouchMoved) {
+    suggestBackHandledByTouch = true;
+    setTimeout(() => { suggestBackHandledByTouch = false; }, 500);
+    backListPage();
+  }
+}
+
 function clearSuggestTimers() {
   suggestAnimTimers.forEach((id) => clearTimeout(id));
   suggestAnimTimers = [];
@@ -720,6 +762,9 @@ function showSuggestPanel() {
   });
 
   // Phase 2: 300ms後にパネルをバウンスポップ (300~650ms)
+  // キャプチャフェーズのガードでアニメーション中の誤タップを防止するルン！
+  suggestClickGuardMode = "all";
+  suggestElement.addEventListener("click", suggestClickGuard, true);
   suggestAnimTimers.push(
     setTimeout(() => {
       suggestElement.classList.add("suggest-animating");
@@ -731,25 +776,32 @@ function showSuggestPanel() {
   );
 
   // Phase 3: 650ms後にリンク行をスタガーフェードイン
+  // 「戻る」ボタンはsuggestリストより先に表示＆操作可能にするルン！
+  // iOS Safari対策: touchendで直接backListPage()を呼ぶルン
   suggestAnimTimers.push(
     setTimeout(() => {
       const bookItems = suggestElement.querySelectorAll("p");
       const backButton = suggestElement.querySelector(".button");
+      if (backButton) {
+        backButton.style.transitionDelay = "0ms";
+        backButton.addEventListener("touchstart", onSuggestBackTouchStart, { passive: false });
+        backButton.addEventListener("touchmove", onSuggestBackTouchMove, { passive: true });
+        backButton.addEventListener("touchend", onSuggestBackTouchEnd, { passive: true });
+      }
       bookItems.forEach((item, i) => {
         item.style.transitionDelay = i * 50 + "ms";
       });
-      if (backButton) {
-        backButton.style.transitionDelay = bookItems.length * 50 + "ms";
-      }
       suggestElement.classList.add("suggest-stagger");
+      suggestClickGuardMode = "button-only";
     }, 650)
   );
 
-  // Phase 4: 全スタガー完了後にリンク操作を許可
+  // Phase 4: 全スタガー完了後に全リンクの操作を許可
   const totalTime = 650 + itemCount * 50 + 200;
   suggestAnimTimers.push(
     setTimeout(() => {
-      suggestElement.classList.add("suggest-interactive");
+      suggestClickGuardMode = null;
+      suggestElement.removeEventListener("click", suggestClickGuard, true);
     }, totalTime)
   );
 
@@ -769,6 +821,10 @@ function hideSuggestPanel() {
 
   overlayElement.onclick = null;
 
+  // クリックガードを解除するルン
+  suggestClickGuardMode = null;
+  suggestElement.removeEventListener("click", suggestClickGuard, true);
+
   // 子要素のtransition-delayをリセットして即座にフェードアウト
   suggestElement.querySelectorAll("p").forEach((item) => {
     item.style.transitionDelay = "";
@@ -776,13 +832,17 @@ function hideSuggestPanel() {
   const backButton = suggestElement.querySelector(".button");
   if (backButton) {
     backButton.style.transitionDelay = "";
+    backButton.removeEventListener("touchstart", onSuggestBackTouchStart);
+    backButton.removeEventListener("touchmove", onSuggestBackTouchMove);
+    backButton.removeEventListener("touchend", onSuggestBackTouchEnd);
   }
+  suggestBackTouchMoved = false;
+  suggestBackHandledByTouch = false;
 
   // 閉じるアニメーション: パネルをフェードアウト、オーバーレイをスワイプバック
   suggestElement.classList.remove(
     "suggest-active",
-    "suggest-stagger",
-    "suggest-interactive"
+    "suggest-stagger"
   );
   suggestElement.classList.add("suggest-closing");
   overlayElement.classList.remove("suggest-open");
