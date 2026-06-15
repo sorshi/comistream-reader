@@ -978,9 +978,9 @@ function outputPage($isFileout = false)
     $allowedExtensions = ['zip', 'cbz', 'rar', 'cbr', 'pdf', '7z', 'cb7'];
     $ext = '';
     if ($filePath !== false) {
-        $pathInfo = pathinfo($filePath);
-        if (isset($pathInfo['extension']) && in_array(strtolower($pathInfo['extension']), $allowedExtensions)) {
-            $ext = '.' . strtolower($pathInfo['extension']);
+        $extension = getPathExtensionIgnoringTrailingSpaces($filePath);
+        if (in_array($extension, $allowedExtensions)) {
+            $ext = '.' . $extension;
         }
     }
     $ext = trim($ext);
@@ -1033,32 +1033,23 @@ function outputPage($isFileout = false)
                 }
 
                 // 2. 出力から該当ファイルの展開後サイズをパースするルン
-                // ファイル名とサイズの情報を抽出（元のファイル名で検索！）
+                // ファイル名の前後スペースを削らず、元のファイル名で検索するルン！
                 $unpackedSize = 0;
-                $lines = explode("\n", $output);
+                $archiveEntries = parseSevenZipSltEntries($output);
                 $foundFile = false;
 
-                for ($i = 0; $i < count($lines); $i++) {
-                    // "Path = " で始まる行を探すルン
-                    if (strpos($lines[$i], 'Path = ') === 0) {
-                        $pathValue = trim(substr($lines[$i], 7)); // "Path = " の後の部分
-
-                        // ファイル名が一致するかチェック（末尾一致でチェック）
-                        // 元のファイル名（置換前）で検索するルン！
-                        if (
-                            substr($pathValue, -strlen($pagefileOriginal)) === $pagefileOriginal ||
-                            $pathValue === $pagefileOriginal
-                        ) {
-                            $foundFile = true;
-                            // 次の数行でSizeを探すルン
-                            for ($j = $i + 1; $j < min($i + 10, count($lines)); $j++) {
-                                if (preg_match('/^Size = (\d+)$/', $lines[$j], $matches)) {
-                                    $unpackedSize = (int)$matches[1];
-                                    writelog("DEBUG outputPage() Found file size: $unpackedSize bytes for: $pagefileOriginal");
-                                    break 2; // 両方のループを抜けるルン
-                                }
-                            }
+                foreach ($archiveEntries as $archiveEntry) {
+                    if (
+                        isArchiveContentEntry($archiveEntry) &&
+                        !$archiveEntry['is_folder'] &&
+                        archivePathMatchesTarget($archiveEntry['path'], $pagefileOriginal)
+                    ) {
+                        $foundFile = true;
+                        if (isset($archiveEntry['size'])) {
+                            $unpackedSize = (int)$archiveEntry['size'];
+                            writelog("DEBUG outputPage() Found file size: $unpackedSize bytes for: $pagefileOriginal");
                         }
+                        break;
                     }
                 }
 
@@ -2683,11 +2674,11 @@ function openPage()
     writelog("DEBUG openPage() escapedFile:" . $escapedFile . ' coverFile:' . $coverFile . ' file:' . $file . ' openFile:' . $openFile . ' pageTitle:' . $pageTitle);
 
     // ファイルオープン処理
-    if (preg_match('/\.(zip|cbz|7z|cb7|rar|cbr)$/i', $openFile)) {
+    if (preg_match('/\.(zip|cbz|7z|cb7|rar|cbr)\s*$/i', $openFile)) {
         openZipRar();
-    } elseif (preg_match('/\.rar$/i', $openFile)) {
+    } elseif (preg_match('/\.rar\s*$/i', $openFile)) {
         openZipRar();
-    } elseif (preg_match('/\.pdf$/i', $openFile)) {
+    } elseif (preg_match('/\.pdf\s*$/i', $openFile)) {
         openPdf();
     } else {
         writelog("openPage() invalid file type: $openFile");
@@ -2761,6 +2752,213 @@ function openPage()
 
 
 ##### zip/rarの目次作成 ############################################################
+function parseSevenZipSltEntries($rawIndexText)
+{
+    if (!is_string($rawIndexText)) {
+        $rawIndexText = '';
+    }
+
+    $entries = [];
+    $current = null;
+    $normalizedText = str_replace(["\r\n", "\r"], "\n", $rawIndexText);
+    $lines = explode("\n", $normalizedText);
+
+    foreach ($lines as $line) {
+        if (strpos($line, 'Path = ') === 0) {
+            if ($current !== null && array_key_exists('path', $current)) {
+                $entries[] = $current;
+            }
+            // アーカイブ内パスの前後スペースは名前の一部として保持するルン！
+            $current = ['path' => substr($line, 7)];
+            continue;
+        }
+
+        if ($current === null) {
+            continue;
+        }
+
+        if (preg_match('/^Folder = ([+-])$/', $line, $matches)) {
+            $current['is_folder'] = ($matches[1] === '+');
+        } elseif (preg_match('/^Size = ([0-9]+)$/', $line, $matches)) {
+            $current['size'] = (int)$matches[1];
+        }
+    }
+
+    if ($current !== null && array_key_exists('path', $current)) {
+        $entries[] = $current;
+    }
+
+    return $entries;
+}
+
+function isArchiveContentEntry($entry)
+{
+    return is_array($entry) && array_key_exists('path', $entry) && array_key_exists('is_folder', $entry);
+}
+
+function isVisibleArchivePath($path)
+{
+    $normalizedPath = str_replace('\\', '/', $path);
+    $parts = explode('/', $normalizedPath);
+
+    foreach ($parts as $part) {
+        if ($part === '__MACOSX' || strpos($part, '._') === 0) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function archivePathHasExtension($path, $extensions)
+{
+    $quotedExtensions = array_map(
+        static function ($extension) {
+            return preg_quote($extension, '/');
+        },
+        $extensions
+    );
+    $pattern = '/\.(' . implode('|', $quotedExtensions) . ')\s*$/i';
+
+    return preg_match($pattern, $path) === 1;
+}
+
+function sortArchivePaths($paths)
+{
+    usort($paths, static function ($left, $right) {
+        $natural = strnatcmp($left, $right);
+        if ($natural !== 0) {
+            return $natural;
+        }
+
+        return strcmp($left, $right);
+    });
+
+    return $paths;
+}
+
+function getArchivePathsByExtension($entries, $extensions)
+{
+    $paths = [];
+
+    foreach ($entries as $entry) {
+        if (!isArchiveContentEntry($entry) || $entry['is_folder']) {
+            continue;
+        }
+
+        $path = $entry['path'];
+        if (isVisibleArchivePath($path) && archivePathHasExtension($path, $extensions)) {
+            $paths[] = $path;
+        }
+    }
+
+    return sortArchivePaths($paths);
+}
+
+function splitArchiveListLines($listText)
+{
+    if (!is_string($listText)) {
+        $listText = '';
+    }
+
+    $normalizedText = str_replace(["\r\n", "\r"], "\n", $listText);
+    $lines = explode("\n", $normalizedText);
+
+    if (end($lines) === '') {
+        array_pop($lines);
+    }
+
+    return $lines;
+}
+
+function getArchiveImagePathsFromPlainList($listText)
+{
+    $imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'bmp', 'gif'];
+    $paths = [];
+
+    foreach (splitArchiveListLines($listText) as $path) {
+        if (isVisibleArchivePath($path) && archivePathHasExtension($path, $imageExtensions)) {
+            $paths[] = $path;
+        }
+    }
+
+    return sortArchivePaths($paths);
+}
+
+function writeArchiveIndex($indexPath, $paths)
+{
+    $indexText = '';
+    if (!empty($paths)) {
+        $indexText = implode("\n", $paths) . "\n";
+    }
+
+    return file_put_contents($indexPath, $indexText) !== false;
+}
+
+function archivePathMatchesTarget($path, $targetPath)
+{
+    if ($path === $targetPath) {
+        return true;
+    }
+
+    if ($targetPath === '') {
+        return false;
+    }
+
+    return substr($path, -strlen($targetPath)) === $targetPath;
+}
+
+function findArchiveFileEntry($entries, $targetPath, $extensions = null)
+{
+    foreach ($entries as $entry) {
+        if (!isArchiveContentEntry($entry) || $entry['is_folder']) {
+            continue;
+        }
+
+        if (!archivePathMatchesTarget($entry['path'], $targetPath)) {
+            continue;
+        }
+
+        if ($extensions !== null && !archivePathHasExtension($entry['path'], $extensions)) {
+            continue;
+        }
+
+        return $entry;
+    }
+
+    return null;
+}
+
+function getPathExtensionIgnoringTrailingSpaces($path)
+{
+    return strtolower(pathinfo(rtrim($path), PATHINFO_EXTENSION));
+}
+
+function captureCommandOutput($command)
+{
+    $descriptorSpec = [
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $process = proc_open($command, $descriptorSpec, $pipes);
+
+    if (!is_resource($process)) {
+        return ['', -1];
+    }
+
+    $stdout = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[2]);
+    $returnCode = proc_close($process);
+
+    if ($stderr !== '') {
+        $stdout .= ($stdout !== '' ? "\n" : '') . $stderr;
+    }
+
+    return [$stdout, $returnCode];
+}
+
 function makeIndex($maxPage)
 {
     global $cacheDir, $file;
@@ -2841,13 +3039,11 @@ function openZipRar()
     // アーカイプが朝臣しているとrawindex取り出すときに2で終わってerror返す、ことが多い
     // 7za tは850MBくらいのファイルでオープンするのに30秒くらい余計にかかるので廃止
     $list_cmd = "LANG=ja_JP.UTF8 $p7zip l -slt \"$cacheDir/$file/file\"";
-    $list_output = [];
-    $list_return_code = -1;
-    exec($list_cmd . ' 2>&1', $list_output, $list_return_code);
-    $list_output_text = implode("\n", $list_output);
+    [$list_output_text, $list_return_code] = captureCommandOutput($list_cmd);
 
     // リスト結果をrawindexに保存
     file_put_contents("$cacheDir/$file/rawindex", $list_output_text);
+    $archiveEntries = parseSevenZipSltEntries($list_output_text);
     // writelog("INFO openZipRar() rawindex saved:".$list_output_text);
 
     // アーカイブの状態を記録（後でisArchiveCorrupted()が参照）
@@ -2868,15 +3064,13 @@ function openZipRar()
     }
 
     // 画像ファイルを抽出
-    $shell_cmd = "cat $cacheDir/$file/rawindex | grep \"Path = \" | grep -Pi \"\\.(jpg|jpeg|png|webp|avif|bmp|gif)\" | grep -v \"^\\._\" | grep -v \"/\\._\" | sed \"s/Path = //\" | sort -V | head -n 1";
-    $firstFile = shell_exec($shell_cmd);
-    $firstFile = rtrim($firstFile, "\n");
+    $imagePaths = getArchivePathsByExtension($archiveEntries, ['jpg', 'jpeg', 'png', 'webp', 'avif', 'bmp', 'gif']);
+    $firstFile = $imagePaths[0] ?? '';
     writelog("DEBUG openZipRar() firstFile:" . $firstFile . " extracted from rawindex");
 
-    $shell_cmd = "cat $cacheDir/$file/rawindex | grep \"Path = \" | grep -Pi \"\\.(zip|rar|cbz|cbr|7z|cb7|rar|cbr)$\" | head -n 1";
-    $nestArchive = shell_exec($shell_cmd);
-    $nestArchive = trim($nestArchive);
-    writelog("DEBUG openZipRar() nestedArchive:" . $nestArchive . " executed:" . $shell_cmd);
+    $archivePaths = getArchivePathsByExtension($archiveEntries, ['zip', 'rar', 'cbz', 'cbr', '7z', 'cb7']);
+    $nestArchive = $archivePaths[0] ?? '';
+    writelog("DEBUG openZipRar() nestedArchive:" . $nestArchive);
 
     if (!empty($nestArchive)) {
         // アーカイブ内アーカイブを検出した場合
@@ -2925,11 +3119,23 @@ function openZipRar()
                 $result = shell_exec($command_list);
             }
         }
-        $maxPage = shell_exec("ls $cacheDir/$file/ | grep -Pi \"\\.(jpg|jpeg|png|webp|avif|bmp|gif)\" | tee $cacheDir/$file/index | wc -l");
-        $maxPage = trim($maxPage);
+        $nestedImagePaths = [];
+        $nestedCacheItems = scandir("$cacheDir/$file/");
+        if ($nestedCacheItems !== false) {
+            foreach ($nestedCacheItems as $nestedCacheItem) {
+                if (archivePathHasExtension($nestedCacheItem, ['jpg', 'jpeg', 'png', 'webp', 'avif', 'bmp', 'gif'])) {
+                    $nestedImagePaths[] = $nestedCacheItem;
+                }
+            }
+        }
+        $nestedImagePaths = sortArchivePaths($nestedImagePaths);
+        writeArchiveIndex("$cacheDir/$file/index", $nestedImagePaths);
+        $maxPage = count($nestedImagePaths);
 
-        $checkFile = shell_exec("LANG=ja_JP.UTF8 $p7zip l -slt \"$cacheDir/$file/file\" \"$nestArchive\" | grep \"Path = \" | grep -Pi \"\\.(zip|rar|cbz|cbr|7z|cb7|rar|cbr)\"");
-        $checkFile = rtrim($checkFile, "\n");
+        $nestedArchiveRawIndex = shell_exec("LANG=ja_JP.UTF8 $p7zip l -slt \"$cacheDir/$file/file\" " . escapeshellarg($nestArchive));
+        $nestedArchiveEntries = parseSevenZipSltEntries($nestedArchiveRawIndex);
+        $checkFileEntry = findArchiveFileEntry($nestedArchiveEntries, $nestArchive, ['zip', 'rar', 'cbz', 'cbr', '7z', 'cb7']);
+        $checkFile = $checkFileEntry['path'] ?? '';
 
         writelog("DEBUG openZipRar() nestedArchive maxPage:$maxPage checkFile:$checkFile");
     } else {
@@ -2973,15 +3179,18 @@ function openZipRar()
         // unzipで[]は特殊文字のため?にエスケープする
         $firstFile = str_replace(['[', ']'], '?', $firstFile);
 
-        $checkFile = shell_exec("LANG=ja_JP.UTF8 $p7zip l -slt \"$cacheDir/$file/file\" \"$firstFile\" | grep -Pi \"\\.(jpg|jpeg|png|webp|avif|bmp|gif)\"");
-        $checkFile = rtrim($checkFile, "\n");
+        $targetRawIndex = shell_exec("LANG=ja_JP.UTF8 $p7zip l -slt \"$cacheDir/$file/file\" " . escapeshellarg($firstFile));
+        $targetEntries = parseSevenZipSltEntries($targetRawIndex);
+        $checkFileEntry = findArchiveFileEntry($targetEntries, $firstFile, ['jpg', 'jpeg', 'png', 'webp', 'avif', 'bmp', 'gif']);
+        $checkFile = $checkFileEntry['path'] ?? '';
         writelog("DEBUG openZipRar() checkFile:" . mb_convert_encoding($checkFile, 'UTF-8', 'auto'));
 
         $dirname = '';
         if (!empty($checkFile)) {
             // ファイル名指定でリストから検出できた場合
             writelog("DEBUG openZipRar() checkFile exist");
-            $maxPage = shell_exec("cat $cacheDir/$file/rawindex | grep -Pi \"\\.(jpg|jpeg|png|webp|avif|bmp|gif)\" | grep -v \"^\\._\" | grep -v \"/\\._\" | sed \"s/Path = //\" | sort -V | tee -a $cacheDir/$file/index | wc -l");
+            writeArchiveIndex("$cacheDir/$file/index", $imagePaths);
+            $maxPage = count($imagePaths);
         } else {
             // CP932で再試行
             writelog("DEBUG openZipRar() checkFile NOT exist, cp932 retry");
@@ -2990,10 +3199,13 @@ function openZipRar()
                 errorExit('mkdir_failed', 'mkdir_failed_detail');
             }
             touch("$cacheDir/$file/cp932");
-            $maxPage = shell_exec("LANG=ja_JP.UTF8 $unzip -Z -1 -O cp932 \"$cacheDir/$file/file\" | grep -Pi \"\\.(jpg|jpeg|png|webp|avif|bmp|gif)\" | grep -v \"^\\._\" | grep -v \"/\\._\" | sort -V | tee -a $cacheDir/$file/index | wc -l");
+            $cp932List = shell_exec("LANG=ja_JP.UTF8 $unzip -Z -1 -O cp932 \"$cacheDir/$file/file\"");
+            $cp932ImagePaths = getArchiveImagePathsFromPlainList($cp932List);
+            writeArchiveIndex("$cacheDir/$file/index", $cp932ImagePaths);
+            $maxPage = count($cp932ImagePaths);
         }
 
-        $maxPage = trim($maxPage);
+        $maxPage = intval($maxPage);
         writelog("DEBUG openZipRar() maxPage:$maxPage");
     }
     if ($maxPage < 1) {

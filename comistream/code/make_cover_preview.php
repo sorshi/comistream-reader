@@ -151,7 +151,7 @@ $previewFile = preg_replace('/\.[^.]+$/', '.webp', $previewFile);
 writelog("DEBUG coverFile:$coverFile previewFile:$previewFile", $writelog_process_name);
 
 // 拡張子取得
-$ext = pathinfo($file, PATHINFO_EXTENSION);
+$ext = getPathExtensionIgnoringTrailingSpaces($file);
 writelog("DEBUG file:$file ext:$ext", $writelog_process_name);
 
 $fullpathFile = $sharePath . '/' . $file;

@@ -310,7 +310,7 @@ if ($mode === 'delete' && !empty($orgname)) {
     $originalFile = $file; // 元のファイル名を保存
 
     // EPUBファイルの場合は特別処理
-    if (preg_match('/\.epub$/i', $originalFile)) {
+    if (preg_match('/\.epub\s*$/i', $originalFile)) {
         handleEpubOpen();
         exit(0);
     }
