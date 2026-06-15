@@ -285,7 +285,7 @@ input[type="range"]::-moz-range-thumb {
 /* サジェスト用カーテンコールアニメーション: オーバーレイの右→左スワイプ */
 .overlay.suggest-curtain {
   clip-path: inset(0 0 0 100%);
-  transition: clip-path 300ms ease-out;
+  transition: clip-path 240ms ease-out;
 }
 
 .overlay.suggest-curtain.suggest-open {
@@ -515,8 +515,8 @@ input[type="range"]::-moz-range-thumb {
 #suggest.suggest-animating {
   opacity: 0;
   transform: translate(-50%, -50%) scale(0);
-  transition: opacity 350ms cubic-bezier(0.34, 1.56, 0.64, 1),
-              transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity 280ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 /* カーテンコールアニメーション: パネルのバウンスポップ表示 */
@@ -529,7 +529,7 @@ input[type="range"]::-moz-range-thumb {
 #suggest.suggest-closing {
   opacity: 0;
   transform: translate(-50%, -50%) scale(0.95);
-  transition: opacity 250ms ease-in, transform 250ms ease-in;
+  transition: opacity 200ms ease-in, transform 200ms ease-in;
 }
 
 /* アニメーション中の子要素: 初期状態は透明＋少し下にずらす */
@@ -537,7 +537,7 @@ input[type="range"]::-moz-range-thumb {
 #suggest.suggest-animating > .button {
   opacity: 0;
   transform: translateY(8px);
-  transition: opacity 200ms ease-out, transform 200ms ease-out;
+  transition: opacity 160ms ease-out, transform 160ms ease-out;
 }
 
 /* .buttonはfloat:rightのため、transform付きのp要素とスタッキングコンテキストが競合するルン */

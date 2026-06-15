@@ -754,14 +754,14 @@ function showSuggestPanel() {
 
   const itemCount = suggestElement.querySelectorAll("p").length;
 
-  // Phase 1: オーバーレイを右→左にカーテンスワイプ (0~300ms)
+  // Phase 1: オーバーレイを右→左にカーテンスワイプ (0~240ms)
   overlayElement.style.display = "block";
   overlayElement.classList.add("suggest-curtain");
   requestAnimationFrame(() => {
     overlayElement.classList.add("suggest-open");
   });
 
-  // Phase 2: 300ms後にパネルをバウンスポップ (300~650ms)
+  // Phase 2: 240ms後にパネルをバウンスポップ (240~520ms)
   // キャプチャフェーズのガードでアニメーション中の誤タップを防止するルン！
   suggestClickGuardMode = "all";
   suggestElement.addEventListener("click", suggestClickGuard, true);
@@ -772,10 +772,10 @@ function showSuggestPanel() {
       requestAnimationFrame(() => {
         suggestElement.classList.add("suggest-active");
       });
-    }, 300)
+    }, 240)
   );
 
-  // Phase 3: 650ms後にリンク行をスタガーフェードイン
+  // Phase 3: 520ms後にリンク行をスタガーフェードイン
   // 「戻る」ボタンはsuggestリストより先に表示＆操作可能にするルン！
   // iOS Safari対策: touchendで直接backListPage()を呼ぶルン
   suggestAnimTimers.push(
@@ -789,15 +789,15 @@ function showSuggestPanel() {
         backButton.addEventListener("touchend", onSuggestBackTouchEnd, { passive: true });
       }
       bookItems.forEach((item, i) => {
-        item.style.transitionDelay = i * 50 + "ms";
+        item.style.transitionDelay = i * 20 + "ms";
       });
       suggestElement.classList.add("suggest-stagger");
       suggestClickGuardMode = "button-only";
-    }, 650)
+    }, 520)
   );
 
   // Phase 4: 全スタガー完了後に全リンクの操作を許可
-  const totalTime = 650 + itemCount * 50 + 200;
+  const totalTime = 520 + itemCount * 20 + 160;
   suggestAnimTimers.push(
     setTimeout(() => {
       suggestClickGuardMode = null;
@@ -854,7 +854,7 @@ function hideSuggestPanel() {
       suggestElement.style.display = "none";
       overlayElement.classList.remove("suggest-curtain");
       overlayElement.style.display = "none";
-    }, 350)
+    }, 280)
   );
 }
 
