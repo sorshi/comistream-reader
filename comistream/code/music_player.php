@@ -213,6 +213,10 @@ function openMusicPlayer()
     <link rel="manifest" href="/theme/manifest.json">
     <title>$safeBaseFile - Music Player</title>
     <style>
+        html {
+            text-autospace: normal;
+        }
+
         * {
             margin: 0;
             padding: 0;

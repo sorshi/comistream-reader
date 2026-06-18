@@ -236,6 +236,11 @@ function errorExit($titleKey, $messageKey = null, $isError = true, $params = [])
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>$titleEscaped</title>
+    <style>
+        html {
+            text-autospace: normal;
+        }
+    </style>
     <script>alert("$messageEscaped");window.history.back();</script>
 </head>
 <body></body>
@@ -3638,6 +3643,10 @@ function print_book_notfound_error($bookName)
     <title>エラー: ファイルが見つかりません</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.28.0/feather.min.js"></script>
     <style>
+        html {
+            text-autospace: normal;
+        }
+
         body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
             display: flex;
@@ -3877,6 +3886,10 @@ function system_config($dbh)
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Comistream 環境設定</title>
             <style>
+                html {
+                    text-autospace: normal;
+                }
+
                 body {
                     font-family: 'Lucida Grande', Verdana, AquaKana, ArialMT, 'Hiragino Kaku Gothic ProN', 'ヒラギノ角ゴ ProN W3', 'メイリオ', Meiryo, sans-serif;
                     line-height: 1.6;
@@ -4105,6 +4118,7 @@ function printLoading($fileSizeMB = 0)
 
       html {
         height: 100%;
+        text-autospace: normal;
       }
 
       body {
@@ -4480,6 +4494,10 @@ function printLoginHtml($mode, $title, $errorMessage, $buttonText, $messagecss)
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>$title</title>
         <style>
+            html {
+                text-autospace: normal;
+            }
+
             body {
                 font-family: 'Helvetica Neue', Arial, sans-serif;
                 background-color: #f0f2f5;
@@ -5479,6 +5497,10 @@ function printPdfViewerHTML()
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>$bookName - Comistream PDF Viewer</title>
     <style>
+        html {
+            text-autospace: normal;
+        }
+
         body {
             margin: 0;
             padding: 0;

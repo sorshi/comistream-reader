@@ -4,6 +4,7 @@
 */
 html {
   min-height: 100%;
+  text-autospace: normal;
   border-top: 32px solid #7799dd;
   border-bottom: 20px solid #7799dd;
   /* meta theme-color と色を合わせるためグラデーション廃止*/
