@@ -80,12 +80,15 @@ try {
         $publicDir = '';
     }
 
-    // 問題文字エスケープ関数
-    function escape_problematic_chars($filepath)
+    // URLパス用に各セグメントを安全にエンコードするルン
+    function encode_url_path($filepath)
     {
-        $problematic_chars = ['#', '?', '&', '=', '\\', ':', '@', '<', '>', '"', "'", '|', '*', ' '];
-        $encoded_chars = array_map('rawurlencode', $problematic_chars);
-        return str_replace($problematic_chars, $encoded_chars, $filepath);
+        $segments = explode('/', $filepath);
+        $encoded_segments = array_map(static function ($segment) {
+            return rawurlencode($segment);
+        }, $segments);
+
+        return implode('/', $encoded_segments);
     }
 
     // アイコンマップ取得関数
@@ -283,7 +286,7 @@ try {
             $parent_path = rtrim($parent_path, '/') . '/';
         }
 
-        $escaped_parent_path = escape_problematic_chars($parent_path);
+        $encoded_parent_path = encode_url_path($parent_path);
         $parent_icon_src = ($viewmode === 'cover') ? '/theme/icons/blank.png' : get_icon_map()['__parent'];
 
         $response_items[] = [
@@ -295,23 +298,21 @@ try {
             'lastmod' => 0,
             'lastmod_formatted' => '',
             'icon' => $parent_icon_src,
-            'href' => $parent_path,
-            'data_filepath' => $escaped_parent_path
+            'href' => $encoded_parent_path,
+            'data_filepath' => $encoded_parent_path
         ];
     }
 
     // 通常のアイテム追加
     foreach ($sorted_items as $item) {
         $icon = get_icon($item['name'], $item['is_dir']);
-        $href = rtrim($request_path, '/') . '/' . rawurlencode($item['name']);
         $raw_filepath = rtrim($request_path, '/') . '/' . $item['name'];
-        $escaped_filepath = escape_problematic_chars($raw_filepath);
 
         if ($item['is_dir']) {
-            $href .= '/';
             $raw_filepath .= '/';
-            $escaped_filepath .= '/';
         }
+
+        $encoded_filepath = encode_url_path($raw_filepath);
 
         // カバービューでディレクトリの場合はblank.png
         $icon_img_src = ($viewmode === 'cover' && $item['is_dir']) ? '/theme/icons/blank.png' : $icon;
@@ -325,20 +326,20 @@ try {
             'lastmod' => $item['lastmod'],
             'lastmod_formatted' => date('Y-m-d H:i', $item['lastmod']),
             'icon' => $icon_img_src,
-            'href' => $href,
-            'data_filepath' => $escaped_filepath
+            'href' => $encoded_filepath,
+            'data_filepath' => $encoded_filepath
         ];
 
         // ファイルの場合、プレビュー・カバー画像情報を追加
         if (!$item['is_dir']) {
             $preview_path = preg_replace('/\.[^.]+$/', '.webp', $raw_filepath);
-            $escaped_preview_path = escape_problematic_chars($preview_path);
-            $response_item['preview_image'] = '/theme/preview' . $escaped_preview_path;
+            $encoded_preview_path = encode_url_path($preview_path);
+            $response_item['preview_image'] = '/theme/preview' . $encoded_preview_path;
 
             if ($viewmode === 'cover') {
                 $cover_path = preg_replace('/\.[^.]+$/', '.jpg', $raw_filepath);
-                $escaped_cover_path = escape_problematic_chars($cover_path);
-                $response_item['cover_image'] = '/theme/covers' . $escaped_cover_path;
+                $encoded_cover_path = encode_url_path($cover_path);
+                $response_item['cover_image'] = '/theme/covers' . $encoded_cover_path;
             }
         }
 
