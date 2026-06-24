@@ -582,6 +582,10 @@ if ($is_404_mode) {
     <link id="stylesheet" rel="stylesheet" href="<?php echo $stylesheet_path; ?>">
     <link rel="stylesheet" href="/theme/skeleton.css?2025102901">
     <script>
+        const SKELETON_MIN_ITEMS = 1;
+        const SKELETON_MAX_ITEMS = 1000;
+        let skeletonResizeTimer = null;
+
         // スケルトンローディング制御関数
         function showSkeletonLoading() {
             const viewmode = getCookie('viewmode') || 'list';
@@ -600,111 +604,242 @@ if ($is_404_mode) {
             }
         }
 
+        function createListSkeletonRow() {
+            const row = document.createElement('tr');
+            row.className = 'skeleton-row';
+            row.innerHTML = `
+                <td class="skeleton-cell skeleton-icon">
+                    <div class="skeleton-placeholder"></div>
+                </td>
+                <td class="skeleton-cell skeleton-name">
+                    <div class="skeleton-placeholder"></div>
+                </td>
+                <td class="skeleton-cell skeleton-lastmod">
+                    <div class="skeleton-placeholder"></div>
+                </td>
+                <td class="skeleton-cell skeleton-size">
+                    <div class="skeleton-placeholder"></div>
+                </td>
+            `;
+            return row;
+        }
+
+        function createCoverSkeletonRow() {
+            const row = document.createElement('tr');
+            row.className = 'skeleton-row';
+            // 実際のカバービューと同じ寸法で測れるようにするルン！
+            row.style.cssText = `
+                display: inline-block !important;
+                position: relative !important;
+                width: 159px !important;
+                height: 310px !important;
+                margin: 3px !important;
+                border-bottom: 0px !important;
+            `;
+            row.innerHTML = `
+                <td class="indexcolicon" style="
+                    display: block !important;
+                    position: absolute !important;
+                    width: 159px !important;
+                    bottom: 90px !important;
+                    box-sizing: border-box !important;
+                    padding-left: 10px !important;
+                    padding-right: 10px !important;
+                    text-align: right !important;
+                    z-index: 1 !important;
+                ">
+                    <div class="skeleton-placeholder" style="width: 16px; height: 16px; background: #e9ecef; border-radius: 50%; margin-left: auto;">
+                        <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                    </div>
+                </td>
+                <td class="indexcolname" style="
+                    display: block !important;
+                    position: relative !important;
+                    padding: 0px !important;
+                    box-shadow: 0px 0px 15px -5px rgba(0, 0, 0, 0.8) !important;
+                    height: 226px !important;
+                    overflow: hidden !important;
+                ">
+                    <div style="
+                        position: absolute;
+                        left: 0px;
+                        top: 0px;
+                        width: 159px;
+                        height: 100%;
+                        background: #e9ecef;
+                        overflow: hidden;
+                    ">
+                        <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                    </div>
+                    <a style="
+                        display: block !important;
+                        padding: 5px !important;
+                        font-size: 0.9em !important;
+                        line-height: 1.1em !important;
+                        text-align: left !important;
+                        color: #444 !important;
+                        position: relative !important;
+                        height: 300px !important;
+                        padding-top: 230px !important;
+                        box-sizing: border-box !important;
+                        overflow: hidden !important;
+                        text-overflow: ellipsis !important;
+                    ">
+                        <div class="skeleton-placeholder" style="width: 80%; height: 14px; background: #e9ecef; border-radius: 4px; margin-bottom: 4px;">
+                            <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                        </div>
+                        <div class="skeleton-placeholder" style="width: 60%; height: 14px; background: #e9ecef; border-radius: 4px;">
+                            <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                        </div>
+                    </a>
+                </td>
+                <td class="indexcollastmod" style="display: none !important;"></td>
+                <td class="indexcolsize" style="display: none !important;"></td>
+            `;
+            return row;
+        }
+
+        function clampSkeletonItemCount(count) {
+            return Math.min(
+                SKELETON_MAX_ITEMS,
+                Math.max(SKELETON_MIN_ITEMS, Math.ceil(count))
+            );
+        }
+
+        function getVisibleViewportBottom() {
+            if (window.visualViewport && window.visualViewport.height > 0) {
+                return window.visualViewport.offsetTop + window.visualViewport.height;
+            }
+
+            return document.documentElement.clientHeight || window.innerHeight;
+        }
+
+        function getElementOuterSize(element) {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            const marginTop = parseFloat(style.marginTop) || 0;
+            const marginRight = parseFloat(style.marginRight) || 0;
+            const marginBottom = parseFloat(style.marginBottom) || 0;
+            const marginLeft = parseFloat(style.marginLeft) || 0;
+
+            return {
+                width: rect.width + marginLeft + marginRight,
+                height: rect.height + marginTop + marginBottom,
+                top: rect.top - marginTop
+            };
+        }
+
+        function calculateSkeletonItemCount(viewmode) {
+            const tableContainer = document.getElementById('indexlist');
+            const firstRow = document.querySelector('#table-tbody .skeleton-row');
+
+            if (!tableContainer || !firstRow) {
+                return SKELETON_MIN_ITEMS;
+            }
+
+            const rowSize = getElementOuterSize(firstRow);
+            const availableHeight = Math.max(0, getVisibleViewportBottom() - rowSize.top);
+            const rowCount = Math.max(1, Math.ceil(availableHeight / Math.max(1, rowSize.height)));
+
+            if (viewmode !== 'cover') {
+                return clampSkeletonItemCount(rowCount);
+            }
+
+            const containerStyle = window.getComputedStyle(tableContainer);
+            const horizontalPadding =
+                (parseFloat(containerStyle.paddingLeft) || 0) +
+                (parseFloat(containerStyle.paddingRight) || 0);
+            const availableWidth = Math.max(
+                rowSize.width,
+                tableContainer.getBoundingClientRect().width - horizontalPadding
+            );
+            const columnCount = Math.max(
+                1,
+                Math.floor(availableWidth / Math.max(1, rowSize.width))
+            );
+
+            return clampSkeletonItemCount(rowCount * columnCount);
+        }
+
+        function reconcileSkeletonRows(targetCount, createRow) {
+            const tbody = document.querySelector('#table-tbody');
+            if (!tbody) {
+                return;
+            }
+
+            let rows = Array.from(tbody.querySelectorAll('.skeleton-row'));
+
+            while (rows.length < targetCount) {
+                const row = createRow();
+                tbody.appendChild(row);
+                rows.push(row);
+            }
+
+            while (rows.length > targetCount) {
+                const row = rows.pop();
+                row.remove();
+            }
+        }
+
+        function resizeSkeletonItems(viewmode) {
+            const tbody = document.querySelector('#table-tbody');
+            const tableContainer = document.getElementById('indexlist');
+            if (!tbody || !tableContainer || !tableContainer.classList.contains('skeleton-loading')) {
+                return;
+            }
+
+            const createRow = viewmode === 'cover'
+                ? createCoverSkeletonRow
+                : createListSkeletonRow;
+
+            // まず1件を置いて、現在のCSSが決めた実寸を測るルン！
+            if (!tbody.querySelector('.skeleton-row')) {
+                tbody.appendChild(createRow());
+            }
+
+            const targetCount = calculateSkeletonItemCount(viewmode);
+            reconcileSkeletonRows(targetCount, createRow);
+        }
+
         function showListSkeleton() {
             const tbody = document.querySelector('#table-tbody');
-            tbody.innerHTML = '';
-
-            // スケルトン行を10個生成
-            for (let i = 0; i < 10; i++) {
-                const row = document.createElement('tr');
-                row.className = 'skeleton-row';
-                row.innerHTML = `
-                    <td class="skeleton-cell skeleton-icon">
-                        <div class="skeleton-placeholder"></div>
-                    </td>
-                    <td class="skeleton-cell skeleton-name">
-                        <div class="skeleton-placeholder"></div>
-                    </td>
-                    <td class="skeleton-cell skeleton-lastmod">
-                        <div class="skeleton-placeholder"></div>
-                    </td>
-                    <td class="skeleton-cell skeleton-size">
-                        <div class="skeleton-placeholder"></div>
-                    </td>
-                `;
-                tbody.appendChild(row);
+            if (!tbody) {
+                return;
             }
+
+            tbody.innerHTML = '';
+            resizeSkeletonItems('list');
         }
 
         function showCoverSkeleton() {
             const tbody = document.querySelector('#table-tbody');
-            tbody.innerHTML = '';
-
-            // カバー表示用のスケルトンを12個生成（実際のカバービューレイアウトに合わせる）
-            for (let i = 0; i < 12; i++) {
-                const row = document.createElement('tr');
-                row.className = 'skeleton-row';
-                // カバービューモードのtr構造に合わせる
-                row.style.cssText = `
-                    display: inline-block !important;
-                    position: relative !important;
-                    width: 159px !important;
-                    height: 310px !important;
-                    margin: 3px !important;
-                    border-bottom: 0px !important;
-                `;
-                row.innerHTML = `
-                    <td class="indexcolicon" style="
-                        display: block !important;
-                        position: absolute !important;
-                        width: 159px !important;
-                        bottom: 90px !important;
-                        box-sizing: border-box !important;
-                        padding-left: 10px !important;
-                        padding-right: 10px !important;
-                        text-align: right !important;
-                        z-index: 1 !important;
-                    ">
-                        <div class="skeleton-placeholder" style="width: 16px; height: 16px; background: #e9ecef; border-radius: 50%; margin-left: auto;">
-                            <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
-                        </div>
-                    </td>
-                    <td class="indexcolname" style="
-                        display: block !important;
-                        position: relative !important;
-                        padding: 0px !important;
-                        box-shadow: 0px 0px 15px -5px rgba(0, 0, 0, 0.8) !important;
-                        height: 226px !important;
-                        overflow: hidden !important;
-                    ">
-                        <div style="
-                            position: absolute;
-                            left: 0px;
-                            top: 0px;
-                            width: 159px;
-                            height: 100%;
-                            background: #e9ecef;
-                            overflow: hidden;
-                        ">
-                            <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
-                        </div>
-                        <a style="
-                            display: block !important;
-                            padding: 5px !important;
-                            font-size: 0.9em !important;
-                            line-height: 1.1em !important;
-                            text-align: left !important;
-                            color: #444 !important;
-                            position: relative !important;
-                            height: 300px !important;
-                            padding-top: 230px !important;
-                            box-sizing: border-box !important;
-                            overflow: hidden !important;
-                            text-overflow: ellipsis !important;
-                        ">
-                            <div class="skeleton-placeholder" style="width: 80%; height: 14px; background: #e9ecef; border-radius: 4px; margin-bottom: 4px;">
-                                <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
-                            </div>
-                            <div class="skeleton-placeholder" style="width: 60%; height: 14px; background: #e9ecef; border-radius: 4px;">
-                                <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
-                            </div>
-                        </a>
-                    </td>
-                    <td class="indexcollastmod" style="display: none !important;"></td>
-                    <td class="indexcolsize" style="display: none !important;"></td>
-                `;
-                tbody.appendChild(row);
+            if (!tbody) {
+                return;
             }
+
+            tbody.innerHTML = '';
+            resizeSkeletonItems('cover');
+        }
+
+        function scheduleSkeletonResize() {
+            if (skeletonResizeTimer) {
+                clearTimeout(skeletonResizeTimer);
+            }
+
+            skeletonResizeTimer = setTimeout(function() {
+                skeletonResizeTimer = null;
+                const tableContainer = document.getElementById('indexlist');
+                if (!tableContainer || !tableContainer.classList.contains('skeleton-loading')) {
+                    return;
+                }
+
+                resizeSkeletonItems(getCookie('viewmode') || 'list');
+            }, 100);
+        }
+
+        window.addEventListener('resize', scheduleSkeletonResize);
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', scheduleSkeletonResize);
         }
 
         function hideSkeletonLoading(actualHtml) {
