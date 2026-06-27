@@ -584,6 +584,7 @@ if ($is_404_mode) {
     <script>
         const SKELETON_MIN_ITEMS = 1;
         const SKELETON_MAX_ITEMS = 1000;
+        const COVER_SKELETON_SLOT_WIDTH = 159 + 3 + 3;
         let skeletonResizeTimer = null;
 
         // スケルトンローディング制御関数
@@ -729,6 +730,38 @@ if ($is_404_mode) {
             };
         }
 
+        function applyCoverSkeletonSideGutter() {
+            const tableContainer = document.getElementById('indexlist');
+            if (!tableContainer) {
+                return;
+            }
+
+            if ((getCookie('viewmode') || 'list') !== 'cover') {
+                tableContainer.style.removeProperty('--cover-side-gutter');
+                return;
+            }
+
+            try {
+                if (typeof updateCoverSideGutter === 'function') {
+                    updateCoverSideGutter();
+                    return;
+                }
+            } catch (e) {
+                console.error('ERROR applyCoverSkeletonSideGutter: updateCoverSideGutter failed:', e);
+            }
+
+            const containerWidth = tableContainer.clientWidth;
+            if (!containerWidth) {
+                return;
+            }
+
+            // dir_list.jsの中央寄せ計算と同じ式で、初回描画の前にガターを決めるルン！
+            const columns = Math.max(1, Math.floor(containerWidth / COVER_SKELETON_SLOT_WIDTH));
+            const leftover = containerWidth - columns * COVER_SKELETON_SLOT_WIDTH;
+            const gutter = Math.max(0, Math.floor(leftover / 2));
+            tableContainer.style.setProperty('--cover-side-gutter', gutter + 'px');
+        }
+
         function calculateSkeletonItemCount(viewmode) {
             const tableContainer = document.getElementById('indexlist');
             const firstRow = document.querySelector('#table-tbody .skeleton-row');
@@ -792,6 +825,10 @@ if ($is_404_mode) {
                 ? createCoverSkeletonRow
                 : createListSkeletonRow;
 
+            if (viewmode === 'cover') {
+                applyCoverSkeletonSideGutter();
+            }
+
             // まず1件を置いて、現在のCSSが決めた実寸を測るルン！
             if (!tbody.querySelector('.skeleton-row')) {
                 tbody.appendChild(createRow());
@@ -817,6 +854,7 @@ if ($is_404_mode) {
                 return;
             }
 
+            applyCoverSkeletonSideGutter();
             tbody.innerHTML = '';
             resizeSkeletonItems('cover');
         }
