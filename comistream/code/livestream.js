@@ -1,18 +1,21 @@
 /**
  * Comistream Reader - Livestream JavaScript
  *
- * Comistream Reader のコア機能を提供するJavaScriptファイル。
- * ページめくり、画像プリロード、ビューワー制御などの
- * フロントエンド機能を実装しています。
+ * リアルタイムトランスコードHLS再生のフロントエンド。
+ * VODモードでは完全なプレイリストが即座に提供されるため、
+ * シークバーは開始直後から動画全長になる。未エンコード地点への
+ * シークはサーバー側セグメントゲートウェイが透過的に処理する。
  *
  * @package     sorshi/comistream-reader
  * @author      Comistream Project.
  * @copyright   2024 Comistream Project.
  * @license     GPL3.0 License
- * @version     1.0.0
+ * @version     1.1.0
  *
  * 主な機能:
- * - 
+ * - hls.js(PC) / ネイティブHLS(iPhone/iPad Safari)での再生開始
+ * - eventモード(総時間不明時のフォールバック)での再生開始待ちポーリング
+ * - ページ離脱時のエンコード停止
  */
 
 document.onkeydown = funcKey;
@@ -56,76 +59,74 @@ window.addEventListener('pagehide',function(){
   let data = new FormData();
   data.append('mode', 'stop');
   navigator.sendBeacon(cgiPath, data );
-  stop_task();
 });
 
-setTimeout(async function(){
-  const videoSrc=themeDir+"/theme/hls/"+user+"/index.m3u8";
-  const video=document.getElementById('video');
-  const sleep = waitTime => new Promise( resolve => setTimeout(resolve, waitTime) );
-
-  var xmlHttp = new XMLHttpRequest();
-
-  var now = new Date();
-  xmlHttp.open("GET", videoSrc+"?"+now.getTime(), false);
-  xmlHttp.send(null);
-
-  while( !xmlHttp.responseText.match(/0000\.ts/) ){
-    now = new Date();
-    xmlHttp.open("GET", videoSrc+"?"+now.getTime(), false);
-    xmlHttp.send(null);
-    await sleep(700);
-  }
-
-  stop_task()
-  now = new Date();
+function startPlayback(video, src){
   if (Hls.isSupported()) {
     const config = {
-      // manifestLoadingMaxRetry: 5, // HLSマニフェストの再読み込み試行回数
-      // manifestLoadingMaxRetryTimeout: 1000, // 再読み込み試行の間隔(ミリ秒)
-      // startFromLevel: 0, // 再生を0番目のレベル(最高品質)から開始する
-      startPosition: 0, // 先頭から再生
+      // VODモードでは開始位置指定があればそこから再生
+      startPosition: startPosition > 0 ? startPosition : -1,
+      // 過剰な先読みはサーバー側の待機ワーカーを消費するため抑制する
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60,
+      // 未エンコードセグメントはゲートウェイが完成まで応答を保留する(最大30秒)
+      // ため、タイムアウトとリトライを緩めに設定する
+      fragLoadPolicy: {
+        default: {
+          maxTimeToFirstByteMs: 45000,
+          maxLoadTimeMs: 60000,
+          timeoutRetry: { maxNumRetry: 4, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+          errorRetry: { maxNumRetry: 8, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+        },
+      },
       debug: false,
     };
-    var hls = new Hls(config);
-    hls.loadSource(videoSrc+"?"+now.getTime());
+    const hls = new Hls(config);
+    hls.loadSource(src);
     hls.attachMedia(video);
-  }else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = videoSrc+"?"+now.getTime();
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    // iPhone/iPad Safari ネイティブHLS
+    video.src = src;
+    if (startPosition > 0) {
+      video.addEventListener('loadedmetadata', function(){
+        try { video.currentTime = startPosition; } catch(e) {}
+      }, { once: true });
+    }
+  } else {
+    alert("HLS再生非対応のブラウザです");
+    return;
   }
-  document.getElementById('movie_title').style.display="none";
-  document.getElementById('progress').style.display="none";
+  document.getElementById('movie_title').style.display = "none";
+  document.getElementById('progress').style.display = "none";
   video.play();
-},3000);
-
-
-// HLSエンコード進捗表示
-async function showEncdeProgress() {
-  sseSource = new EventSource("/livestream_progress_sse.php?u="+user);
-  sseSource.onmessage = function(event) {
-    let result = JSON.parse(event.data);
-    // console.log("New message", result.message);
-    add_log(result.message);
-  };
-  sseSource.addEventListener('error', function(e) {
-    add_log('Error occured');
-    console.error("Error occured");
-    sseSource.close();
-  });
 }
 
-function stop_task() {
-  // 追加のファイルが必要なため一旦停止
-  // sseSource.close();
+async function initPlayer(){
+  const video = document.getElementById('video');
+  const videoSrc = themeDir + "/theme/hls/" + user + "/index.m3u8";
+  const sleep = waitTime => new Promise( resolve => setTimeout(resolve, waitTime) );
+
+  if (playbackMode === "vod") {
+    // VODプレイリストは即座に提供される。最初のセグメント取得は
+    // サーバー側で準備完了までブロックされるためそのまま再生開始してよい
+    startPlayback(video, videoSrc + "?" + Date.now());
+    return;
+  }
+
+  // eventフォールバック: 最初のセグメントがプレイリストに現れるまで待つ
+  for(;;){
+    try {
+      const res = await fetch(videoSrc + "?" + Date.now(), { cache: "no-store" });
+      if (res.ok) {
+        const text = await res.text();
+        if (text.match(/0000\.ts/)) { break; }
+      }
+    } catch(e) {
+      // エンコード開始直後はプレイリスト未生成のため404になり得る
+    }
+    await sleep(700);
+  }
+  startPlayback(video, videoSrc + "?" + Date.now());
 }
 
-function add_log(message) {
-  document.getElementById("progress").innerHTML += message + "<br>";
-}
-
-// ロードされたらHLSエンコード進捗表示開始
-// 追加のファイルが必要なため一旦停止
-// window.addEventListener("load", (event) => {
-//   showEncdeProgress();
-// });
-
+initPlayer();

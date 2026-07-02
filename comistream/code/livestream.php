@@ -2,14 +2,17 @@
 /**
  * Comistream Reader - Livestream PHP
  *
- * 選択したファイルをhls出力します。
- *
+ * 選択した動画ファイルをHLSでリアルタイムトランスコード出力します。
+ * Just-In-Time方式: 最初に総再生時間から完全なVODプレイリストを生成し、
+ * セグメントはPHPゲートウェイ(mode=segment)経由で配信します。
+ * 未エンコード地点へのシーク時はffmpegをその位置から再起動するため、
+ * 動画のどの位置からでも速やかに再生を開始できます。
  *
  * @package     sorshi/comistream-reader
  * @author      Comistream Project.
  * @copyright   2024 Comistream Project.
  * @license     GPL3.0 License
- * @version     1.0.0
+ * @version     1.1.0
  * @link        https://github.com/sorshi/comistream-reader
  *
  */
@@ -51,22 +54,31 @@ $writelog_process_name = 'Livestream';
 
 readConfig($dbh);
 
+// セグメント長(秒)。プレイリストのEXTINFとffmpegのキーフレーム強制を一致させる
+define('LS_SEG_DURATION', 3);
+// エンコード先端からこのセグメント数以内のリクエストは再起動せず完成を待つ
+define('LS_AHEAD_SEGMENTS', 10);
+// セグメント完成待ちのタイムアウト(秒)
+define('LS_WAIT_TIMEOUT', 30);
+
 // コーデック選択の参考
 // https://qiita.com/CyberRex/items/960bbd0f348ad8dca544
 //  DEV.LS h264                 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (decoders: libopenh264 ) (encoders: libopenh264 h264_amf h264_nvenc h264_qsv h264_v4l2m2m h264_vaapi )
 //  .EV.L. hevc                 H.265 / HEVC (High Efficiency Video Coding) (encoders: hevc_amf hevc_nvenc hevc_qsv hevc_v4l2m2m hevc_vaapi )
 // 画質調整を行いたい場合はpresetとビットレート、ピクセルサイズを編集する。負荷低減のためにハードウェアエンコード使える場合にはハードコーティングがよさそう。
-// $encoder="-vcodec libx264 -preset veryfast -b:v 800k -s 854x480 -acodec aac -b:a 64k -ar 44100 -map 0";
-// 参考:https://github.com/kaikoma-soft/raspirec/blob/5cd595db5c6c9077ce53e2fdd3d290467283795d/src/tool/ts2hls_sample.sh
-$iso_encoder = "-movflags faststart -preset superfast -max_muxing_queue_size 1024 -analyzeduration 10M -probesize 10M -c:v h264 -g 10 -b:v 800k -s 640x360 -c:a aac -b:a 64k -ar 44100 -ac 2 -flags +cgop+global_header"; // DVD ISO用
-$mkv_encoder = $iso_encoder . " -pix_fmt yuv420p "; // mkv用
-$encoder = $iso_encoder . " -map 0"; // mp4|m4v|avi|mkv|wmv|mpg|m2p|webm用
-$mpeg2ts_encoder = "-bsf:v h264_mp4toannexb " . $iso_encoder . " -map 0:v:0 -map 0:a -ignore_unknown"; // MPEG2-TS用
+// GOP指定(-g)ではなくforce_key_framesでセグメント境界(3秒)にキーフレームを強制する
+$base_encoder = "-preset superfast -max_muxing_queue_size 1024 -analyzeduration 10M -probesize 10M -c:v h264 -b:v 800k -s 640x360 -pix_fmt yuv420p -c:a aac -b:a 64k -ar 44100 -ac 2 -flags +cgop+global_header";
+$iso_encoder = $base_encoder; // DVD ISO用
+$mkv_encoder = $base_encoder; // mkv用
+$encoder = $base_encoder . " -map 0"; // mp4|m4v|avi|wmv|mpg|m2p|webm用
+$mpeg2ts_encoder = "-bsf:v h264_mp4toannexb " . $base_encoder . " -map 0:v:0 -map 0:a -ignore_unknown"; // MPEG2-TS用
 
 $mode = isset($_REQUEST['mode']) ? $_REQUEST['mode'] : '';
 $file = isset($_REQUEST['file']) ? $_REQUEST['file'] : '';
 $duration = isset($_REQUEST['duration']) ? $_REQUEST['duration'] : '';
-writelog("DEBUG QUERY mode:$mode file:$file duration:$duration", $writelog_process_name);
+if ($mode != 'segment') {
+  writelog("DEBUG QUERY mode:$mode file:$file duration:$duration", $writelog_process_name);
+}
 
 // Cookieの取得
 $user = isset($_COOKIE['comistreamUser'])  ? $_COOKIE['comistreamUser'] : 'guest';
@@ -90,16 +102,309 @@ switch ($liveStreamMode) {
     break;
 }
 
+// ============================================================
+// ヘルパー関数
+// ============================================================
+
+/**
+ * "HH:MM:SS"や"MM:SS"、秒数文字列を秒(float)へ変換する
+ */
+function ls_parse_time($str)
+{
+  $str = trim($str);
+  if ($str === '') {
+    return 0.0;
+  }
+  if (strpos($str, ':') !== false) {
+    $parts = array_reverse(explode(':', $str));
+    $sec = 0.0;
+    foreach ($parts as $i => $p) {
+      $sec += floatval($p) * pow(60, $i);
+    }
+    return $sec;
+  }
+  return floatval($str);
+}
+
+/**
+ * ffprobeで動画の総再生時間(秒)を取得する。取得できない場合は0を返す
+ */
+function ls_probe_duration($ffmpeg, $path)
+{
+  if (strpos($ffmpeg, '/') === false) {
+    $ffprobe = 'ffprobe';
+  } else {
+    $ffprobe = dirname($ffmpeg) . '/ffprobe';
+    if (!is_executable($ffprobe)) {
+      $ffprobe = 'ffprobe';
+    }
+  }
+  $cmd = $ffprobe . " -v error -show_entries format=duration -of csv=p=0 " . escapeshellarg($path) . " 2>/dev/null";
+  $out = [];
+  exec($cmd, $out, $rc);
+  $durationSec = isset($out[0]) ? floatval(trim($out[0])) : 0.0;
+  if ($rc !== 0 || $durationSec <= 0) {
+    writelog("WARN ls_probe_duration() failed rc:$rc path:$path", 'Livestream');
+    return 0.0;
+  }
+  return $durationSec;
+}
+
+/**
+ * エンコード状態ファイル(state.json)を読み込む
+ */
+function ls_read_state($hlsDir)
+{
+  $stateFile = "$hlsDir/state.json";
+  if (!file_exists($stateFile)) {
+    return null;
+  }
+  $json = file_get_contents($stateFile);
+  if ($json === false) {
+    return null;
+  }
+  $state = json_decode($json, true);
+  return is_array($state) ? $state : null;
+}
+
+/**
+ * エンコード状態ファイル(state.json)を書き込む
+ */
+function ls_write_state($hlsDir, $state)
+{
+  file_put_contents("$hlsDir/state.json", json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), LOCK_EX);
+}
+
+/**
+ * PIDが生存しているffmpegプロセスか確認する
+ */
+function ls_pid_is_ffmpeg($pid)
+{
+  $pid = intval($pid);
+  if ($pid <= 0) {
+    return false;
+  }
+  $out = [];
+  exec("ps -p $pid -o comm= 2>/dev/null", $out);
+  return isset($out[0]) && strpos($out[0], 'ffmpeg') !== false;
+}
+
+/**
+ * ffmpegプロセスをPID指定で停止する(TERM→KILL)
+ */
+function ls_kill_pid($pid)
+{
+  $pid = intval($pid);
+  if (!ls_pid_is_ffmpeg($pid)) {
+    return;
+  }
+  exec("kill -15 $pid 2>/dev/null");
+  usleep(300000);
+  if (ls_pid_is_ffmpeg($pid)) {
+    exec("kill -9 $pid 2>/dev/null");
+  }
+}
+
+/**
+ * エンコード済みセグメントの最大番号を返す(なければ-1)
+ */
+function ls_max_segment($hlsDir)
+{
+  $files = glob("$hlsDir/[0-9][0-9][0-9][0-9][0-9].ts");
+  if (empty($files)) {
+    return -1;
+  }
+  $max = -1;
+  foreach ($files as $f) {
+    $n = intval(basename($f, '.ts'));
+    if ($n > $max) {
+      $max = $n;
+    }
+  }
+  return $max;
+}
+
+/**
+ * 指定セグメント位置からのffmpegエンコードコマンドを組み立てる
+ */
+function ls_build_command($ffmpeg, $input, $encoderOpts, $hlsDir, $startSeg)
+{
+  $startSec = $startSeg * LS_SEG_DURATION;
+  $cmd = $ffmpeg . " -nostdin -y";
+  if ($startSeg > 0) {
+    $cmd .= " -ss $startSec";
+  }
+  $cmd .= " -i " . escapeshellarg($input);
+  $cmd .= " " . $encoderOpts;
+  $cmd .= " -force_key_frames " . escapeshellarg("expr:gte(t,n_forced*" . LS_SEG_DURATION . ")");
+  if ($startSeg > 0) {
+    // 途中開始でもタイムスタンプをプレイリスト上の時刻と連続させる
+    $cmd .= " -output_ts_offset $startSec";
+  }
+  $cmd .= " -f hls -hls_time " . LS_SEG_DURATION . " -hls_playlist_type vod -hls_flags temp_file";
+  $cmd .= " -start_number $startSeg";
+  $cmd .= " -hls_segment_filename " . escapeshellarg("$hlsDir/%05d.ts");
+  $cmd .= " " . escapeshellarg("$hlsDir/live.m3u8");
+  return $cmd;
+}
+
+/**
+ * ffmpegをバックグラウンド起動しPIDを返す
+ */
+function ls_start_encoder($command, $hlsDir)
+{
+  $logFile = "$hlsDir/encode_log";
+  $out = [];
+  exec($command . " >> " . escapeshellarg($logFile) . " 2>&1 & echo $!", $out);
+  $pid = isset($out[0]) ? intval($out[0]) : 0;
+  writelog("INFO ls_start_encoder() pid:$pid command:$command", 'Livestream');
+  return $pid;
+}
+
+/**
+ * 要求セグメントに対してエンコーダーが適切に動作しているか確認し、
+ * 必要であればffmpegをその位置から再起動する(flockで排他)。
+ * シーク時の再起動ストーム防止のため、判定と再起動はロック内で行う
+ */
+function ls_ensure_encoder($hlsDir, $n)
+{
+  global $ffmpeg;
+
+  $lockFp = fopen("$hlsDir/state.lock", 'c');
+  if ($lockFp === false) {
+    return;
+  }
+  flock($lockFp, LOCK_EX);
+  try {
+    $state = ls_read_state($hlsDir);
+    if (!$state || ($state['playback'] ?? '') !== 'vod') {
+      return;
+    }
+    // ロック待ちの間に別リクエストが再起動して完成している場合がある
+    clearstatcache();
+    if (file_exists(sprintf("%s/%05d.ts", $hlsDir, $n))) {
+      return;
+    }
+    $runStart = intval($state['run_start']);
+    $head = ls_max_segment($hlsDir);
+    $alive = ls_pid_is_ffmpeg($state['pid'] ?? 0);
+    $windowEnd = max($head, $runStart) + LS_AHEAD_SEGMENTS;
+    if ($alive && $n >= $runStart && $n <= $windowEnd) {
+      // 現在のエンコードがまもなく到達する範囲。待つだけでよい
+      return;
+    }
+    // シークによる範囲外リクエスト、またはエンコーダー死亡 → nから再起動
+    writelog("INFO ls_ensure_encoder() restart at seg:$n (run_start:$runStart head:$head alive:" . ($alive ? 1 : 0) . ")", 'Livestream');
+    ls_kill_pid($state['pid'] ?? 0);
+    $command = ls_build_command($ffmpeg, $state['input'], $state['encoder'], $hlsDir, $n);
+    $pid = ls_start_encoder($command, $hlsDir);
+    $state['pid'] = $pid;
+    $state['run_start'] = $n;
+    $state['updated'] = time();
+    ls_write_state($hlsDir, $state);
+  } finally {
+    flock($lockFp, LOCK_UN);
+    fclose($lockFp);
+  }
+}
+
+/**
+ * 全セグメントを列挙したVOD形式のm3u8を生成する
+ */
+function ls_generate_playlist($hlsDir, $cgiPath, $fileId, $totalDuration)
+{
+  $segTotal = intval(ceil($totalDuration / LS_SEG_DURATION));
+  $lines = [];
+  $lines[] = "#EXTM3U";
+  $lines[] = "#EXT-X-VERSION:3";
+  $lines[] = "#EXT-X-TARGETDURATION:" . (LS_SEG_DURATION + 1);
+  $lines[] = "#EXT-X-MEDIA-SEQUENCE:0";
+  $lines[] = "#EXT-X-PLAYLIST-TYPE:VOD";
+  for ($i = 0; $i < $segTotal; $i++) {
+    if ($i == $segTotal - 1) {
+      $len = $totalDuration - LS_SEG_DURATION * ($segTotal - 1);
+      $len = max($len, 0.001);
+    } else {
+      $len = LS_SEG_DURATION;
+    }
+    $lines[] = sprintf("#EXTINF:%.6f,", $len);
+    $lines[] = "$cgiPath?mode=segment&id=$fileId&n=$i";
+  }
+  $lines[] = "#EXT-X-ENDLIST";
+  file_put_contents("$hlsDir/index.m3u8", implode("\n", $lines) . "\n", LOCK_EX);
+  return $segTotal;
+}
+
+// ============================================================
+// モード別処理
+// ============================================================
+
 if ($mode == 'stop') {
   // エンコード停止
-  writelog("DEBUG ffmpeg process kill", $writelog_process_name);
-  exec("pkill -15 -f 'ffmpeg.*$user/file'");
+  $hlsContentDir = $conf['comistream_tool_dir'] . "/data/theme/hls/$user";
+  $state = ls_read_state($hlsContentDir);
+  if ($state && isset($state['pid'])) {
+    writelog("DEBUG ffmpeg process kill pid:" . $state['pid'], $writelog_process_name);
+    ls_kill_pid($state['pid']);
+  }
+  // 旧バージョンや状態ファイル欠損時のフォールバック
+  exec("pkill -15 -f " . escapeshellarg("ffmpeg.*hls/$user/file"));
   sleep(1);
   writelog("DEBUG hls dir delete.", $writelog_process_name);
-  $hlsContentDir = $conf['comistream_tool_dir'] . "/data/theme/hls/$user";
-  // exec("cd \"$hlsContentDir/\"; rm -rf *");
   deleteDirectory($hlsContentDir);
   writelog("INFO Livestream stopped.", $writelog_process_name);
+  exit;
+} elseif ($mode == 'segment') {
+  // セグメントゲートウェイ: エンコード済みなら即返却、
+  // 未エンコードなら必要に応じてffmpegを再起動して完成を待つ
+  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+  $n = isset($_REQUEST['n']) ? intval($_REQUEST['n']) : -1;
+  $id = isset($_REQUEST['id']) ? preg_replace('/[^a-f0-9]/', '', $_REQUEST['id']) : '';
+
+  // セッションロックを解放してから待機する(並行セグメントリクエストの直列化防止)
+  session_write_close();
+  set_time_limit(0);
+
+  $state = ls_read_state($hlsDir);
+  if (
+    !$state || ($state['playback'] ?? '') !== 'vod' || $id === '' || ($state['id'] ?? '') !== $id ||
+    $n < 0 || $n >= intval($state['total_segments'])
+  ) {
+    http_response_code(404);
+    exit;
+  }
+  // 視聴中の生存マーカー
+  @touch("$hlsDir/state.json");
+
+  $segFile = sprintf("%s/%05d.ts", $hlsDir, $n);
+  if (!file_exists($segFile)) {
+    ls_ensure_encoder($hlsDir, $n);
+    $deadline = microtime(true) + LS_WAIT_TIMEOUT;
+    $lastEnsure = microtime(true);
+    while (microtime(true) < $deadline) {
+      usleep(200000);
+      clearstatcache(true, $segFile);
+      if (file_exists($segFile)) {
+        break;
+      }
+      // エンコーダー死亡等からの回復用に定期的に再確認する
+      if (microtime(true) - $lastEnsure > 5) {
+        ls_ensure_encoder($hlsDir, $n);
+        $lastEnsure = microtime(true);
+      }
+    }
+    if (!file_exists($segFile)) {
+      writelog("WARN segment wait timeout seg:$n user:$user", $writelog_process_name);
+      http_response_code(503);
+      header('Retry-After: 2');
+      exit;
+    }
+  }
+  // 同一id+同一番号なら内容は同じためキャッシュ可
+  header('Content-Type: video/mp2t');
+  header('Content-Length: ' . filesize($segFile));
+  header('Cache-Control: private, max-age=3600');
+  readfile($segFile);
   exit;
 } elseif ($mode == 'open' && $file != '') {
   // ファイルオープン
@@ -113,31 +418,37 @@ if ($mode == 'stop') {
 
   $cgiPath = $_SERVER['SCRIPT_NAME'];
 
-  // ファイルIDを作成
-  $file = `echo "$openFile" | $md5cmd | awk '{print \$1}'`;
-
-  // HLS出力領域削除、ffmpegプロセスKILL（引数にユーザ名を含むもの）
-  exec("pkill -9 -f 'ffmpeg.*$user/file'");
-  // exec("mkdir -p \"$sharePath/hls/$user\"");
-  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
-
-  if (!chkAndMakeDir($hlsDir)) {
+  if (!file_exists($openFile)) {
+    writelog("ERROR open target not found:$openFile", $writelog_process_name);
+    echo '<html><head><title>NOT FOUND</title></head><body><h1>File not found.</h1></body></html>';
     exit(1);
   }
 
-  exec("cd \"$hlsDir/\"; rm -rf *");
-  exec("ln -s \"$openFile\" \"$hlsDir/file\"");
+  // ファイルIDを作成
+  $fileId = md5($openFile);
+
+  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+
+  // 既存エンコードの停止とHLS出力領域の初期化
+  $oldState = ls_read_state($hlsDir);
+  if ($oldState && isset($oldState['pid'])) {
+    ls_kill_pid($oldState['pid']);
+  }
+  // 旧バージョンや状態ファイル欠損時のフォールバック
+  exec("pkill -15 -f " . escapeshellarg("ffmpeg.*hls/$user/file"));
+  deleteDirectory($hlsDir);
+  if (!chkAndMakeDir($hlsDir)) {
+    exit(1);
+  }
+  symlink($openFile, "$hlsDir/file");
 
   // ポスター画像を設定
-  $poster = $conf["comistream_tool_dir"] . "data/theme/covers/" . basename($file, '.*') . ".jpg";
-  writelog("DEBUG poster:" . $poster, $writelog_process_name);
+  $posterFile = $conf["comistream_tool_dir"] . "/data/theme/covers" . $publicDir . "/" . $fileId . ".jpg";
+  $poster = file_exists($posterFile) ? "/theme/covers" . $publicDir . "/" . $fileId . ".jpg" : "";
+  writelog("DEBUG poster:" . $posterFile, $writelog_process_name);
 
-  // 再生位置の指定がある場合
-  if ($duration != '') {
-    $duration = "-ss $duration";
-  } else {
-    $duration = ' ';
-  }
+  // 再生開始位置の指定がある場合
+  $startSeconds = ls_parse_time($duration);
 
   // フォーマット判定してエンコードオプション設定
   if (preg_match('/\.(m2t|ts)$/i', $openFile)) {
@@ -148,12 +459,48 @@ if ($mode == 'stop') {
     $encoder = $mkv_encoder;
   }
 
-  // エンコード開始
-  $command = "$ffmpeg $duration -i \"$hlsDir/file\" $encoder -f hls -hls_time 3 -hls_playlist_type event -hls_segment_filename \"$hlsDir/%04d.ts\" \"$hlsDir/index.m3u8\"";
-  exec("$command 1>\"$hlsDir/encode_log\" 2>&1 &");
-  // 履歴
-  // TODO DBに書き込むように
-  // file_put_contents("$bookmarkDir/$user/history", "<a class=\"history_movie\" href=\"$_SERVER[REQUEST_URI]\">$baseFile</a>\n", FILE_APPEND);
+  $inputFile = "$hlsDir/file";
+  $totalDuration = ls_probe_duration($ffmpeg, $inputFile);
+
+  if ($totalDuration > 0) {
+    // VODモード: 完全なプレイリストを即時生成し、シーク時はセグメント
+    // ゲートウェイがJIT再起動する
+    $segTotal = ls_generate_playlist($hlsDir, $cgiPath, $fileId, $totalDuration);
+    $startSeg = min(intval(floor($startSeconds / LS_SEG_DURATION)), max($segTotal - 1, 0));
+    $command = ls_build_command($ffmpeg, $inputFile, $encoder, $hlsDir, $startSeg);
+    $pid = ls_start_encoder($command, $hlsDir);
+    ls_write_state($hlsDir, [
+      'playback' => 'vod',
+      'id' => $fileId,
+      'pid' => $pid,
+      'run_start' => $startSeg,
+      'total_segments' => $segTotal,
+      'seg_duration' => LS_SEG_DURATION,
+      'encoder' => $encoder,
+      'input' => $inputFile,
+      'updated' => time(),
+    ]);
+    $playbackMode = 'vod';
+    $startPosition = $startSeg * LS_SEG_DURATION;
+    writelog("INFO Livestream opened (vod) duration:$totalDuration segments:$segTotal start:$startSeg file:$baseFile", $writelog_process_name);
+  } else {
+    // 総再生時間が取得できない場合は従来のevent型にフォールバック(シーク不可)
+    $ssOpt = $startSeconds > 0 ? "-ss $startSeconds" : "";
+    $command = "$ffmpeg -nostdin -y $ssOpt -i " . escapeshellarg($inputFile) . " $encoder"
+      . " -force_key_frames " . escapeshellarg("expr:gte(t,n_forced*" . LS_SEG_DURATION . ")")
+      . " -f hls -hls_time " . LS_SEG_DURATION . " -hls_playlist_type event"
+      . " -hls_segment_filename " . escapeshellarg("$hlsDir/%04d.ts") . " " . escapeshellarg("$hlsDir/index.m3u8");
+    $pid = ls_start_encoder($command, $hlsDir);
+    ls_write_state($hlsDir, [
+      'playback' => 'event',
+      'id' => $fileId,
+      'pid' => $pid,
+      'updated' => time(),
+    ]);
+    $playbackMode = 'event';
+    $startPosition = 0;
+    writelog("INFO Livestream opened (event fallback) file:$baseFile", $writelog_process_name);
+  }
 
   // JavaScriptファイルの読み込み
   if (file_exists($conf["comistream_tool_dir"] . '/code/livestream.js')) {
@@ -227,6 +574,8 @@ if ($mode == 'stop') {
   const themeDir = "";
   const cgiPath = "$cgiPath";
   const user = "$user";
+  const playbackMode = "$playbackMode";
+  const startPosition = $startPosition;
 
     $contents_js
 </script>
