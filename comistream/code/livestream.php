@@ -127,40 +127,88 @@ function ls_parse_time($str)
 }
 
 /**
- * ffprobeで動画の総再生時間(秒)を取得する。取得できない場合は0を返す。
- * コンテナ(format)とストリーム両方のdurationを取得し最大値を採用する
- * (ヘッダ情報が不正なAVI等でformat側だけ短く出るケースへの対策)
+ * 実行可能なffprobeのパスを探す。見つからない場合は空文字を返す。
+ * 探索順: conf['ffprobe'] → ffmpegと同じディレクトリ → PATH → 定番の場所
+ */
+function ls_find_ffprobe($ffmpeg)
+{
+  global $conf;
+  $candidates = [];
+  if (!empty($conf['ffprobe'])) {
+    $candidates[] = $conf['ffprobe'];
+  }
+  if (strpos($ffmpeg, '/') !== false) {
+    $candidates[] = dirname($ffmpeg) . '/ffprobe';
+  }
+  $which = trim((string)exec('command -v ffprobe 2>/dev/null'));
+  if ($which !== '') {
+    $candidates[] = $which;
+  }
+  $candidates[] = '/usr/local/bin/ffprobe';
+  $candidates[] = '/usr/bin/ffprobe';
+  foreach ($candidates as $c) {
+    if ($c !== '' && is_executable($c)) {
+      writelog("DEBUG ls_find_ffprobe() using:$c", 'Livestream');
+      return $c;
+    }
+  }
+  writelog("WARN ls_find_ffprobe() ffprobe not found. checked: " . implode(', ', $candidates), 'Livestream');
+  return '';
+}
+
+/**
+ * ffmpeg -i が標準エラーに出す "Duration: HH:MM:SS.cc" 表記から
+ * 総再生時間(秒)を取得する。ffprobeがインストールされていない環境向け
+ */
+function ls_duration_from_ffmpeg($ffmpeg, $path)
+{
+  $cmd = $ffmpeg . " -hide_banner -i " . escapeshellarg($path) . " 2>&1";
+  $out = [];
+  exec($cmd, $out, $rc);
+  foreach ($out as $line) {
+    if (preg_match('/Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)/', $line, $m)) {
+      $durationSec = intval($m[1]) * 3600 + intval($m[2]) * 60 + floatval($m[3]);
+      writelog("INFO ls_duration_from_ffmpeg() duration:$durationSec from line:" . trim($line), 'Livestream');
+      return $durationSec;
+    }
+  }
+  writelog("WARN ls_duration_from_ffmpeg() Duration not found rc:$rc output:" . substr(implode(' | ', $out), 0, 1000), 'Livestream');
+  return 0.0;
+}
+
+/**
+ * 動画の総再生時間(秒)を取得する。取得できない場合は0を返す。
+ * ffprobeがあればコンテナ(format)とストリーム両方のdurationの最大値を採用
+ * (ヘッダ情報が不正なAVI等でformat側だけ短く出るケースへの対策)。
+ * ffprobeがない場合はffmpeg -iの出力から取得する
  */
 function ls_probe_duration($ffmpeg, $path)
 {
-  if (strpos($ffmpeg, '/') === false) {
-    $ffprobe = 'ffprobe';
-  } else {
-    $ffprobe = dirname($ffmpeg) . '/ffprobe';
-    if (!is_executable($ffprobe)) {
-      writelog("WARN ls_probe_duration() ffprobe not found beside ffmpeg, fallback to PATH: $ffprobe", 'Livestream');
-      $ffprobe = 'ffprobe';
-    }
-  }
   $realPath = realpath($path);
-  writelog("DEBUG ls_probe_duration() ffprobe:$ffprobe path:$path realpath:" . ($realPath !== false ? $realPath : 'FALSE'), 'Livestream');
-  $cmd = $ffprobe . " -v error -show_entries format=duration:stream=duration -of default=noprint_wrappers=1 " . escapeshellarg($path) . " 2>&1";
-  $out = [];
-  exec($cmd, $out, $rc);
-  writelog("DEBUG ls_probe_duration() rc:$rc output:" . implode(' | ', $out), 'Livestream');
-  $candidates = [];
-  foreach ($out as $line) {
-    if (preg_match('/^duration=([0-9.]+)/', trim($line), $m)) {
-      $candidates[] = floatval($m[1]);
+  writelog("DEBUG ls_probe_duration() path:$path realpath:" . ($realPath !== false ? $realPath : 'FALSE'), 'Livestream');
+
+  $ffprobe = ls_find_ffprobe($ffmpeg);
+  if ($ffprobe !== '') {
+    $cmd = $ffprobe . " -v error -show_entries format=duration:stream=duration -of default=noprint_wrappers=1 " . escapeshellarg($path) . " 2>&1";
+    $out = [];
+    exec($cmd, $out, $rc);
+    writelog("DEBUG ls_probe_duration() ffprobe rc:$rc output:" . substr(implode(' | ', $out), 0, 1000), 'Livestream');
+    $candidates = [];
+    foreach ($out as $line) {
+      if (preg_match('/^duration=([0-9.]+)/', trim($line), $m)) {
+        $candidates[] = floatval($m[1]);
+      }
     }
+    if ($rc === 0 && !empty($candidates)) {
+      $durationSec = max($candidates);
+      writelog("INFO ls_probe_duration() duration:$durationSec (candidates: " . implode(',', $candidates) . ") path:$path", 'Livestream');
+      return $durationSec;
+    }
+    writelog("WARN ls_probe_duration() ffprobe failed rc:$rc, falling back to ffmpeg -i", 'Livestream');
   }
-  if ($rc !== 0 || empty($candidates)) {
-    writelog("WARN ls_probe_duration() failed rc:$rc candidates:" . count($candidates) . " path:$path", 'Livestream');
-    return 0.0;
-  }
-  $durationSec = max($candidates);
-  writelog("INFO ls_probe_duration() duration:$durationSec (candidates: " . implode(',', $candidates) . ") path:$path", 'Livestream');
-  return $durationSec;
+
+  // ffprobeが使えない・失敗した場合のフォールバック
+  return ls_duration_from_ffmpeg($ffmpeg, $path);
 }
 
 /**
