@@ -61,6 +61,165 @@ window.addEventListener('pagehide',function(){
   navigator.sendBeacon(cgiPath, data );
 });
 
+let thumbnailManifest = null;
+let thumbnailManifestPromise = null;
+let seekPreviewHideTimer = null;
+let seekPreviewRequestId = 0;
+let thumbnailWorkerStarted = false;
+
+function formatLivestreamTime(seconds){
+  seconds = Math.max(0, Math.floor(seconds || 0));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) {
+    return h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  }
+  return m + ":" + String(s).padStart(2, "0");
+}
+
+function getSeekPreviewElements(){
+  return {
+    root: document.getElementById('seek_preview'),
+    image: document.getElementById('seek_preview_image'),
+    time: document.getElementById('seek_preview_time'),
+  };
+}
+
+function loadThumbnailManifest(){
+  if (playbackMode !== "vod" || !fileId) {
+    return Promise.resolve(null);
+  }
+  if (thumbnailManifestPromise) {
+    return thumbnailManifestPromise;
+  }
+  thumbnailManifestPromise = fetch(cgiPath + "?mode=thumb_manifest&id=" + encodeURIComponent(fileId), { cache: "no-store" })
+    .then(function(res){
+      if (!res.ok) {
+        return null;
+      }
+      return res.json();
+    })
+    .then(function(manifest){
+      if (!manifest || !manifest.enabled) {
+        return null;
+      }
+      thumbnailManifest = manifest;
+      return manifest;
+    })
+    .catch(function(){
+      return null;
+    });
+  return thumbnailManifestPromise;
+}
+
+function roundThumbnailTime(seconds, manifest){
+  const interval = (manifest && manifest.interval) ? manifest.interval : (thumbInterval || 30);
+  const duration = manifest && manifest.duration ? manifest.duration : 0;
+  let rounded = Math.round(Math.max(0, seconds || 0) / interval) * interval;
+  if (duration > 0 && rounded >= duration) {
+    rounded = Math.floor(Math.max(0, duration - 0.001) / interval) * interval;
+  }
+  return Math.max(0, rounded);
+}
+
+function thumbnailUrlFor(seconds, manifest){
+  const rounded = roundThumbnailTime(seconds, manifest);
+  if (manifest && manifest.url_template) {
+    return manifest.url_template.replace("{time}", encodeURIComponent(String(rounded)));
+  }
+  return cgiPath + "?mode=thumb&id=" + encodeURIComponent(fileId) + "&t=" + encodeURIComponent(String(rounded));
+}
+
+function requestThumbnailWorkerStart(){
+  if (thumbnailWorkerStarted) {
+    return;
+  }
+  thumbnailWorkerStarted = true;
+  loadThumbnailManifest().then(function(manifest){
+    if (!manifest || !manifest.worker_start_url || manifest.complete) {
+      return;
+    }
+    fetch(manifest.worker_start_url, { cache: "no-store" }).catch(function(){});
+  });
+}
+
+function showSeekPreview(video){
+  if (playbackMode !== "vod") {
+    return;
+  }
+  const els = getSeekPreviewElements();
+  if (!els.root || !els.image || !els.time) {
+    return;
+  }
+  if (seekPreviewHideTimer) {
+    clearTimeout(seekPreviewHideTimer);
+    seekPreviewHideTimer = null;
+  }
+
+  const seconds = Number.isFinite(video.currentTime) ? video.currentTime : startPosition;
+  els.time.textContent = formatLivestreamTime(seconds);
+  els.root.style.display = "block";
+
+  // シーク先の静止画で待ち時間を受けるルン
+  loadThumbnailManifest().then(function(manifest){
+    if (!manifest) {
+      return;
+    }
+    const requestId = ++seekPreviewRequestId;
+    const url = thumbnailUrlFor(seconds, manifest);
+    els.image.onload = function(){
+      if (requestId === seekPreviewRequestId) {
+        els.image.style.visibility = "visible";
+      }
+    };
+    els.image.onerror = function(){
+      if (requestId === seekPreviewRequestId) {
+        els.image.style.visibility = "hidden";
+      }
+    };
+    els.image.style.visibility = "hidden";
+    els.image.src = url;
+  });
+}
+
+function hideSeekPreviewSoon(delay){
+  const els = getSeekPreviewElements();
+  if (!els.root) {
+    return;
+  }
+  if (seekPreviewHideTimer) {
+    clearTimeout(seekPreviewHideTimer);
+  }
+  seekPreviewHideTimer = setTimeout(function(){
+    els.root.style.display = "none";
+  }, delay);
+}
+
+function setupSeekPreview(video){
+  if (playbackMode !== "vod") {
+    return;
+  }
+  loadThumbnailManifest().then(function(){
+    requestThumbnailWorkerStart();
+  });
+  video.addEventListener('seeking', function(){
+    showSeekPreview(video);
+  });
+  video.addEventListener('waiting', function(){
+    if (!video.ended) {
+      showSeekPreview(video);
+    }
+  });
+  video.addEventListener('seeked', function(){
+    hideSeekPreviewSoon(500);
+  });
+  video.addEventListener('playing', function(){
+    hideSeekPreviewSoon(300);
+    requestThumbnailWorkerStart();
+  });
+}
+
 function startPlayback(video, src){
   if (Hls.isSupported()) {
     const config = {
@@ -105,6 +264,7 @@ async function initPlayer(){
   const video = document.getElementById('video');
   const videoSrc = themeDir + "/theme/hls/" + user + "/index.m3u8";
   const sleep = waitTime => new Promise( resolve => setTimeout(resolve, waitTime) );
+  setupSeekPreview(video);
 
   if (playbackMode === "vod") {
     // VODプレイリストは即座に提供される。最初のセグメント取得は

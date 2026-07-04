@@ -54,12 +54,29 @@ $writelog_process_name = 'Livestream';
 
 readConfig($dbh);
 
+// CLI workerから呼ぶ場合は --mode=thumb_worker --id=<fileId> をREQUESTへ反映する
+if (PHP_SAPI === 'cli' && isset($argv) && is_array($argv)) {
+  for ($i = 1; $i < count($argv); $i++) {
+    if (preg_match('/^--([^=]+)=(.*)$/', $argv[$i], $m)) {
+      $_REQUEST[$m[1]] = $m[2];
+    } elseif (preg_match('/^--(.+)$/', $argv[$i], $m) && isset($argv[$i + 1])) {
+      $_REQUEST[$m[1]] = $argv[$i + 1];
+      $i++;
+    }
+  }
+}
+
 // セグメント長(秒)。プレイリストのEXTINFとffmpegのキーフレーム強制を一致させる
 define('LS_SEG_DURATION', 3);
 // エンコード先端からこのセグメント数以内のリクエストは再起動せず完成を待つ
 define('LS_AHEAD_SEGMENTS', 10);
 // セグメント完成待ちのタイムアウト(秒)
 define('LS_WAIT_TIMEOUT', 30);
+// シーク待ち時間を埋めるサムネイル設定ルン
+define('LS_THUMB_INTERVAL', 30);
+define('LS_THUMB_WIDTH', 160);
+define('LS_THUMB_HEIGHT', 90);
+define('LS_THUMB_WARMUP_LIMIT', 4);
 
 // コーデック選択の参考
 // https://qiita.com/CyberRex/items/960bbd0f348ad8dca544
@@ -84,22 +101,24 @@ if ($mode != 'segment') {
 $user = isset($_COOKIE['comistreamUser'])  ? $_COOKIE['comistreamUser'] : 'guest';
 $liveStreamMode = $conf['liveStreamMode'];
 // 'liveStreamMode' => 'LiveStreamによるHLS再圧縮機能を利用できるユーザーを制限します。デフォルトは0で全てのユーザーが利用可能です。1:ゲストユーザーが利用できなくなります。2:管理者のみ利用できます。',
-switch ($liveStreamMode) {
-  case 1:
-    if ($user == 'guest') {
-      writelog("INFO Guest user is not allowed to use LiveStream", $writelog_process_name);
-      errorExit('guest_not_allowed', 'guest_not_allowed_detail');
-    }
-    break;
-  case 2:
-    if (!isset($_SESSION['is_admin']) || !$_SESSION['is_admin']) {
-      writelog("INFO Only admin user is allowed to use LiveStream", $writelog_process_name);
-      errorExit('admin_only', 'admin_only_detail');
-    }
-    break;
-  default:
-    // デフォルトは全てのユーザーが利用可能
-    break;
+if (!(PHP_SAPI === 'cli' && $mode === 'thumb_worker')) {
+  switch ($liveStreamMode) {
+    case 1:
+      if ($user == 'guest') {
+        writelog("INFO Guest user is not allowed to use LiveStream", $writelog_process_name);
+        errorExit('guest_not_allowed', 'guest_not_allowed_detail');
+      }
+      break;
+    case 2:
+      if (!isset($_SESSION['is_admin']) || !$_SESSION['is_admin']) {
+        writelog("INFO Only admin user is allowed to use LiveStream", $writelog_process_name);
+        errorExit('admin_only', 'admin_only_detail');
+      }
+      break;
+    default:
+      // デフォルトは全てのユーザーが利用可能
+      break;
+  }
 }
 
 // ============================================================
@@ -292,6 +311,20 @@ function ls_pid_is_ffmpeg($pid)
 }
 
 /**
+ * PIDが生存しているか確認する
+ */
+function ls_pid_is_running($pid)
+{
+  $pid = intval($pid);
+  if ($pid <= 0) {
+    return false;
+  }
+  $out = [];
+  exec("ps -p $pid -o pid= 2>/dev/null", $out);
+  return isset($out[0]) && trim($out[0]) !== '';
+}
+
+/**
  * ffmpegプロセスをPID指定で停止する(TERM→KILL)
  */
 function ls_kill_pid($pid)
@@ -446,11 +479,445 @@ function ls_generate_playlist($hlsDir, $cgiPath, $fileId, $totalDuration)
   return $segTotal;
 }
 
+/**
+ * JSONレスポンスを返して終了する
+ */
+function ls_json_response($payload, $statusCode = 200)
+{
+  http_response_code($statusCode);
+  header('Content-Type: application/json; charset=UTF-8');
+  header('Cache-Control: no-store');
+  echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+  exit;
+}
+
+/**
+ * サムネイルキャッシュのルートディレクトリを返す
+ */
+function ls_thumb_root_dir()
+{
+  global $conf;
+  return $conf["comistream_tool_dir"] . "/data/theme/hls_thumbnails";
+}
+
+/**
+ * サムネイルキャッシュディレクトリを作成する
+ */
+function ls_ensure_thumb_dir($thumbDir)
+{
+  if (is_dir($thumbDir)) {
+    return true;
+  }
+  return @mkdir($thumbDir, 0775, true);
+}
+
+/**
+ * サムネイル対象のstateを読み、id/source/durationを検証する
+ */
+function ls_read_thumb_state($hlsDir, $id)
+{
+  $state = ls_read_state($hlsDir);
+  if (!$state) {
+    return [null, 'state not found'];
+  }
+  if ($id === '' || !preg_match('/^[a-f0-9]{64}$/', $id)) {
+    return [null, 'invalid id'];
+  }
+  if (($state['id'] ?? '') !== $id) {
+    return [null, 'file id mismatch'];
+  }
+  if (!isset($state['source']) || !is_file($state['source'])) {
+    return [null, 'source not found'];
+  }
+  if (($state['playback'] ?? '') !== 'vod' || empty($state['total_duration'])) {
+    return [$state, 'thumbnail disabled'];
+  }
+  return [$state, ''];
+}
+
+/**
+ * サムネイル時刻を30秒単位に丸める
+ */
+function ls_thumb_round_time($seconds, $duration)
+{
+  $seconds = max(0.0, floatval($seconds));
+  $duration = max(0.0, floatval($duration));
+  if ($duration > 0) {
+    $seconds = min($seconds, max(0.0, $duration - 0.001));
+  }
+  $rounded = intval(round($seconds / LS_THUMB_INTERVAL) * LS_THUMB_INTERVAL);
+  if ($duration > 0 && $rounded >= $duration) {
+    $rounded = intval(floor(max(0.0, $duration - 0.001) / LS_THUMB_INTERVAL) * LS_THUMB_INTERVAL);
+  }
+  return max(0, $rounded);
+}
+
+/**
+ * サムネイルキャッシュにある時刻一覧を返す
+ */
+function ls_thumb_ready_times($thumbDir)
+{
+  $ready = [];
+  foreach (['webp', 'jpg'] as $ext) {
+    $files = glob("$thumbDir/[0-9][0-9][0-9][0-9][0-9][0-9].$ext");
+    if (empty($files)) {
+      continue;
+    }
+    foreach ($files as $file) {
+      if (preg_match('/^(\d{6})\.(webp|jpg)$/', basename($file), $m)) {
+        $ready[intval($m[1])] = true;
+      }
+    }
+  }
+  $times = array_keys($ready);
+  sort($times, SORT_NUMERIC);
+  return $times;
+}
+
+/**
+ * 既存サムネイルを探す
+ */
+function ls_thumb_existing_file($thumbDir, $second)
+{
+  $base = sprintf("%s/%06d", $thumbDir, $second);
+  $candidates = [
+    [$base . '.webp', 'image/webp'],
+    [$base . '.jpg', 'image/jpeg'],
+  ];
+  foreach ($candidates as $candidate) {
+    if (is_file($candidate[0]) && filesize($candidate[0]) > 0) {
+      return $candidate;
+    }
+  }
+  return [null, null];
+}
+
+/**
+ * サムネイルmanifestを書き込む
+ */
+function ls_read_thumb_manifest($thumbDir)
+{
+  $manifestFile = "$thumbDir/manifest.json";
+  if (!is_file($manifestFile)) {
+    return null;
+  }
+  $json = file_get_contents($manifestFile);
+  $manifest = $json !== false ? json_decode($json, true) : null;
+  return is_array($manifest) ? $manifest : null;
+}
+
+/**
+ * サムネイルmanifestを書き込む
+ */
+function ls_write_thumb_manifest($thumbDir, $state, $extra = [])
+{
+  $source = $state['source'];
+  $existing = ls_read_thumb_manifest($thumbDir);
+  $generated = ls_thumb_ready_times($thumbDir);
+  $duration = floatval($state['total_duration']);
+  $total = $duration > 0 ? intval(ceil($duration / LS_THUMB_INTERVAL)) : 0;
+  $manifest = [
+    'id' => $state['id'],
+    'source' => $source,
+    'source_mtime' => filemtime($source),
+    'duration' => $duration,
+    'interval' => LS_THUMB_INTERVAL,
+    'width' => LS_THUMB_WIDTH,
+    'height' => LS_THUMB_HEIGHT,
+    'format' => 'webp',
+    'fallback_format' => 'jpg',
+    'generated' => $generated,
+    'complete' => $total > 0 && count($generated) >= $total,
+    'updated' => time(),
+  ];
+  foreach (['worker_pid', 'worker_status', 'worker_started', 'worker_updated', 'worker_progress', 'worker_total'] as $key) {
+    if (isset($existing[$key])) {
+      $manifest[$key] = $existing[$key];
+    }
+  }
+  foreach ($extra as $key => $value) {
+    $manifest[$key] = $value;
+  }
+  file_put_contents("$thumbDir/manifest.json", json_encode($manifest, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), LOCK_EX);
+  return $manifest;
+}
+
+/**
+ * manifestと現在の動画が合わない場合はキャッシュを初期化する
+ */
+function ls_prepare_thumb_cache($thumbDir, $state)
+{
+  if (!ls_ensure_thumb_dir($thumbDir)) {
+    return false;
+  }
+  $manifest = ls_read_thumb_manifest($thumbDir);
+  $source = $state['source'];
+  $valid = $manifest
+    && ($manifest['id'] ?? '') === ($state['id'] ?? '')
+    && ($manifest['source'] ?? '') === $source
+    && intval($manifest['source_mtime'] ?? -1) === intval(filemtime($source))
+    && intval($manifest['interval'] ?? 0) === LS_THUMB_INTERVAL
+    && intval($manifest['width'] ?? 0) === LS_THUMB_WIDTH
+    && intval($manifest['height'] ?? 0) === LS_THUMB_HEIGHT;
+
+  if (!$valid) {
+    $files = glob("$thumbDir/*");
+    if (!empty($files)) {
+      foreach ($files as $file) {
+        if (is_file($file) && preg_match('/\.(webp|jpg|json|lock)$/', $file)) {
+          @unlink($file);
+        }
+      }
+    }
+    ls_write_thumb_manifest($thumbDir, $state);
+  }
+  return true;
+}
+
+/**
+ * 指定時刻のサムネイルを1枚生成する
+ */
+function ls_generate_thumb($thumbDir, $state, $second, $preferKeyframe = false)
+{
+  global $ffmpeg;
+
+  if (!ls_ensure_thumb_dir($thumbDir)) {
+    return [null, null];
+  }
+  $lockFile = sprintf("%s/%06d.lock", $thumbDir, $second);
+  $lockFp = fopen($lockFile, 'c');
+  if ($lockFp === false) {
+    return [null, null];
+  }
+  flock($lockFp, LOCK_EX);
+  try {
+    list($existing, $contentType) = ls_thumb_existing_file($thumbDir, $second);
+    if ($existing !== null) {
+      return [$existing, $contentType];
+    }
+
+    $vf = "scale=" . LS_THUMB_WIDTH . ":" . LS_THUMB_HEIGHT . ":force_original_aspect_ratio=decrease,pad=" . LS_THUMB_WIDTH . ":" . LS_THUMB_HEIGHT . ":(ow-iw)/2:(oh-ih)/2";
+    $base = sprintf("%s/%06d", $thumbDir, $second);
+    $source = $state['source'];
+    $targets = [
+      ['ext' => 'webp', 'type' => 'image/webp', 'quality' => '60'],
+      ['ext' => 'jpg', 'type' => 'image/jpeg', 'quality' => '5'],
+    ];
+
+    $keyframeModes = $preferKeyframe ? [true, false] : [false];
+    foreach ($keyframeModes as $keyframeMode) {
+      foreach ($targets as $target) {
+        $tmp = $base . '.tmp.' . $target['ext'];
+        $final = $base . '.' . $target['ext'];
+        @unlink($tmp);
+        $cmd = $ffmpeg . " -nostdin -y ";
+        if ($keyframeMode) {
+          // 全量作成workerではIフレーム寄りにしてデコード量を抑えるルン
+          $cmd .= "-skip_frame nokey ";
+        }
+        $cmd .= "-ss " . escapeshellarg((string)$second)
+          . " -i " . escapeshellarg($source)
+          . " -frames:v 1 -vf " . escapeshellarg($vf)
+          . " -q:v " . $target['quality'] . " " . escapeshellarg($tmp) . " 2>&1";
+        $out = [];
+        exec($cmd, $out, $rc);
+        if ($rc === 0 && is_file($tmp) && filesize($tmp) > 0) {
+          @rename($tmp, $final);
+          ls_write_thumb_manifest($thumbDir, $state);
+          writelog("DEBUG thumbnail generated second:$second file:$final keyframe:" . ($keyframeMode ? 1 : 0), 'Livestream');
+          return [$final, $target['type']];
+        }
+        @unlink($tmp);
+        writelog("WARN thumbnail generation failed ext:" . $target['ext'] . " keyframe:" . ($keyframeMode ? 1 : 0) . " second:$second rc:$rc output:" . substr(implode(' | ', $out), 0, 1000), 'Livestream');
+      }
+    }
+  } finally {
+    flock($lockFp, LOCK_UN);
+    fclose($lockFp);
+  }
+  return [null, null];
+}
+
+/**
+ * PHP CLIの実行パスを探す
+ */
+function ls_find_php_cli()
+{
+  $candidates = [];
+  $which = trim((string)exec('command -v php 2>/dev/null'));
+  if ($which !== '') {
+    $candidates[] = $which;
+  }
+  $candidates[] = '/usr/local/bin/php';
+  $candidates[] = '/usr/bin/php';
+  if (defined('PHP_BINARY') && PHP_BINARY !== '') {
+    $candidates[] = PHP_BINARY;
+  }
+  foreach ($candidates as $candidate) {
+    if ($candidate === '' || !is_executable($candidate)) {
+      continue;
+    }
+    $base = strtolower(basename($candidate));
+    // Web SAPIのphp-cgiやphp-fpmを避けて、CLIのphp本体を優先する
+    if ($base === 'php' || $base === 'php.exe') {
+      return $candidate;
+    }
+  }
+  foreach ($candidates as $candidate) {
+    if ($candidate !== '' && is_executable($candidate) && stripos(basename($candidate), 'php') !== false) {
+      return $candidate;
+    }
+  }
+  return '';
+}
+
+/**
+ * manifestからworker用stateを復元する
+ */
+function ls_thumb_state_from_manifest($id, $manifest)
+{
+  if (!is_array($manifest)) {
+    return [null, 'manifest not found'];
+  }
+  if ($id === '' || !preg_match('/^[a-f0-9]{64}$/', $id) || ($manifest['id'] ?? '') !== $id) {
+    return [null, 'invalid id'];
+  }
+  $source = $manifest['source'] ?? '';
+  if ($source === '' || !is_file($source)) {
+    return [null, 'source not found'];
+  }
+  if (intval($manifest['source_mtime'] ?? -1) !== intval(filemtime($source))) {
+    return [null, 'source changed'];
+  }
+  if (intval($manifest['interval'] ?? 0) !== LS_THUMB_INTERVAL
+    || intval($manifest['width'] ?? 0) !== LS_THUMB_WIDTH
+    || intval($manifest['height'] ?? 0) !== LS_THUMB_HEIGHT) {
+    return [null, 'thumbnail spec changed'];
+  }
+  return [[
+    'id' => $id,
+    'source' => $source,
+    'total_duration' => floatval($manifest['duration'] ?? 0),
+  ], ''];
+}
+
+/**
+ * サムネイル全量作成workerをバックグラウンド起動する
+ */
+function ls_start_thumb_worker($thumbDir, $state)
+{
+  $manifest = ls_write_thumb_manifest($thumbDir, $state);
+  if (($manifest['complete'] ?? false) === true) {
+    return ['started' => false, 'pid' => 0, 'status' => 'complete'];
+  }
+  $oldPid = intval($manifest['worker_pid'] ?? 0);
+  if (($manifest['worker_status'] ?? '') === 'running' && ls_pid_is_running($oldPid)) {
+    return ['started' => false, 'pid' => $oldPid, 'status' => 'running'];
+  }
+
+  $php = ls_find_php_cli();
+  if ($php === '') {
+    return ['started' => false, 'pid' => 0, 'status' => 'php not found'];
+  }
+
+  $id = $state['id'];
+  $logFile = "$thumbDir/worker.log";
+  $cmd = "nice -n 10 " . escapeshellarg($php)
+    . " " . escapeshellarg(__FILE__)
+    . " --mode=thumb_worker --id=" . escapeshellarg($id)
+    . " >> " . escapeshellarg($logFile) . " 2>&1 & echo $!";
+  $out = [];
+  exec($cmd, $out);
+  $pid = isset($out[0]) ? intval($out[0]) : 0;
+  ls_write_thumb_manifest($thumbDir, $state, [
+    'worker_pid' => $pid,
+    'worker_status' => $pid > 0 ? 'running' : 'start_failed',
+    'worker_started' => time(),
+    'worker_updated' => time(),
+    'worker_progress' => count(ls_thumb_ready_times($thumbDir)),
+    'worker_total' => intval(ceil(floatval($state['total_duration']) / LS_THUMB_INTERVAL)),
+  ]);
+  writelog("INFO thumbnail worker start id:$id pid:$pid", 'Livestream');
+  return ['started' => $pid > 0, 'pid' => $pid, 'status' => $pid > 0 ? 'running' : 'start_failed'];
+}
+
+/**
+ * サムネイル全量作成worker本体
+ */
+function ls_run_thumb_worker($id)
+{
+  $thumbDir = ls_thumb_root_dir() . "/" . $id;
+  if (!preg_match('/^[a-f0-9]{64}$/', $id) || !is_dir($thumbDir)) {
+    writelog("WARN thumbnail worker invalid id or dir id:$id dir:$thumbDir", 'Livestream');
+    return 1;
+  }
+  $workerLock = fopen("$thumbDir/worker.lock", 'c');
+  if ($workerLock === false || !flock($workerLock, LOCK_EX | LOCK_NB)) {
+    writelog("INFO thumbnail worker already running id:$id", 'Livestream');
+    return 0;
+  }
+
+  try {
+    writelog("INFO thumbnail worker boot id:$id sapi:" . PHP_SAPI . " binary:" . PHP_BINARY, 'Livestream');
+    $manifest = ls_read_thumb_manifest($thumbDir);
+    list($state, $reason) = ls_thumb_state_from_manifest($id, $manifest);
+    if (!$state) {
+      writelog("WARN thumbnail worker rejected id:$id reason:$reason", 'Livestream');
+      return 1;
+    }
+    $duration = floatval($state['total_duration']);
+    $total = $duration > 0 ? intval(ceil($duration / LS_THUMB_INTERVAL)) : 0;
+    ls_write_thumb_manifest($thumbDir, $state, [
+      'worker_status' => 'running',
+      'worker_pid' => getmypid(),
+      'worker_updated' => time(),
+      'worker_total' => $total,
+    ]);
+
+    for ($second = 0; $second < $duration; $second += LS_THUMB_INTERVAL) {
+      list($thumbFile, $contentType) = ls_thumb_existing_file($thumbDir, $second);
+      if ($thumbFile === null) {
+        ls_generate_thumb($thumbDir, $state, $second, true);
+      }
+      $ready = count(ls_thumb_ready_times($thumbDir));
+      ls_write_thumb_manifest($thumbDir, $state, [
+        'worker_status' => 'running',
+        'worker_pid' => getmypid(),
+        'worker_updated' => time(),
+        'worker_progress' => $ready,
+        'worker_total' => $total,
+      ]);
+      clearstatcache();
+    }
+
+    $ready = count(ls_thumb_ready_times($thumbDir));
+    ls_write_thumb_manifest($thumbDir, $state, [
+      'worker_status' => 'complete',
+      'worker_pid' => 0,
+      'worker_updated' => time(),
+      'worker_progress' => $ready,
+      'worker_total' => $total,
+    ]);
+    writelog("INFO thumbnail worker complete id:$id ready:$ready total:$total", 'Livestream');
+  } finally {
+    flock($workerLock, LOCK_UN);
+    fclose($workerLock);
+  }
+  return 0;
+}
+
 // ============================================================
 // モード別処理
 // ============================================================
 
-if ($mode == 'stop') {
+if ($mode == 'thumb_worker') {
+  if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit;
+  }
+  $id = isset($_REQUEST['id']) ? preg_replace('/[^a-f0-9]/', '', $_REQUEST['id']) : '';
+  exit(ls_run_thumb_worker($id));
+} elseif ($mode == 'stop') {
   // エンコード停止
   $hlsContentDir = $conf['comistream_tool_dir'] . "/data/theme/hls/$user";
   $state = ls_read_state($hlsContentDir);
@@ -530,6 +997,134 @@ if ($mode == 'stop') {
   header('Cache-Control: private, max-age=3600');
   readfile($segFile);
   exit;
+} elseif ($mode == 'thumb_manifest') {
+  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+  $id = isset($_REQUEST['id']) ? preg_replace('/[^a-f0-9]/', '', $_REQUEST['id']) : '';
+  list($state, $rejectReason) = ls_read_thumb_state($hlsDir, $id);
+  if (!$state) {
+    writelog("WARN thumb_manifest rejected user:$user reason:$rejectReason", $writelog_process_name);
+    ls_json_response(['enabled' => false, 'error' => $rejectReason], 404);
+  }
+  if ($rejectReason === 'thumbnail disabled') {
+    ls_json_response(['enabled' => false, 'id' => $id]);
+  }
+
+  $thumbDir = ls_thumb_root_dir() . "/" . $id;
+  if (!ls_prepare_thumb_cache($thumbDir, $state)) {
+    writelog("ERROR thumb_manifest cache dir failed:$thumbDir", $writelog_process_name);
+    ls_json_response(['enabled' => false, 'error' => 'cache directory unavailable'], 503);
+  }
+  $manifest = ls_write_thumb_manifest($thumbDir, $state);
+  ls_json_response([
+    'enabled' => true,
+    'id' => $id,
+    'duration' => floatval($state['total_duration']),
+    'interval' => LS_THUMB_INTERVAL,
+    'width' => LS_THUMB_WIDTH,
+    'height' => LS_THUMB_HEIGHT,
+    'format' => $manifest['format'],
+    'fallback_format' => $manifest['fallback_format'],
+    'url_template' => $_SERVER['SCRIPT_NAME'] . "?mode=thumb&id=$id&t={time}",
+    'warmup_url' => $_SERVER['SCRIPT_NAME'] . "?mode=thumb_warmup&id=$id",
+    'worker_start_url' => $_SERVER['SCRIPT_NAME'] . "?mode=thumb_worker_start&id=$id",
+    'ready' => $manifest['generated'],
+    'complete' => $manifest['complete'],
+    'worker_status' => $manifest['worker_status'] ?? '',
+    'worker_progress' => $manifest['worker_progress'] ?? count($manifest['generated']),
+    'worker_total' => $manifest['worker_total'] ?? intval(ceil(floatval($state['total_duration']) / LS_THUMB_INTERVAL)),
+  ]);
+} elseif ($mode == 'thumb_worker_start') {
+  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+  $id = isset($_REQUEST['id']) ? preg_replace('/[^a-f0-9]/', '', $_REQUEST['id']) : '';
+  session_write_close();
+
+  list($state, $rejectReason) = ls_read_thumb_state($hlsDir, $id);
+  if (!$state || $rejectReason !== '') {
+    ls_json_response(['enabled' => false, 'error' => $rejectReason], $rejectReason === 'thumbnail disabled' ? 200 : 403);
+  }
+  $thumbDir = ls_thumb_root_dir() . "/" . $id;
+  if (!ls_prepare_thumb_cache($thumbDir, $state)) {
+    ls_json_response(['enabled' => false, 'error' => 'cache directory unavailable'], 503);
+  }
+  $worker = ls_start_thumb_worker($thumbDir, $state);
+  $manifest = ls_write_thumb_manifest($thumbDir, $state);
+  ls_json_response([
+    'enabled' => true,
+    'started' => $worker['started'],
+    'pid' => $worker['pid'],
+    'status' => $worker['status'],
+    'complete' => $manifest['complete'],
+    'ready' => $manifest['generated'],
+    'worker_progress' => $manifest['worker_progress'] ?? count($manifest['generated']),
+    'worker_total' => $manifest['worker_total'] ?? intval(ceil(floatval($state['total_duration']) / LS_THUMB_INTERVAL)),
+  ]);
+} elseif ($mode == 'thumb') {
+  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+  $id = isset($_REQUEST['id']) ? preg_replace('/[^a-f0-9]/', '', $_REQUEST['id']) : '';
+  $seconds = isset($_REQUEST['t']) ? floatval($_REQUEST['t']) : 0.0;
+  session_write_close();
+  set_time_limit(0);
+
+  list($state, $rejectReason) = ls_read_thumb_state($hlsDir, $id);
+  if (!$state || $rejectReason !== '') {
+    writelog("WARN thumb rejected user:$user id:$id t:$seconds reason:$rejectReason", $writelog_process_name);
+    http_response_code($rejectReason === 'thumbnail disabled' ? 404 : 403);
+    exit;
+  }
+  $thumbDir = ls_thumb_root_dir() . "/" . $id;
+  if (!ls_prepare_thumb_cache($thumbDir, $state)) {
+    http_response_code(503);
+    exit;
+  }
+  $thumbSecond = ls_thumb_round_time($seconds, $state['total_duration']);
+  list($thumbFile, $contentType) = ls_thumb_existing_file($thumbDir, $thumbSecond);
+  if ($thumbFile === null) {
+    list($thumbFile, $contentType) = ls_generate_thumb($thumbDir, $state, $thumbSecond);
+  }
+  if ($thumbFile === null) {
+    http_response_code(503);
+    header('Retry-After: 2');
+    exit;
+  }
+  header('Content-Type: ' . $contentType);
+  header('Content-Length: ' . filesize($thumbFile));
+  header('Cache-Control: private, max-age=86400');
+  readfile($thumbFile);
+  exit;
+} elseif ($mode == 'thumb_warmup') {
+  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+  $id = isset($_REQUEST['id']) ? preg_replace('/[^a-f0-9]/', '', $_REQUEST['id']) : '';
+  $from = isset($_REQUEST['from']) ? floatval($_REQUEST['from']) : 0.0;
+  $limit = isset($_REQUEST['limit']) ? intval($_REQUEST['limit']) : LS_THUMB_WARMUP_LIMIT;
+  $limit = max(1, min($limit, LS_THUMB_WARMUP_LIMIT));
+  session_write_close();
+  set_time_limit(0);
+
+  list($state, $rejectReason) = ls_read_thumb_state($hlsDir, $id);
+  if (!$state || $rejectReason !== '') {
+    ls_json_response(['enabled' => false, 'error' => $rejectReason], $rejectReason === 'thumbnail disabled' ? 200 : 403);
+  }
+  $thumbDir = ls_thumb_root_dir() . "/" . $id;
+  if (!ls_prepare_thumb_cache($thumbDir, $state)) {
+    ls_json_response(['enabled' => false, 'error' => 'cache directory unavailable'], 503);
+  }
+  $start = ls_thumb_round_time($from, $state['total_duration']);
+  $generated = [];
+  for ($second = $start; $second < floatval($state['total_duration']) && count($generated) < $limit; $second += LS_THUMB_INTERVAL) {
+    list($thumbFile, $contentType) = ls_thumb_existing_file($thumbDir, $second);
+    if ($thumbFile === null) {
+      list($thumbFile, $contentType) = ls_generate_thumb($thumbDir, $state, $second);
+    }
+    if ($thumbFile !== null) {
+      $generated[] = $second;
+    }
+  }
+  $manifest = ls_write_thumb_manifest($thumbDir, $state);
+  ls_json_response([
+    'enabled' => true,
+    'generated' => $generated,
+    'ready' => $manifest['generated'],
+  ]);
 } elseif ($mode == 'open' && $file != '') {
   // ファイルオープン
   $file = str_replace('../', '', $file);
@@ -549,7 +1144,7 @@ if ($mode == 'stop') {
   }
 
   // ファイルIDを作成
-  $fileId = md5($openFile);
+  $fileId = hash('sha256', $openFile);
 
   $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
   writelog("INFO open request user:$user openFile:$openFile fileId:$fileId", $writelog_process_name);
@@ -624,6 +1219,7 @@ if ($mode == 'stop') {
       'pid' => $pid,
       'run_start' => $startSeg,
       'total_segments' => $segTotal,
+      'total_duration' => $totalDuration,
       'seg_duration' => LS_SEG_DURATION,
       'encoder' => $encoder,
       'input' => $inputFile,
@@ -667,6 +1263,7 @@ if ($mode == 'stop') {
 
   // ベースhtml出力
   // header('Content-Type: text/html');
+  $thumbInterval = LS_THUMB_INTERVAL;
   echo <<<HTML
 <html>
 <head>
@@ -714,6 +1311,46 @@ if ($mode == 'stop') {
       overflow: scroll;
       z-index: 2;
     }
+    #seek_preview {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
+      overflow: hidden;
+      color: white;
+      z-index: 2;
+      pointer-events: none;
+      font-family: sans-serif;
+      font-size: 14px;
+      line-height: 1.2;
+    }
+    #seek_preview img {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translateX(-50%) translateY(-50%);
+      width: 100%;
+      height: auto;
+      max-width: none;
+      max-height: none;
+      background-color: black;
+    }
+    #seek_preview_time {
+      position: absolute;
+      left: 50%;
+      bottom: 64px;
+      transform: translateX(-50%);
+      min-width: 64px;
+      padding: 8px 10px;
+      color: white;
+      background-color: rgba(0,0,0,0.72);
+      border-radius: 4px;
+      text-align: center;
+      white-space: nowrap;
+      z-index: 3;
+    }
   </style>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
@@ -722,14 +1359,20 @@ if ($mode == 'stop') {
     <div id="movie_title" class="movie_title"><span>$baseFile</span></div>
     <div id="progress"></div>
     <video id="video" controls autoplay width="854" height="480" poster="$poster"></video>
+    <div id="seek_preview" aria-hidden="true">
+      <img id="seek_preview_image" alt="">
+      <span id="seek_preview_time"></span>
+    </div>
 </div>
 <script>
   const publicDir = "$publicDir";
   const themeDir = "";
   const cgiPath = "$cgiPath";
   const user = "$user";
+  const fileId = "$fileId";
   const playbackMode = "$playbackMode";
   const startPosition = $startPosition;
+  const thumbInterval = $thumbInterval;
 
     $contents_js
 </script>
