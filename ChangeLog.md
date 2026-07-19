@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### 追加
+- jsDelivrからComistream向けFoliate-js forkの固定コミットを読み込むEPUB readerを追加。展開済みEPUBをローカルキャッシュから配信し、EPUB CFIによる読書位置の保存・復帰に対応。
 - 低メモリモード追加。デフォルトは有効。有効時にはAVIFソースのトリミングを無効にする。
 - ログ表示で表紙画像とプレビュー画像の作成に要した時間を記録する機能追加
 - open時にpage=で指定したページから開ける機能追加
@@ -26,7 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ファイルサイズ20MBを以上や辺のピクセル数8000以上の巨大画像でのエラー処理によるエラー処理
 - ディレクトリリスティングでカバービューモードでもソートオーダー設定可能に
 - ディレクトリリスティングにスケルトンスクリーン搭載
-- 5MB以上のepubはサーバー側で事前展開して高速な出画を行うように
 - 画面下半分の親指上スワイプによるページ順めくり機能を追加
 - 表紙画像/プレビュー画像作成時に同名ファイルでもファイルの中身を判定して同一ファイル化判定
 
@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - デイリーバッチの改良でアクセスの無いキャッシュディレクトリは保持期間の半分の日数で削除
 - 電子書籍本体のない表紙画像とプレビュー画像の削除処理追加
 - メニューやヘッダのボタン表示を切替先から現在モードに統一
+- Bibiの利用廃止。foliate-jsベースの独自epubリーダー搭載
 
 ### 修正
 - Dockerfileにunrar追加
@@ -83,4 +84,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 削除
 - なし
-

@@ -140,6 +140,7 @@ writelog("DEBUG QUERY_STRING:" . print_r($param, true) . " method:" . $_SERVER["
 
 $width = array_key_exists("width", $param) ? $param["width"] : $width;
 $page = array_key_exists("page", $param) ? $param["page"] : "";
+$epub_cfi = array_key_exists("epub_cfi", $param) ? $param["epub_cfi"] : "";
 $quality = array_key_exists("quality", $param) ? $param["quality"] : $quality;
 $file = array_key_exists("file", $param) ? $param["file"] : "";
 $base_file_hash = array_key_exists("base_file_hash", $param) ? $param["base_file_hash"] : "";
@@ -311,7 +312,7 @@ if ($mode === 'delete' && !empty($orgname)) {
 
     // EPUBファイルの場合は特別処理
     if (preg_match('/\.epub\s*$/i', $originalFile)) {
-        handleEpubOpen();
+        handleFoliateEpubOpen();
         exit(0);
     }
 

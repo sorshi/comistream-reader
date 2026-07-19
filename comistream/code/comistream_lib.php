@@ -834,10 +834,95 @@ function getRecentBooks()
     }
     exit(0);
 } //end function writelog
+
+/**
+ * book_historyにEPUB CFI保存列が存在することを保証するルン。
+ *
+ * 複数リクエストが同時に移行を試みた場合、後続のALTER TABLEは
+ * duplicate columnで失敗し得るため、例外後に列を再確認するルン。
+ */
+function ensureBookHistoryEpubCfiColumn($database)
+{
+    if (!($database instanceof PDO)) {
+        throw new InvalidArgumentException('A PDO connection is required.');
+    }
+
+    $hasColumn = static function () use ($database) {
+        $statement = $database->query('PRAGMA table_info(book_history)');
+        $columns = $statement->fetchAll(PDO::FETCH_ASSOC);
+        $statement->closeCursor();
+
+        foreach ($columns as $column) {
+            if (($column['name'] ?? '') === 'epub_cfi') {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if ($hasColumn()) {
+        return;
+    }
+
+    try {
+        $database->exec('ALTER TABLE book_history ADD COLUMN epub_cfi TEXT DEFAULT NULL');
+    } catch (PDOException $e) {
+        // 競合した別リクエストが追加済みなら成功として扱うルン。
+        if ($hasColumn()) {
+            return;
+        }
+        throw $e;
+    }
+}
+
+
+/**
+ * 既存ファイルを基準ディレクトリ内に限定して解決するルン。
+ *
+ * @return string|false 解決済み絶対パス。無効なパスの場合はfalse。
+ */
+function resolveFileWithinBaseDirectory($baseDirectory, $relativePath)
+{
+    $baseDirectory = (string)$baseDirectory;
+    $relativePath = (string)$relativePath;
+    if ($baseDirectory === '' || $relativePath === '' || strpos($relativePath, "\0") !== false) {
+        return false;
+    }
+
+    // fileパラメータは共有領域からの相対パスだけを受け付けるルン。
+    if ($relativePath[0] === '/' || $relativePath[0] === '\\') {
+        return false;
+    }
+    if (preg_match('~(^|[\\\\/])\.\.([\\\\/]|$)~', $relativePath) === 1) {
+        return false;
+    }
+
+    $realBase = realpath($baseDirectory);
+    if ($realBase === false || !is_dir($realBase)) {
+        return false;
+    }
+
+    $candidate = rtrim($realBase, DIRECTORY_SEPARATOR)
+        . DIRECTORY_SEPARATOR
+        . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relativePath);
+    $realFile = realpath($candidate);
+    if ($realFile === false || !is_file($realFile)) {
+        return false;
+    }
+
+    $basePrefix = rtrim($realBase, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+    if (strncmp($realFile, $basePrefix, strlen($basePrefix)) !== 0) {
+        return false;
+    }
+
+    return $realFile;
+}
+
+
 ##### ファイルクローズ時にページ位置を保存 ##################################################
 function saveBookmark()
 {
-    global $bookmarkDir, $user, $global_use_db_flag, $dbh, $file, $page, $maxPage;
+    global $bookmarkDir, $user, $global_use_db_flag, $dbh, $file, $page, $maxPage, $epub_cfi;
 
     // beaconリクエストはbest-effortなので、タイムアウトを短く設定
     set_time_limit(5);
@@ -873,6 +958,9 @@ function saveBookmark()
                 exit(0);
             }
 
+            // 既存DBでも通常書籍のcloseを壊さないよう、更新前にCFI列を補うルン。
+            ensureBookHistoryEpubCfiColumn($beacon_dbh);
+
             $baseFileUtf = $baseFile;
             $query = "SELECT max_page, has_read FROM book_history WHERE user = ? AND base_file = ? ORDER BY updated_at DESC LIMIT 1";
             $stmt = $beacon_dbh->prepare($query);
@@ -898,12 +986,12 @@ function saveBookmark()
 
             // favはここではいじらない
             $baseFileHash = basefilename2hash($baseFileUtf);
-            $query = "UPDATE book_history SET current_page = ?, max_page = ?, has_read = ? WHERE user = ? AND base_file = ?";
+            $query = "UPDATE book_history SET current_page = ?, max_page = ?, has_read = ?, epub_cfi = ? WHERE user = ? AND base_file = ?";
 
             // UPDATEをtry-catchでラップし、タイムアウト時は諦める（beaconはbest-effort）
             try {
                 $stmt = $beacon_dbh->prepare($query);
-                $stmt->execute([$page, $maxPage, $has_read, $user, $baseFileUtf]);
+                $stmt->execute([$page, $maxPage, $has_read, ($epub_cfi !== '' ? $epub_cfi : null), $user, $baseFileUtf]);
 
                 if ($beacon_dbh->errorInfo()[2]) {
                     writelog("ERROR saveBookmark() SQL error: " . $beacon_dbh->errorInfo()[2] . " query: $query");
@@ -5659,7 +5747,110 @@ HTML;
 } //end function printPdfViewerHTML
 
 
-##### EPUB処理 ######################################################################
+##### Foliate EPUB処理 ##############################################################
+/**
+ * EPUBをローカルキャッシュへ展開し、Foliate-jsで表示するルン。
+ */
+function handleFoliateEpubOpen()
+{
+    global $conf, $file, $sharePath, $cacheDir, $publicDir, $p7zip, $dbh, $user;
+    global $escapedFile, $baseFile, $bookName, $pageTitle;
+
+    $remotePath = urldecode(str_replace('+', '%2B', (string)$file));
+    $localPath = resolveFileWithinBaseDirectory($sharePath, $remotePath);
+    if ($localPath === false || !is_readable($localPath)) {
+        writelog("ERROR handleFoliateEpubOpen() invalid or unreadable EPUB path: {$remotePath}");
+        errorExit('file_not_found');
+    }
+
+    $escapedFile = urlEncodeFilePath($remotePath);
+    $baseFile = basename($remotePath);
+    list($bookName, $pageTitle) = get_book_title($baseFile);
+    $fileHash = basefilename2hash(ltrim($remotePath, '/'));
+    if ($fileHash === '') {
+        errorExit('file_processing_failed');
+    }
+
+    $webRoot = (string)($conf['webRoot'] ?? realpath(__DIR__ . '/../..'));
+    $epubCacheDir = rtrim((string)$cacheDir, '/') . '/' . $fileHash;
+    $symlinkPath = rtrim($webRoot, '/') . '/theme/bibi/' . $fileHash;
+    $cacheReady = is_dir($epubCacheDir)
+        && is_link($symlinkPath)
+        && is_dir($symlinkPath)
+        && is_file($epubCacheDir . '/DONE');
+
+    if (!$cacheReady) {
+        if (is_link($symlinkPath)) {
+            unlink($symlinkPath);
+        } elseif (is_dir($symlinkPath)) {
+            deleteDirectory($symlinkPath);
+        }
+        deleteDirectory($epubCacheDir);
+        if (!chkAndMakeDir($epubCacheDir)) {
+            errorExit('mkdir_failed', 'cache_dir_creation_failed');
+        }
+
+        $command = escapeshellcmd((string)$p7zip)
+            . ' x -y -o' . escapeshellarg($epubCacheDir)
+            . ' ' . escapeshellarg($localPath);
+        $output = [];
+        $exitCode = 0;
+        exec($command, $output, $exitCode);
+        if ($exitCode !== 0 || !is_file($epubCacheDir . '/META-INF/container.xml')) {
+            deleteDirectory($epubCacheDir);
+            writelog("ERROR handleFoliateEpubOpen() EPUB extraction failed: {$localPath}");
+            errorExit('file_processing_failed');
+        }
+
+        $symlinkDir = dirname($symlinkPath);
+        if (!is_dir($symlinkDir) && !mkdir($symlinkDir, 0755, true) && !is_dir($symlinkDir)) {
+            deleteDirectory($epubCacheDir);
+            errorExit('mkdir_failed');
+        }
+        if (!symlink($epubCacheDir, $symlinkPath)) {
+            deleteDirectory($epubCacheDir);
+            errorExit('symlink_failed');
+        }
+        touch($epubCacheDir . '/DONE');
+    }
+
+    $savedCfi = '';
+    $savedUpdatedAt = 0;
+    if ($dbh instanceof PDO && $user !== 'guest') {
+        ensureBookHistoryEpubCfiColumn($dbh);
+        $requestUri = (string)($_SERVER['REQUEST_URI'] ?? ('/cgi-bin/comistream.php?mode=open&file=' . rawurlencode($remotePath)));
+        $relativePath = dirname('/' . ltrim($remotePath, '/'));
+        $stmt = $dbh->prepare(
+            'INSERT INTO book_history '
+            . '(user, request_uri, path_hash, relative_path, base_file, base_file_hash, current_page, max_page) '
+            . 'VALUES (?, ?, ?, ?, ?, ?, 0, 0) '
+            . 'ON CONFLICT(user, base_file) DO UPDATE SET '
+            . 'request_uri = excluded.request_uri, path_hash = excluded.path_hash, relative_path = excluded.relative_path'
+        );
+        $stmt->execute([$user, $requestUri, $fileHash, $relativePath, $baseFile, basefilename2hash($baseFile)]);
+        $stmt = $dbh->prepare('SELECT epub_cfi, updated_at, created_at FROM book_history WHERE user = ? AND base_file = ? ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1');
+        $stmt->execute([$user, $baseFile]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (is_array($row)) {
+            $savedCfi = (string)($row['epub_cfi'] ?? '');
+            $savedTime = strtotime((string)($row['updated_at'] ?? $row['created_at'] ?? ''));
+            $savedUpdatedAt = $savedTime !== false ? $savedTime * 1000 : 0;
+        }
+    }
+
+    $publicFilePath = rtrim((string)$publicDir, '/') . '/' . ltrim($remotePath, '/');
+    $parentUrl = dirname($publicFilePath);
+    $conf['reader_fallback_parent_url'] = $parentUrl === '.' ? '/' : rtrim($parentUrl, '/') . '/';
+    $conf['reader_fallback_home_url'] = '/';
+    $conf['epub_reader_package_base'] = '/theme/bibi/' . $fileHash . '/';
+    $conf['epub_reader_url'] = '';
+    $conf['epub_saved_cfi'] = $savedCfi;
+    $conf['epub_saved_updated_at'] = $savedUpdatedAt;
+    printEpubViewerHTML();
+    exit(0);
+}
+
+##### 旧Bibi EPUB処理 ###############################################################
 /**
  * EPUBファイルを開く処理
  * ファイルサイズに応じて直接bibiで開くか、事前展開してからbibiで開くかを決定

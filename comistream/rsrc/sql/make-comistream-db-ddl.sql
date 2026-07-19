@@ -14,6 +14,7 @@ CREATE TABLE book_history (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP, -- 作成日時：レコード作成日時
     updated_at DATETIME, -- 更新日時：レコード更新日時
     has_read INTEGER DEFAULT 0, -- 読了フラグ：読了状態（0:未読、1:既読）
+    epub_cfi TEXT DEFAULT NULL, -- EPUBの段落単位の読書位置（CFI）
     UNIQUE(user, base_file)
 );
 CREATE INDEX idx_book_history_base_file ON book_history(base_file);

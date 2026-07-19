@@ -7,7 +7,7 @@ NASに追加すると、ブラウザさえあればどこからでもマンガ�
 ## 主な機能
 
 - クイック見開き:スペースキー押しやスマホやiPadの向き回転や長押しで縦長単ページから見開き表示する機能。超便利。
-- マルチフォーマット対応（ZIP、RAR、7z、PDF、等）
+- マルチフォーマット対応（ZIP、RAR、7z、PDF、epub等）
 - レスポンシブデザインによるモバイル対応
 - 右綴じ/左綴じ切替
 - 圧縮/オリジナル品質の簡単切替（パケットセービングモード）
@@ -46,7 +46,7 @@ NASに追加すると、ブラウザさえあればどこからでもマンガ�
 --restart unless-stopped  \
 --name comistream ghcr.io/sorshi/comistream-reader/comistream-reader:latest
 
-## 手動インストール  
+## 手動インストール
 **【重要】** 既存環境のweb rootにthemeというディレクトリと.htaccessがある場合は競合するので別環境で動かしてください。
 **【重要】** 既存環境に組み入れる際には充分な検証を事前に行うことをおすすめします。可能なら別VMやコンテナがよろしいとおもいます。
 **【重要】** 注意深く作成したつもりですが、意図しないバグによるファイルの削除などが発生しないようにメディアコンテンツはリードオンリーでマウントしておくと安全だと思います。
@@ -55,15 +55,15 @@ NASに追加すると、ブラウザさえあればどこからでもマンガ�
    ```
    git clone https://github.com/sorshi/comistream-reader.git
    ```
-2. 必要なツールをインストール：  
+2. 必要なツールをインストール：
 AlmaLinux9の例だと以下のコマンドを実行します。
    ```
    sudo dnf install -y tar httpd php sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release
    sudo dnf config-manager --set-enabled crb
    sudo dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig unrar fd-find mupdf-devel vips
    ```
-3. 追加で必要なツールをインストール：  
-以下コマンドを展開してpathの切られてる/usr/local/bin/あたりにコピーします。  
+3. 追加で必要なツールをインストール：
+以下コマンドを展開してpathの切られてる/usr/local/bin/あたりにコピーします。
 **【重要】** ImageMagick AppImage版は7.1.1-23まではAVIFの読み書きができましたが7.1.1-24以降で対応が外されています。また7.1.1-35までは[CVE-2024-41817](https://nvd.nist.gov/vuln/detail/CVE-2024-41817)の脆弱性(深刻度7.8)があります。コンテナ版にはセキュリティパッチをバックポートした7.1.1-23を同梱しています。
 
 - [cpdf](https://github.com/coherentgraphics/cpdf-binaries)
@@ -71,9 +71,9 @@ AlmaLinux9の例だと以下のコマンドを実行します。
 - [7-zip](https://7-zip.opensource.jp/download.html)
 - [ffmpeg static build](https://johnvansickle.com/ffmpeg/)
 
-4. 配置：  
-/home/user/を利用して、webrootが/home/user/public/である場合の配置例と操作です。  
-cloneまたは展開した中のcomistreamディレクトリを/home/user/以下に/home/user/comistream/として配置します。  
+4. 配置：
+/home/user/を利用して、webrootが/home/user/public/である場合の配置例と操作です。
+cloneまたは展開した中のcomistreamディレクトリを/home/user/以下に/home/user/comistream/として配置します。
 操作内容はcgi-bin内にシンボリックリンクを張ることと、適切なパーミッションを設定することです。
    ```
    sudo ln -s /home/user/comistream/code/comistream.php /var/www/cgi-bin/
@@ -85,8 +85,8 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 5. コンテンツのマウント:
 - /home/user/public/や/home/user/public/nas/などにコンテンツをマウントや配置します。
 
-6. Apacheの設定：  
-セットアップの際にはapache権限でメニュー7で指定されたweb root(/home/user/public/)直下にthemeディレクトリの作成と.htaccessの作成を行います。書き込み出来る適切なパーミッションを設定しておいてください。  
+6. Apacheの設定：
+セットアップの際にはapache権限でメニュー7で指定されたweb root(/home/user/public/)直下にthemeディレクトリの作成と.htaccessの作成を行います。書き込み出来る適切なパーミッションを設定しておいてください。
 - &lt;Directory "/var/www/cgi-bin"&gt;に Options FollowSymLinks 追加します。そのままだと無制限アクセスになるので必要に応じてアクセス制限を行ってください。
 - /etc/httpd/conf.d/welcome.confを削除します。
 - &lt;Directory /&gt;をAllowOverride AllにしてAllow from allにします。
@@ -110,7 +110,7 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 - 基本的にgit pullしてもバージョンアップします。それかファイルを上書きします。
 - その後/theme/の中の更新ファイルをweb rootの/theme/内にパーミッションが同一になるようにコピーしてconfig画面で設定を更新してください。
 
-## 使い方  
+## 使い方
 画像で大方わかると思いますので、その他の細かい補足を以下に記載します。
 - ヘッダーのログインと管理者ログインは直接の関係はありません。ヘッダーのログインは読書履歴やしおりの位置の記録に用いられるユーザー自己申告です。
 - デバイス間同期を利用するためにはヘッダアイコンでログインしてください。ゲストではデバイス間同期は利用できません。
@@ -124,7 +124,7 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 - 既読/未読/お気に入り/表紙/プレビュー画像等はコンテンツファイル名とひも付いています。内容変更やPATH移動してもひも付きは維持されますが、ファイル名が変わると別物として扱われるようになります。
 
 
-## 設定  
+## 設定
 管理者アカウントで`/cgi-bin/comistream.php?mode=config`を開くことで設定画面になります。管理者ログインしている必要があります。
 
 ## 技術寄りのQ&A
@@ -155,7 +155,6 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 
 ## 拡張
 
-- 【epub】Web直下に/bibi/というディレクトリを切ってepubリーダーの[Bibi](https://bibi.epub.link/)をインストールして、configのbibiPathに設定を`/bibi/`と追加すると、コミックの他にepubの電子書籍も読めるようになります。
 - 【検索】既存の検索機能がある場合はconfigのbook_search_url項目に`/book-search.php?book=1&search=`などのようにURLを書いてください。
 - 【続巻】/suggest.phpという名称で今読んでるファイルを渡してjsonを返すコードを置くと巻末で続巻を表示します。Comistreamフルセットの方には含まれる予定です。
 
@@ -167,8 +166,6 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 - [HLS.js](https://github.com/video-dev/hls.js)
 - [long-press-event](https://github.com/john-doherty/long-press-event)
 - [CSS loading animation 12](https://codepen.io/martinvd/pen/xbQJom/)
-- [jQuery](https://jquery.com/)
-- [jQuery UI](https://jqueryui.com/)
 - [Feather](https://feathericons.com/)
 
 
