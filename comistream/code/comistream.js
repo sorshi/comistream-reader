@@ -240,6 +240,7 @@ var autoLightSplitMode = false; //false:縦長なのでそのまま true:横長�
 var virtratio = 100; //表示の縦比率
 var imagex = 0; //画像の横幅
 var imagey = 0; //画像の縦幅
+var cutrate = 1; // 自動分割時の横方向分割数ルン
 var als = ""; // Auto Light Split Mode使ってるかのクエリパラメータ
 var autoLightSplitModeViewPosition = "right"; // 横長画像のどっち側表示しているか
 var xDown = null; // 2本指スワイプダウン検出用
@@ -247,6 +248,10 @@ var yDown = null; // 2本指スワイプダウン検出用
 let globalDivImageUrl = "";
 var isPinching = false; // ピンチ操作中フラグ
 var originalViewportContent = ""; // To store the original viewport meta tag content
+var viewportRelayoutTimer = null;
+var viewportDiagnosticTimer = null;
+var autoLightSplitLayoutRequestId = 0;
+const VIEWPORT_RELAYOUT_DEBOUNCE_MS = 200;
 // const isAndroid = /Android/i.test(navigator.userAgent);
 
 function isZoomed() {
@@ -258,7 +263,83 @@ function isZoomed() {
   return window.visualViewport.scale > 1.05;
 }
 
+function logViewportSnapshot(reason) {
+  if (!window.DEBUG_ENABLED || !window.ComistreamViewport) {
+    return;
+  }
+
+  const snapshot = window.ComistreamViewport.createViewportSnapshot(
+    window,
+    document.documentElement,
+    navigator,
+    window.screen
+  );
+  debugLog(
+    "Viewport state [" + reason + "]: " + JSON.stringify(snapshot)
+  );
+}
+
+function scheduleViewportDiagnostics(reason) {
+  if (!window.DEBUG_ENABLED) {
+    return;
+  }
+
+  if (viewportDiagnosticTimer !== null) {
+    clearTimeout(viewportDiagnosticTimer);
+  }
+  viewportDiagnosticTimer = setTimeout(function () {
+    viewportDiagnosticTimer = null;
+    logViewportSnapshot(reason);
+  }, VIEWPORT_RELAYOUT_DEBOUNCE_MS);
+}
+
+function scheduleReaderViewportRelayout(reason) {
+  // 待機中でも要求番号を進め、古い画像計測を即座に無効化するルン
+  const requestId = ++autoLightSplitLayoutRequestId;
+
+  if (viewportRelayoutTimer !== null) {
+    clearTimeout(viewportRelayoutTimer);
+  }
+  viewportRelayoutTimer = setTimeout(function () {
+    viewportRelayoutTimer = null;
+    logViewportSnapshot(reason);
+    void refreshAutoLightSplitLayout(reason, requestId);
+  }, VIEWPORT_RELAYOUT_DEBOUNCE_MS);
+}
+
 window.addEventListener("keydown", funcKey);
+window.addEventListener("resize", function () {
+  scheduleReaderViewportRelayout("window.resize");
+});
+
+if (
+  navigator.devicePosture &&
+  typeof navigator.devicePosture.addEventListener === "function"
+) {
+  navigator.devicePosture.addEventListener("change", function () {
+    scheduleReaderViewportRelayout("devicePosture.change");
+  });
+}
+
+if (
+  window.screen &&
+  window.screen.orientation &&
+  typeof window.screen.orientation.addEventListener === "function"
+) {
+  window.screen.orientation.addEventListener("change", function () {
+    scheduleReaderViewportRelayout("screen.orientation.change");
+  });
+}
+
+if (
+  window.visualViewport &&
+  typeof window.visualViewport.addEventListener === "function"
+) {
+  // visual viewportはピンチやキーボードでも変わるため、診断だけに使うルン
+  window.visualViewport.addEventListener("resize", function () {
+    scheduleViewportDiagnostics("visualViewport.resize");
+  });
+}
 
 // 全画面モードの変更を監視するイベントリスナー ルン！
 // ESCキーでの解除にも対応できるルン！
@@ -587,6 +668,8 @@ window.onclick = function (event) {
 
 // 端末の回転を検知して横位置ならクイック見開きモードにする
 window.addEventListener("orientationchange", () => {
+  scheduleReaderViewportRelayout("window.orientationchange");
+
   // 端末の傾きを絶対値で取得する
   var direction = Math.abs(window.orientation);
   if (direction == 90) {
@@ -1040,10 +1123,9 @@ async function devicePageSync() {
 
 function loadPage(dir) {
   debugLog("current page:" + page + " max page:" + maxPage);
-  if (page == 1) {
-    // 表紙はそのまま出す
+  if (page == 1 || mode == 2) {
+    // 表紙と見開きでは自動分割を引き継がないルン
     autoLightSplitMode = false;
-    // changeAutoLightSplitMode(autoLightSplitMode);
   }
 
   // 既存の保存タイマーをクリアするルン！
@@ -1127,41 +1209,8 @@ function loadPage(dir) {
     globalDivImageUrl = getFullImageUrl(page);
     debugLog("loadPage() globalDivImageUrl:" + globalDivImageUrl);
 
-    // 自動ページ分割機能(Auto Light Split)設定
-    (async () => {
-      //画面が横長の場合は画像が横長でも分割しない
-      // TODO restorePageに類似処理
-      const offsetx = document.getElementById("image").offsetWidth;
-      const offsety = document.getElementById("image").offsetHeight;
-      const naturalx = document.getElementById("image").naturalWidth;
-      const naturaly = document.getElementById("image").naturalHeight;
-      debugLog(
-        "loadPage() offset: %d x %d  natural: %d x %d ",
-        offsetx,
-        offsety,
-        naturalx,
-        naturaly
-      );
-      if (
-        document.getElementById("image").offsetWidth >
-        document.getElementById("image").offsetHeight
-      ) {
-        autoLightSplitMode = false;
-      } else if (page == 1) {
-        // 表紙はそのまま出す
-        autoLightSplitMode = false;
-        changeAutoLightSplitMode(autoLightSplitMode);
-      } else if (autoSplit == "off") {
-        // オプションで停止されてるときはそのまま出す
-        autoLightSplitMode = false;
-      } else if (mode == 2) {
-        // 見開き表示モードの場合は自動分割しない
-        autoLightSplitMode = false;
-      } else {
-        autoLightSplitMode = await isLandscape("image");
-        changeAutoLightSplitMode(autoLightSplitMode);
-      }
-    })();
+    // ページ移動とviewport変更を同じ経路で再計算するルン
+    void refreshAutoLightSplitLayout("loadPage");
   } else {
     document.getElementById("image").style.backgroundImage = "none";
   }
@@ -1318,28 +1367,6 @@ function restorePage() {
       }
     );
   }
-
-  // 自動ページ分割機能(Auto Light Split)設定
-  (async () => {
-    //画面が横長の場合は画像が横長でも分割しない
-    // TODO loadPageに類似処理
-    if (
-      document.getElementById("image").offsetWidth >
-      document.getElementById("image").offsetHeight
-    ) {
-      autoLightSplitMode = false;
-    } else if (page == 1) {
-      autoLightSplitMode = false;
-    } else if (autoSplit == "off") {
-      autoLightSplitMode = false;
-    } else if (mode == 2) {
-      // 見開き表示モードの場合は自動分割しない
-      autoLightSplitMode = false;
-    } else {
-      autoLightSplitMode = await isLandscape("image");
-      changeAutoLightSplitMode(autoLightSplitMode);
-    }
-  })();
 
   // 初期ロード時に先読みを実行
   setTimeout(() => {
@@ -1883,6 +1910,117 @@ function addnextbooklist(nexttitle, nextlocation) {
   }
 }
 
+async function refreshAutoLightSplitLayout(reason, scheduledRequestId) {
+  const requestId =
+    typeof scheduledRequestId === "number"
+      ? scheduledRequestId
+      : ++autoLightSplitLayoutRequestId;
+  const imageElement = document.getElementById("image");
+  const viewportApi = window.ComistreamViewport;
+
+  if (!imageElement || !viewportApi) {
+    return;
+  }
+
+  const viewport = viewportApi.getLayoutViewportSize(
+    window,
+    document.documentElement
+  );
+  if (viewport.width === 0 || viewport.height === 0) {
+    return;
+  }
+
+  if (mode !== 1) {
+    // 見開きの50%幅を壊さず、分割表示由来のスタイルだけ戻すルン
+    autoLightSplitMode = false;
+    als = "";
+    imageElement.style.marginLeft = "0px";
+    imageElement.style.height = "100%";
+    imageElement.style.backgroundRepeat = "no-repeat";
+    imageElement.style.backgroundSize = "contain";
+    debugLog(
+      "refreshAutoLightSplitLayout() skipped spread mode reason:" + reason
+    );
+    return;
+  }
+
+  if (
+    viewport.width > viewport.height ||
+    Number(page) === 1 ||
+    autoSplit === "off"
+  ) {
+    autoLightSplitMode = false;
+    als = "";
+    changeAutoLightSplitMode(false);
+    debugLog(
+      "refreshAutoLightSplitLayout() normal layout reason:" + reason
+    );
+    return;
+  }
+
+  const imageUrl = globalDivImageUrl;
+  const pageAtStart = page;
+  if (!imageUrl) {
+    return;
+  }
+
+  const image = await load_image(imageUrl);
+  if (
+    !viewportApi.isLayoutRequestCurrent({
+      requestId,
+      currentRequestId: autoLightSplitLayoutRequestId,
+      imageUrl,
+      currentImageUrl: globalDivImageUrl,
+      page: pageAtStart,
+      currentPage: page,
+      mode,
+    })
+  ) {
+    debugLog(
+      "refreshAutoLightSplitLayout() discarded stale request reason:" + reason
+    );
+    return;
+  }
+  if (image === null) {
+    debugLog(
+      "refreshAutoLightSplitLayout() image load failed reason:" + reason
+    );
+    return;
+  }
+
+  imagex = image.width;
+  imagey = image.height;
+  const metrics = viewportApi.calculateAutoLightSplitMetrics({
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
+    imageWidth: imagex,
+    imageHeight: imagey,
+  });
+  if (metrics === null) {
+    return;
+  }
+
+  cutrate = metrics.cutRate;
+  virtratio = metrics.ratio;
+  autoLightSplitMode = viewportApi.shouldUseAutoLightSplit({
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
+    imageWidth: imagex,
+    imageHeight: imagey,
+    page,
+    mode,
+    autoSplit,
+  });
+  als = autoLightSplitMode ? "&als=1" : "";
+  changeAutoLightSplitMode(autoLightSplitMode);
+  debugLog(
+    "refreshAutoLightSplitLayout() applied reason:" +
+      reason +
+      " autoLightSplitMode:" +
+      autoLightSplitMode
+  );
+}
+
 async function isLandscape(checkdivid) {
   //canvasの画像の縦横のどちらが長いかを判定 true:横長 false:縦長
   let divId = checkdivid;
@@ -1900,16 +2038,22 @@ async function isLandscape(checkdivid) {
   }
   imagex = image.width;
   imagey = image.height;
-  let ret = image.width < image.height ? false : true;
-  cutrate = 1;
-  if (ret) {
-    cutrate = 2;
+  const viewport = window.ComistreamViewport.getLayoutViewportSize(
+    window,
+    document.documentElement
+  );
+  const metrics = window.ComistreamViewport.calculateAutoLightSplitMetrics({
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
+    imageWidth: imagex,
+    imageHeight: imagey,
+  });
+  if (metrics === null) {
+    return false;
   }
-  virtratio =
-    window.innerWidth / (image.width / cutrate) <
-    window.innerHeight / image.height
-      ? window.innerWidth / (image.width / cutrate)
-      : window.innerHeight / image.height;
+  const ret = metrics.isLandscapeImage;
+  cutrate = metrics.cutRate;
+  virtratio = metrics.ratio;
   debugLog(
     "isLandscape(); " +
       ret +
@@ -1948,45 +2092,44 @@ async function load_image(path) {
     t_img.onload = () => {
       resolve(t_img);
     };
+    t_img.onerror = () => {
+      resolve(null);
+    };
     t_img.src = path;
   });
 }
 
 function changeAutoLightSplitMode(autoLightSplitMode) {
   //表示を単ページのままか半分に分割表示するかを設定（横長画像の時に半分に分割するために使用） 自動ページ分割機能(Auto Light Split)
-  let imgurl = window.getComputedStyle(
-    document.getElementById("image")
-  ).backgroundImage; // url("...")形式
-  imgurl = extractURLFromStyleString(imgurl);
-  let campusdiv = document.getElementById("image");
-  if (autoLightSplitMode) {
+  const campusdiv = document.getElementById("image");
+  const viewport = window.ComistreamViewport.getLayoutViewportSize(
+    window,
+    document.documentElement
+  );
+  const metrics = window.ComistreamViewport.calculateAutoLightSplitMetrics({
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
+    imageWidth: imagex,
+    imageHeight: imagey,
+  });
+
+  if (autoLightSplitMode && metrics !== null) {
     // 横長画像を半分に分割して表示
-    // campusdiv.style.width = '100%';
+    cutrate = metrics.cutRate;
+    virtratio = metrics.ratio;
     campusdiv.style.height = "100%";
-    campusdiv.backgroundImage = "url('" + imgurl + "')";
-    // campusdiv.style.backgroundPosition = 'right';
     campusdiv.style.backgroundPosition = autoLightSplitModeViewPosition;
     campusdiv.style.backgroundRepeat = "no-repeat";
     campusdiv.style.backgroundSize =
-      Math.trunc(virtratio * imagex) +
-      "px " +
-      Math.trunc(virtratio * imagey) +
-      "px";
-    divwith =
-      (virtratio * imagex) / 2 < window.innerWidth
-        ? Math.trunc((virtratio * imagex) / 2)
-        : window.innerWidth;
-    campusdiv.style.width = divwith + "px";
-    if (window.innerWidth > divwith) {
-      campusdiv.style.marginLeft =
-        Math.trunc((window.innerWidth - divwith) / 2) + "px";
-    }
+      metrics.backgroundWidth + "px " + metrics.backgroundHeight + "px";
+    campusdiv.style.width = metrics.readerWidth + "px";
+    campusdiv.style.marginLeft = metrics.marginLeft + "px";
     debugLog("Landscape:auto split image");
   } else {
     //縦長画像をそのまま表示
     campusdiv.style.width = "100%";
     campusdiv.style.height = "100%";
-    campusdiv.backgroundImage = "url('" + imgurl + "')";
+    campusdiv.style.marginLeft = "0px";
     campusdiv.style.backgroundPosition = "center";
     campusdiv.style.backgroundRepeat = "no-repeat";
     campusdiv.style.backgroundSize = "contain";

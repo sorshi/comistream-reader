@@ -51,12 +51,29 @@ function generateHTML()
     }
 
     // JavaScriptファイルの読み込み
-    if (file_exists($conf["comistream_tool_dir"] . '/code/comistream.js')) {
-        $contents_js = file_get_contents($conf["comistream_tool_dir"] . '/code/comistream.js');
+    $viewportJsPath = $conf["comistream_tool_dir"] . '/code/comistream_viewport.js';
+    if (!file_exists($viewportJsPath)) {
+        writelog("ERROR generateHTML() comistream_viewport.js not found: {$viewportJsPath}", 'view');
+        errorExit('js_file_missing', 'JavaScript file not found at: ' . $viewportJsPath);
+    }
+    $viewport_js = file_get_contents($viewportJsPath);
+    if ($viewport_js === false) {
+        writelog("ERROR generateHTML() failed to read comistream_viewport.js", 'view');
+        errorExit('js_file_read_error', 'comistream_viewport.js read failed');
+    }
+
+    $readerJsPath = $conf["comistream_tool_dir"] . '/code/comistream.js';
+    if (file_exists($readerJsPath)) {
+        $reader_js = file_get_contents($readerJsPath);
+        if ($reader_js === false) {
+            writelog("ERROR generateHTML() failed to read comistream.js", 'view');
+            errorExit('js_file_read_error', 'comistream.js read failed');
+        }
+        $contents_js = $viewport_js . "\n" . $reader_js;
         writelog("DEBUG JS file exist.");
     } else {
         writelog("ERROR JS not found:" . __DIR__);
-        errorExit('js_file_missing', 'JavaScript file not found at: ' . $conf["comistream_tool_dir"] . '/code/comistream.js');
+        errorExit('js_file_missing', 'JavaScript file not found at: ' . $readerJsPath);
     }
 
     // 動作モード設定 ルン！現在のモードを表示するルン！
