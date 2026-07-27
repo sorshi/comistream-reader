@@ -942,10 +942,16 @@ function hideSuggestPanel() {
 }
 
 function next() {
+  const imageElement = document.getElementById("image");
   if (
-    document.getElementById("image").style.backgroundPosition.includes("right")
+    window.ComistreamViewport.shouldPanAutoLightSplit({
+      mode,
+      autoLightSplitMode,
+      currentPosition: imageElement.style.backgroundPosition,
+      expectedPosition: "right",
+    })
   ) {
-    document.getElementById("image").style.backgroundPosition = "left";
+    imageElement.style.backgroundPosition = "left";
     autoLightSplitModeViewPosition = "left";
   } else {
     if (page + mode <= maxPage) {
@@ -1005,10 +1011,16 @@ function next() {
 }
 
 function back() {
+  const imageElement = document.getElementById("image");
   if (
-    document.getElementById("image").style.backgroundPosition.includes("left")
+    window.ComistreamViewport.shouldPanAutoLightSplit({
+      mode,
+      autoLightSplitMode,
+      currentPosition: imageElement.style.backgroundPosition,
+      expectedPosition: "left",
+    })
   ) {
-    document.getElementById("image").style.backgroundPosition = "right";
+    imageElement.style.backgroundPosition = "right";
     autoLightSplitModeViewPosition = "right";
   } else {
     if (page > 1) {

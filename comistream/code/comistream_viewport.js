@@ -114,6 +114,23 @@
     );
   }
 
+  function shouldPanAutoLightSplit(options) {
+    // 見開きもleft/rightを使うため、CSS位置だけで判定しないルン
+    const currentPosition = String(
+      (options && options.currentPosition) || ""
+    );
+    const expectedPosition = String(
+      (options && options.expectedPosition) || ""
+    );
+
+    return (
+      Number(options && options.mode) === 1 &&
+      (options && options.autoLightSplitMode) === true &&
+      expectedPosition.length > 0 &&
+      currentPosition.includes(expectedPosition)
+    );
+  }
+
   function getViewportSegments(view) {
     try {
       const segments = view && view.viewport && view.viewport.segments;
@@ -186,6 +203,7 @@
     shouldUseAutoLightSplit,
     calculateAutoLightSplitMetrics,
     isLayoutRequestCurrent,
+    shouldPanAutoLightSplit,
     getViewportSegments,
     createViewportSnapshot,
   });

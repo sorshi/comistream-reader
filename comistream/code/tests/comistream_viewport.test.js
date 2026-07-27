@@ -121,6 +121,38 @@ test("最新のページ・画像・要求だけを有効と判定する", () =>
   );
 });
 
+test("自動左右分割中の単ページだけ表示位置を切り替える", () => {
+  const base = {
+    mode: 1,
+    autoLightSplitMode: true,
+    currentPosition: "left center",
+    expectedPosition: "left",
+  };
+
+  assert.equal(viewport.shouldPanAutoLightSplit(base), true);
+  assert.equal(
+    viewport.shouldPanAutoLightSplit({
+      ...base,
+      autoLightSplitMode: false,
+    }),
+    false
+  );
+  assert.equal(
+    viewport.shouldPanAutoLightSplit({
+      ...base,
+      mode: 2,
+    }),
+    false
+  );
+  assert.equal(
+    viewport.shouldPanAutoLightSplit({
+      ...base,
+      expectedPosition: "right",
+    }),
+    false
+  );
+});
+
 test("viewport segmentsを通常オブジェクトへ変換する", () => {
   assert.deepEqual(
     viewport.getViewportSegments({
