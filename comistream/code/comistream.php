@@ -182,6 +182,7 @@ if (array_key_exists("view", $param)) {
 // Cookieからユーザ名取得
 $COOKIE = getCookie();
 $user = !empty($COOKIE['comistreamUser']) ? $COOKIE['comistreamUser'] : 'guest';
+$readerMarkerCsrfToken = ensureReaderMarkerCsrfToken();
 
 // サイズ設定の取得
 // URLパラメータ(size)が優先、未設定の場合はCookieを確認するルン！
@@ -272,6 +273,10 @@ if ($mode === 'delete' && !empty($orgname)) {
 
     // 履歴から該当ファイルを削除
     delHistory();
+} elseif (in_array($mode, ['markerList', 'markerAdd', 'markerUpdate', 'markerDelete'], true)) {
+
+    // 読者が任意位置へ追加したしおりを操作するルン
+    handleReaderMarkerApi($mode, $param);
 } elseif ($mode === 'list' && !empty($file)) {
 
     // ブックマークファイル取得

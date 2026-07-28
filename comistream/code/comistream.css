@@ -234,10 +234,14 @@ td.center {
 }
 
 input[type="range"] {
+  --reader-slider-thumb-size: 30px;
   transform: var(--degree);
   -webkit-appearance: none;
+  box-sizing: border-box;
   vertical-align: middle;
   appearance: none;
+  padding: 0;
+  border: 0;
   background-color: #c0c0c0;
   width: 80%;
   height: 5px;
@@ -247,20 +251,248 @@ input[type="range"] {
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
+  box-sizing: border-box;
   background-color: #7799dd;
-  width: 30px;
-  height: 30px;
+  width: var(--reader-slider-thumb-size);
+  height: var(--reader-slider-thumb-size);
   border-radius: 50%;
   border: 2px solid white;
   cursor: pointer;
 }
 input[type="range"]::-moz-range-thumb {
+  box-sizing: border-box;
   background-color: #7799dd;
-  width: 30px;
-  height: 30px;
+  width: var(--reader-slider-thumb-size);
+  height: var(--reader-slider-thumb-size);
   border-radius: 50%;
   border: 2px solid white;
   cursor: pointer;
+}
+
+.reader-marker-slider {
+  position: relative;
+  display: inline-block;
+  width: 80%;
+  margin-left: 10%;
+  vertical-align: middle;
+}
+
+.reader-marker-slider input[type="range"] {
+  display: block;
+  width: 100%;
+  margin-left: 0;
+}
+
+.reader-marker-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 5px;
+  height: 22px;
+  pointer-events: none;
+}
+
+.reader-marker-tick {
+  position: absolute;
+  top: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  color: #e6a23c;
+  background: transparent;
+  transform: translateX(-50%);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.reader-marker-tick::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-right: 5px solid transparent;
+  border-bottom: 7px solid currentColor;
+  border-left: 5px solid transparent;
+  filter: drop-shadow(0 1px 1px #000);
+  transform: translateX(-50%);
+}
+
+.reader-marker-tick-cluster::after {
+  content: attr(data-count);
+  position: absolute;
+  top: -4px;
+  left: 14px;
+  min-width: 15px;
+  padding: 1px 3px;
+  border-radius: 8px;
+  color: #251a06;
+  background: #ffd27a;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 13px;
+  text-shadow: none;
+}
+
+.reader-marker-section {
+  margin: 10px 0 14px;
+  padding: 10px;
+  border-left: 3px solid #e6a23c;
+  background: rgba(230, 162, 60, 0.1);
+}
+
+.reader-marker-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.reader-marker-heading {
+  color: #ffd27a;
+  font-weight: 700;
+}
+
+.reader-marker-add {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid #ffd27a;
+  border-radius: 5px;
+  color: #251a06;
+  background: #ffd27a;
+  cursor: pointer;
+}
+
+.reader-marker-add:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.reader-marker-status {
+  min-height: 1.2em;
+  margin-bottom: 4px;
+  color: #d6d6d6;
+  font-size: 0.8em;
+}
+
+.reader-marker-status-error {
+  color: #ffb3a9;
+}
+
+.reader-marker-empty {
+  padding: 7px 3px;
+  color: #cfcfcf;
+}
+
+.reader-marker-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  border-top: 1px solid rgba(255, 210, 122, 0.25);
+}
+
+.reader-marker-main {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 3px;
+  border: 0;
+  color: #fff;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reader-marker-main:hover .reader-marker-name,
+.reader-marker-main:focus-visible .reader-marker-name {
+  text-decoration: underline;
+}
+
+.reader-marker-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  color: #e6a23c;
+}
+
+.reader-marker-icon svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.reader-marker-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.reader-marker-name,
+.reader-marker-position {
+  overflow-wrap: anywhere;
+}
+
+.reader-marker-name {
+  color: #ffd27a;
+}
+
+.reader-marker-position {
+  color: #cfcfcf;
+  font-size: 0.78em;
+}
+
+.reader-marker-actions,
+.reader-marker-edit-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.reader-marker-action {
+  padding: 5px 7px;
+  border: 1px solid #8e8e8e;
+  border-radius: 4px;
+  color: #f2f2f2;
+  background: #4a4a4a;
+  cursor: pointer;
+}
+
+.reader-marker-delete {
+  color: #ffd5cf;
+}
+
+.reader-marker-name-input {
+  flex: 1 1 auto;
+  min-width: 80px;
+  padding: 6px;
+  border: 1px solid #ffd27a;
+  border-radius: 4px;
+  color: #202020;
+  background: #fff;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+@media (max-width: 520px) {
+  .reader-marker-row {
+    flex-wrap: wrap;
+  }
+
+  .reader-marker-actions {
+    width: 100%;
+    justify-content: flex-end;
+    padding-bottom: 6px;
+  }
 }
 
 .bookName {

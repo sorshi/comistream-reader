@@ -234,6 +234,7 @@ var timeout = null;
 // ページ保存制御用の変数 ルン！
 var lastSaveTime = 0; // 最後にsaveCurrentPage()を実行した時刻
 var savePageTimer = null; // 5秒後保存用のタイマー
+var readerMarkerManager = null;
 // 拡張light wide split
 var req;
 var autoLightSplitMode = false; //false:縦長なのでそのまま true:横長を自動分割表示
@@ -1047,12 +1048,16 @@ function back() {
 }
 
 function nextIndex() {
-  for (var i = 0; i < indexArray.length; i++) {
-    if (page + mode - 1 < indexArray[i]) {
-      page = indexArray[i];
-      loadPage(1);
-      return true;
-    }
+  const jumpStops = getChapterJumpStops();
+  const pageStopFinder = window.ComistreamReaderMarkers?.findAdjacentPageStop;
+  const targetPage =
+    typeof pageStopFinder === "function"
+      ? pageStopFinder(jumpStops, page, mode, false)
+      : jumpStops.find((stop) => page + mode - 1 < stop);
+  if (targetPage !== null && typeof targetPage !== "undefined") {
+    page = targetPage;
+    loadPage(1);
+    return true;
   }
   // 次のインデックスが見つからない場合の終端処理ルン
   if (page >= maxPage) {
@@ -1074,13 +1079,32 @@ function nextIndex() {
 }
 
 function backIndex() {
-  for (var i = indexArray.length; i >= 0; i--) {
-    if (page > indexArray[i]) {
-      page = indexArray[i];
-      loadPage(1);
-      return true;
-    }
+  const jumpStops = getChapterJumpStops();
+  const pageStopFinder = window.ComistreamReaderMarkers?.findAdjacentPageStop;
+  const targetPage =
+    typeof pageStopFinder === "function"
+      ? pageStopFinder(jumpStops, page, mode, true)
+      : jumpStops
+          .slice()
+          .reverse()
+          .find((stop) => page > stop);
+  if (targetPage !== null && typeof targetPage !== "undefined") {
+    page = targetPage;
+    loadPage(1);
+    return true;
   }
+}
+
+function getChapterJumpStops() {
+  const markerHelpers = window.ComistreamReaderMarkers;
+  if (typeof markerHelpers?.mergePageJumpStops !== "function") {
+    return indexArray;
+  }
+  return markerHelpers.mergePageJumpStops(
+    indexArray,
+    readerMarkerManager?.markers,
+    maxPage
+  );
 }
 
 async function devicePageSync() {
@@ -1401,6 +1425,62 @@ function restorePage() {
 
   // ツールチップの初期状態を設定するルン！
   updateModeTooltips();
+
+  initializeImageReaderMarkers();
+}
+
+function initializeImageReaderMarkers() {
+  if (readerMarkerManager || !window.ComistreamReaderMarkers) return;
+
+  readerMarkerManager = window.ComistreamReaderMarkers.create({
+    file: escapedFile,
+    baseFile: baseFile,
+    format: readerMarkerConfig.format,
+    isGuest: readerMarkerConfig.isGuest,
+    csrfToken: readerMarkerConfig.csrfToken,
+    i18n: window.i18n,
+    addButtonId: "image-marker-add",
+    statusId: "image-marker-status",
+    listId: "image-marker-list",
+    sliderId: "slider",
+    railId: "image-marker-rail",
+    isRtl: function () {
+      return direction === "left";
+    },
+    getCurrentMarker: function () {
+      const currentPage = Math.min(maxPage, Math.max(1, parseInt(page, 10) || 1));
+      return {
+        format: readerMarkerConfig.format,
+        locatorType: "page",
+        locator: String(currentPage),
+        pageNumber: currentPage,
+        sectionIndex: null,
+        progressFraction: maxPage > 1 ? (currentPage - 1) / (maxPage - 1) : 0,
+        chapterLabel: null,
+      };
+    },
+    navigate: function (marker) {
+      return navigateToTocPage(marker.pageNumber || marker.locator);
+    },
+    formatPosition: function (marker) {
+      return window.i18n.reader_marker_page.replace("%s", marker.pageNumber);
+    },
+  });
+  void readerMarkerManager.init();
+}
+
+function navigateToTocPage(targetPage) {
+  const normalizedPage = parseInt(targetPage, 10);
+  if (
+    !Number.isInteger(normalizedPage) ||
+    normalizedPage < 1 ||
+    normalizedPage > maxPage
+  ) {
+    return false;
+  }
+  page = normalizedPage;
+  loadPage(1);
+  return true;
 }
 
 function index() {
@@ -1409,6 +1489,7 @@ function index() {
   } else {
     document.getElementById("contents").style.display = "block";
     setSlider();
+    void readerMarkerManager?.refresh();
 
     var slider = document.querySelector('input[type="range"]');
     slider.addEventListener(
@@ -1615,6 +1696,7 @@ function toggleDirection() {
       window.i18n.toc_button_direction_right;
   }
   if (mode == 2) spread();
+  readerMarkerManager?.renderRail();
 }
 
 function funcKey(evt) {

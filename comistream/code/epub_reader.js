@@ -57,6 +57,7 @@ const OPTIONAL_PACKAGE_PATHS = new Set([
 
 let view = null;
 let currentLocation = null;
+let readerMarkerManager = null;
 let menuVisible = false;
 let currentFontScale = DEFAULT_FONT_SCALE;
 let currentFlowMode = 'paginated';
@@ -2570,6 +2571,7 @@ function updateDirectionState() {
         slider.style.transform = navigationIsRtl ? 'rotateY(180deg)' : 'rotateY(0deg)';
     }
     updateNavigationButtonOrder(navigationIsRtl);
+    readerMarkerManager?.renderRail();
 }
 
 function updateSegmentedButtons(selector, selectedValue) {
@@ -3027,6 +3029,7 @@ function toggleMenu(forceVisible = null) {
 
 function openMenu() {
     toggleMenu(true);
+    void readerMarkerManager?.refresh();
 }
 
 function closeMenu() {
@@ -3824,34 +3827,70 @@ async function goToTocHref(href) {
     };
 }
 
+function getAdjacentEpubMarker(previous) {
+    const markerHelpers = window.ComistreamReaderMarkers;
+    if (typeof markerHelpers?.findAdjacentMarker !== 'function') {
+        return null;
+    }
+    const location = currentLocation || view?.lastLocation;
+    return markerHelpers.findAdjacentMarker(
+        readerMarkerManager?.markers,
+        getLocationProgressMetrics(location).fraction,
+        previous,
+        location?.cfi || ''
+    );
+}
+
+function markerPrecedesChapter(marker, chapterIndex, previous) {
+    if (!marker || !Number.isInteger(chapterIndex)) {
+        return Boolean(marker);
+    }
+    const sectionCount = Math.max(1, getBookSectionCount());
+    const chapterFraction = clamp(chapterIndex / sectionCount, 0, 1);
+    const markerFraction = clamp(Number(marker.progressFraction) || 0, 0, 1);
+    return previous
+        ? markerFraction > chapterFraction
+        : markerFraction < chapterFraction;
+}
+
 async function goToAdjacentSection(previous) {
     if (!view?.renderer) {
         return;
     }
 
     const currentIndex = getCurrentNavigationIndex();
+    const marker = getAdjacentEpubMarker(previous);
     const tocTargets = getTocNavigationTargets();
     if (currentIndex !== null && tocTargets.length > 0) {
         const candidates = tocTargets
             .filter((target) => previous ? target.index < currentIndex : target.index > currentIndex)
             .sort((a, b) => previous ? b.index - a.index : a.index - b.index);
         if (candidates.length > 0) {
+            if (markerPrecedesChapter(marker, candidates[0].index, previous)) {
+                return await goToMarkerCfi(marker);
+            }
             return await goToTocHref(candidates[0].href);
         }
     }
 
-    const sectionCount = Array.isArray(view?.book?.sections) ? view.book.sections.length : 0;
+    const sectionCount = getBookSectionCount();
     if (currentIndex !== null && sectionCount > 0) {
         const targetIndex = previous
             ? Math.max(0, currentIndex - 1)
             : Math.min(sectionCount - 1, currentIndex + 1);
         if (targetIndex !== currentIndex) {
+            if (markerPrecedesChapter(marker, targetIndex, previous)) {
+                return await goToMarkerCfi(marker);
+            }
             await view.goTo(targetIndex);
             return {
                 target: targetIndex,
                 expectedIndex: targetIndex
             };
         }
+    }
+    if (marker) {
+        return await goToMarkerCfi(marker);
     }
     return null;
 }
@@ -4187,6 +4226,99 @@ function renderToc(book) {
     tocContainer.textContent = '';
     const items = Array.isArray(book?.toc) ? book.toc : [];
     renderTocItems(items, 0);
+}
+
+async function goToMarkerCfi(marker) {
+    await view.goTo(marker.locator);
+    return {
+        target: marker.locator,
+        expectedIndex: marker.sectionIndex !== null
+            && typeof marker.sectionIndex !== 'undefined'
+            && Number.isInteger(Number(marker.sectionIndex))
+            ? Number(marker.sectionIndex)
+            : null
+    };
+}
+
+function initializeEpubReaderMarkers() {
+    if (readerMarkerManager || !window.ComistreamReaderMarkers) {
+        return;
+    }
+
+    readerMarkerManager = window.ComistreamReaderMarkers.create({
+        file: escapedFile,
+        baseFile,
+        format: 'epub',
+        isGuest: Boolean(appConfig.isGuest),
+        csrfToken,
+        i18n,
+        addButtonId: 'epub-marker-add',
+        statusId: 'epub-marker-status',
+        listId: 'epub-marker-list',
+        sliderId: 'epub-slider',
+        railId: 'epub-marker-rail',
+        isRtl: () => getNavigationIsRtl(),
+        getMarkerSliderValue: (marker, range) => {
+            if (!view?.isFixedLayout) {
+                const sectionIndex = Number(marker.sectionIndex);
+                return Number.isInteger(sectionIndex)
+                    ? sectionIndex + 1
+                    : (marker.pageNumber === null
+                        || typeof marker.pageNumber === 'undefined'
+                        ? Number.NaN
+                        : Number(marker.pageNumber));
+            }
+            const min = Number(range?.min);
+            const max = Number(range?.max);
+            if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
+                return min;
+            }
+            const fraction = clamp(Number(marker.progressFraction) || 0, 0, 1);
+            const valueCount = Math.max(1, Math.round(max - min + 1));
+            return clamp(min + Math.floor(fraction * valueCount), min, max);
+        },
+        getCurrentMarker: () => {
+            const location = currentLocation || view?.lastLocation;
+            const cfi = typeof location?.cfi === 'string' ? location.cfi : '';
+            if (cfi === '') {
+                return null;
+            }
+            const metrics = getLocationProgressMetrics(location);
+            return {
+                format: 'epub',
+                locatorType: 'epub_cfi',
+                locator: cfi,
+                pageNumber: metrics.currentPage,
+                sectionIndex: getLocationSectionIndex(location),
+                progressFraction: metrics.fraction,
+                chapterLabel: location?.tocItem?.label || null
+            };
+        },
+        navigate: (marker) => {
+            if (typeof marker?.locator !== 'string' || marker.locator === '') {
+                return false;
+            }
+            return navigate(() => goToMarkerCfi(marker));
+        },
+        formatPosition: (marker) => {
+            const percentage = Math.round((Number(marker.progressFraction) || 0) * 100);
+            const progressText = t('reader_marker_progress', 'Progress %s%')
+                .replace('%s', String(percentage))
+                .replace('%%', '%');
+            if (marker.chapterLabel) {
+                return `${marker.chapterLabel} · ${progressText}`;
+            }
+            if (marker.sectionIndex !== null
+                && typeof marker.sectionIndex !== 'undefined'
+                && Number.isInteger(Number(marker.sectionIndex))) {
+                const sectionText = t('reader_marker_section', 'Chapter %s')
+                    .replace('%s', String(Number(marker.sectionIndex) + 1));
+                return `${sectionText} · ${progressText}`;
+            }
+            return progressText;
+        }
+    });
+    void readerMarkerManager.init();
 }
 
 async function openEpubBook() {
@@ -4525,6 +4657,7 @@ async function init() {
         }
         updateProgressUI(currentLocation);
         updateDirectionState();
+        initializeEpubReaderMarkers();
         scheduleRelocateSideEffects({ immediateSave: true });
     } else {
         setStatusText(t('epub_status_loading', 'Loading...'));

@@ -38,6 +38,7 @@ require_once(__DIR__ . '/lib/lib_book_actions.php');
 require_once(__DIR__ . '/lib/lib_book_info.php');
 require_once(__DIR__ . '/lib/lib_book_open.php');
 require_once(__DIR__ . '/lib/lib_bookmark.php');
+require_once(__DIR__ . '/lib/lib_reader_marker.php');
 require_once(__DIR__ . '/lib/lib_image.php');
 require_once(__DIR__ . '/lib/lib_view.php');
 
@@ -3086,7 +3087,7 @@ function makeIndex($maxPage)
                     $page = intval($bookmark['page']); // XSS対策：必ず整数化するルン！
                     $title = htmlspecialchars($bookmark['title'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); // XSS対策：完全なエスケープルン！
                     $indexArray .= ",$page";
-                    $contents .= "<div class=\"toclink\" onclick=\"page=$page; loadPage(1);\">$title</div>\n";
+                    $contents .= "<div class=\"toclink\" onclick=\"navigateToTocPage($page);\">$title</div>\n";
                 }
             }
         }
@@ -3096,18 +3097,18 @@ function makeIndex($maxPage)
     if ($maxPage > 10) {
         $indexArray .= $indexArray ? ",1" : "1";
         $i = 10;
-        $contents .= "<div class=\"toclink\" onclick=\"page=1; loadPage(1);\">" . $i18n->get('toc_cover') . "</div>\n";
+        $contents .= "<div class=\"toclink\" onclick=\"navigateToTocPage(1);\">" . $i18n->get('toc_cover') . "</div>\n";
         while ($i < $maxPage) {
             $indexArray .= ",$i";
-            $contents .= "<div class=\"toclink\" onclick=\"page=$i; loadPage(1);\">$i " . $i18n->get('page_unit') . "</div>\n";
+            $contents .= "<div class=\"toclink\" onclick=\"navigateToTocPage($i);\">$i " . $i18n->get('page_unit') . "</div>\n";
             $i += $section_unit_pages;
         }
         $indexArray .= ",$maxPage";
-        $contents .= "<div class=\"toclink\" onclick=\"page=$maxPage; loadPage(1);\">" . $i18n->get('last_page') . "</div>\n";
+        $contents .= "<div class=\"toclink\" onclick=\"navigateToTocPage($maxPage);\">" . $i18n->get('last_page') . "</div>\n";
     } else {
         $indexArray .= $indexArray ? ",1,$maxPage" : "1,$maxPage";
-        $contents .= "<div class=\"toclink\" onclick=\"page=1; loadPage(1);\">" . $i18n->get('toc_cover') . "</div>\n";
-        $contents .= "<div class=\"toclink\" onclick=\"page=$maxPage; loadPage(1);\">" . $i18n->get('last_page') . "</div>\n";
+        $contents .= "<div class=\"toclink\" onclick=\"navigateToTocPage(1);\">" . $i18n->get('toc_cover') . "</div>\n";
+        $contents .= "<div class=\"toclink\" onclick=\"navigateToTocPage($maxPage);\">" . $i18n->get('last_page') . "</div>\n";
     }
 
     // 重複を削除し、ソートする
@@ -3485,7 +3486,7 @@ function formatPdfContents($raw_contents)
 
             // HTMLの作成
             $formatted_contents .= sprintf(
-                '<div class="toclink" onclick="page=%d; loadPage(1);">%s</div>' . "\n",
+                '<div class="toclink" onclick="navigateToTocPage(%d);">%s</div>' . "\n",
                 $page,
                 htmlspecialchars($title)
             );

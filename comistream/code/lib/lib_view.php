@@ -29,6 +29,7 @@ function generateHTML()
         $indexArray, $position, $direction, $autosplit, $fileSize, $averagePageBytes, $baseFile,
         $escapedFile, $file, $size, $view_query, $global_preload_delay_ms, $publicDir, $pageTitle,
         $bookName, $contents, $split_button_class, $split_button_text, $pagemode_button_class, $pagemode_button_text;
+    global $user, $readerMarkerCsrfToken;
 
     // I18nインスタンスを取得
     $i18n = I18n::getInstance();
@@ -62,6 +63,17 @@ function generateHTML()
         errorExit('js_file_read_error', 'comistream_viewport.js read failed');
     }
 
+    $readerMarkerJsPath = $conf["comistream_tool_dir"] . '/code/reader_markers.js';
+    if (!file_exists($readerMarkerJsPath)) {
+        writelog("ERROR generateHTML() reader_markers.js not found: {$readerMarkerJsPath}", 'view');
+        errorExit('js_file_missing', 'reader_markers.js missing');
+    }
+    $readerMarkerJs = file_get_contents($readerMarkerJsPath);
+    if ($readerMarkerJs === false) {
+        writelog("ERROR generateHTML() failed to read reader_markers.js", 'view');
+        errorExit('js_file_read_error', 'reader_markers.js read failed');
+    }
+
     $readerJsPath = $conf["comistream_tool_dir"] . '/code/comistream.js';
     if (file_exists($readerJsPath)) {
         $reader_js = file_get_contents($readerJsPath);
@@ -69,7 +81,7 @@ function generateHTML()
             writelog("ERROR generateHTML() failed to read comistream.js", 'view');
             errorExit('js_file_read_error', 'comistream.js read failed');
         }
-        $contents_js = $viewport_js . "\n" . $reader_js;
+        $contents_js = $viewport_js . "\n" . $readerMarkerJs . "\n" . $reader_js;
         writelog("DEBUG JS file exist.");
     } else {
         writelog("ERROR JS not found:" . __DIR__);
@@ -139,6 +151,11 @@ function generateHTML()
     $preloadDelayJson = json_encode($global_preload_delay_ms);
     $publicDirJson = json_encode($publicDir);
     $themeDirJson = json_encode($themeDir);
+    $readerMarkerCsrfJson = json_encode((string)$readerMarkerCsrfToken);
+    $readerMarkerIsGuestJson = json_encode($user === 'guest');
+    $readerMarkerFormatJson = json_encode(
+        strtolower(pathinfo((string)$baseFile, PATHINFO_EXTENSION)) === 'pdf' ? 'pdf' : 'archive'
+    );
 
     // HTMLエスケープ処理 ルン！XSS対策大事ルン！
     $apple_mobile_web_app_title = htmlspecialchars($apple_mobile_web_app_title, ENT_QUOTES, 'UTF-8');
@@ -149,6 +166,8 @@ function generateHTML()
     $alt_close_button = htmlspecialchars($i18n->get('alt_close_button'), ENT_QUOTES, 'UTF-8');
     $alt_quick_spread_left = htmlspecialchars($i18n->get('alt_quick_spread_left'), ENT_QUOTES, 'UTF-8');
     $alt_quick_spread_right = htmlspecialchars($i18n->get('alt_quick_spread_right'), ENT_QUOTES, 'UTF-8');
+    $readerMarkersLabel = htmlspecialchars($i18n->get('reader_markers'), ENT_QUOTES, 'UTF-8');
+    $readerMarkerAddLabel = htmlspecialchars($i18n->get('reader_marker_add'), ENT_QUOTES, 'UTF-8');
 
     // $pageTitleは既にget_book_title()内でエスケープ済みルン！
     // $bookNameはHTMLタグ（<small>、<a>など）を含む前提で処理されてるから、
@@ -179,7 +198,23 @@ function generateHTML()
         'toc_button_direction_left' => $i18n->get('direction_left'),
         'toc_button_fullscreen' => $i18n->get('fullscreen'),
         'toc_button_windowed' => $i18n->get('windowed'),
-        'large_page_notification' => $i18n->get('large_page_notification')
+        'large_page_notification' => $i18n->get('large_page_notification'),
+        'reader_markers' => $i18n->get('reader_markers'),
+        'reader_marker_default' => $i18n->get('reader_marker_default'),
+        'reader_marker_add' => $i18n->get('reader_marker_add'),
+        'reader_marker_edit' => $i18n->get('reader_marker_edit'),
+        'reader_marker_delete' => $i18n->get('reader_marker_delete'),
+        'reader_marker_save' => $i18n->get('reader_marker_save'),
+        'reader_marker_cancel' => $i18n->get('reader_marker_cancel'),
+        'reader_marker_name_placeholder' => $i18n->get('reader_marker_name_placeholder'),
+        'reader_marker_added' => $i18n->get('reader_marker_added'),
+        'reader_marker_updated' => $i18n->get('reader_marker_updated'),
+        'reader_marker_deleted' => $i18n->get('reader_marker_deleted'),
+        'reader_marker_limit' => $i18n->get('reader_marker_limit'),
+        'reader_marker_error' => $i18n->get('reader_marker_error'),
+        'reader_marker_empty' => $i18n->get('reader_marker_empty'),
+        'reader_marker_page' => $i18n->get('reader_marker_page'),
+        'reader_marker_cluster' => $i18n->get('reader_marker_cluster')
     ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
     // ツールチップ用の翻訳テキストを準備するルン！
@@ -259,6 +294,11 @@ function generateHTML()
         const global_preload_delay_ms = $preloadDelayJson;
         const publicDir = $publicDirJson;
         const themeDir = $themeDirJson;
+        const readerMarkerConfig = {
+            csrfToken: $readerMarkerCsrfJson,
+            isGuest: $readerMarkerIsGuestJson,
+            format: $readerMarkerFormatJson
+        };
         let global_preload_pages = $global_preload_pages;
         $pageGenerator
 
@@ -320,7 +360,18 @@ function generateHTML()
         </div>
         <div style="clear:both;">
             <div class="bookName">$bookName</div>
-            <input id="slider" type="range" value="$maxPage" min="1" max="$maxPage" step="1" /><span id="value" class="value">1</span>
+            <span class="reader-marker-slider">
+                <input id="slider" type="range" value="$maxPage" min="1" max="$maxPage" step="1" />
+                <span id="image-marker-rail" class="reader-marker-rail"></span>
+            </span><span id="value" class="value">1</span>
+        </div>
+        <div class="reader-marker-section">
+            <div class="reader-marker-heading-row">
+                <span class="reader-marker-heading">$readerMarkersLabel</span>
+                <button id="image-marker-add" class="reader-marker-add" type="button">$readerMarkerAddLabel</button>
+            </div>
+            <div id="image-marker-status" class="reader-marker-status" role="status" aria-live="polite"></div>
+            <div id="image-marker-list" class="reader-marker-list"></div>
         </div>
         <hr>
         <div class="toclist">$contents</div>
@@ -382,7 +433,7 @@ function printHTML()
 
 function generateEpubHTML(): string
 {
-    global $conf, $bookName, $escapedFile, $baseFile;
+    global $conf, $bookName, $escapedFile, $baseFile, $user, $readerMarkerCsrfToken;
 
     $i18n = I18n::getInstance();
     if ($i18n === null) {
@@ -406,6 +457,16 @@ function generateEpubHTML(): string
     if ($epubReaderJs === false) {
         writelog("ERROR generateEpubHTML() failed to read epub_reader.js", 'view');
         errorExit('js_file_read_error', 'epub_reader.js read failed');
+    }
+    $readerMarkerJsPath = $conf["comistream_tool_dir"] . '/code/reader_markers.js';
+    if (!file_exists($readerMarkerJsPath)) {
+        writelog("ERROR generateEpubHTML() reader_markers.js not found: {$readerMarkerJsPath}", 'view');
+        errorExit('js_file_missing', 'reader_markers.js missing');
+    }
+    $readerMarkerJs = file_get_contents($readerMarkerJsPath);
+    if ($readerMarkerJs === false) {
+        writelog("ERROR generateEpubHTML() failed to read reader_markers.js", 'view');
+        errorExit('js_file_read_error', 'reader_markers.js read failed');
     }
     $constructStyleSheetsPolyfillJs = <<<'JS'
 if (!('adoptedStyleSheets' in ShadowRoot.prototype) && typeof CSSStyleSheet === 'function') {
@@ -468,7 +529,8 @@ JS;
         'epubUrl' => $epubUrl,
         'escapedFile' => (string)$escapedFile,
         'baseFile' => (string)$baseFile,
-        'csrfToken' => '',
+        'csrfToken' => (string)$readerMarkerCsrfToken,
+        'isGuest' => $user === 'guest',
         'savedCfi' => $savedCfi,
         'savedUpdatedAt' => $savedUpdatedAt,
         'readerFallbackParentUrl' => $readerFallbackParentUrl,
@@ -561,6 +623,24 @@ JS;
         'epub_inspector_signature_expiration' => $i18n->get('epub_inspector_signature_expiration'),
         'epub_inspector_last_saved' => $i18n->get('epub_inspector_last_saved'),
         'epub_unknown' => $i18n->get('epub_unknown'),
+        'reader_markers' => $i18n->get('reader_markers'),
+        'reader_marker_default' => $i18n->get('reader_marker_default'),
+        'reader_marker_add' => $i18n->get('reader_marker_add'),
+        'reader_marker_edit' => $i18n->get('reader_marker_edit'),
+        'reader_marker_delete' => $i18n->get('reader_marker_delete'),
+        'reader_marker_save' => $i18n->get('reader_marker_save'),
+        'reader_marker_cancel' => $i18n->get('reader_marker_cancel'),
+        'reader_marker_name_placeholder' => $i18n->get('reader_marker_name_placeholder'),
+        'reader_marker_added' => $i18n->get('reader_marker_added'),
+        'reader_marker_updated' => $i18n->get('reader_marker_updated'),
+        'reader_marker_deleted' => $i18n->get('reader_marker_deleted'),
+        'reader_marker_limit' => $i18n->get('reader_marker_limit'),
+        'reader_marker_error' => $i18n->get('reader_marker_error'),
+        'reader_marker_empty' => $i18n->get('reader_marker_empty'),
+        'reader_marker_page' => $i18n->get('reader_marker_page'),
+        'reader_marker_progress' => $i18n->get('reader_marker_progress'),
+        'reader_marker_section' => $i18n->get('reader_marker_section'),
+        'reader_marker_cluster' => $i18n->get('reader_marker_cluster'),
     ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
     $title = htmlspecialchars(strip_tags((string)$bookName), ENT_QUOTES, 'UTF-8');
@@ -591,6 +671,8 @@ JS;
     $backLabel = htmlspecialchars($i18n->get('back'), ENT_QUOTES, 'UTF-8');
     $statusLoadingLabel = htmlspecialchars($i18n->get('epub_status_loading'), ENT_QUOTES, 'UTF-8');
     $altCloseButton = htmlspecialchars($i18n->get('alt_close_button'), ENT_QUOTES, 'UTF-8');
+    $readerMarkersLabel = htmlspecialchars($i18n->get('reader_markers'), ENT_QUOTES, 'UTF-8');
+    $readerMarkerAddLabel = htmlspecialchars($i18n->get('reader_marker_add'), ENT_QUOTES, 'UTF-8');
 
     return <<<HTML
 <!DOCTYPE html>
@@ -784,6 +866,12 @@ JS;
             flex: 1 1 auto;
             min-width: 0;
         }
+        .epub-slider-row .reader-marker-slider {
+            flex: 1 1 auto;
+            width: auto;
+            min-width: 0;
+            margin-left: 0;
+        }
         #epub-slider-value {
             min-width: 52px;
             text-align: right;
@@ -920,7 +1008,10 @@ JS;
                 <div id="epub-status">{$statusLoadingLabel}</div>
                 <div class="epub-slider-row">
                     <label for="epub-slider">{$progressLabel}</label>
-                    <input id="epub-slider" type="range" value="1" min="1" max="1" step="1" aria-label="{$jumpLabel}">
+                    <span class="reader-marker-slider">
+                        <input id="epub-slider" type="range" value="1" min="1" max="1" step="1" aria-label="{$jumpLabel}">
+                        <span id="epub-marker-rail" class="reader-marker-rail"></span>
+                    </span>
                     <span id="epub-slider-value" class="value">1</span>
                 </div>
                 <div class="epub-panel-grid">
@@ -962,6 +1053,14 @@ JS;
                         </span>
                     </div>
                 </div>
+            </div>
+            <div class="epub-panel-section reader-marker-section">
+                <div class="reader-marker-heading-row">
+                    <span class="reader-marker-heading">{$readerMarkersLabel}</span>
+                    <button id="epub-marker-add" class="reader-marker-add" type="button">{$readerMarkerAddLabel}</button>
+                </div>
+                <div id="epub-marker-status" class="reader-marker-status" role="status" aria-live="polite"></div>
+                <div id="epub-marker-list" class="reader-marker-list"></div>
             </div>
             <hr>
             <div class="epub-panel-section">
@@ -1012,6 +1111,7 @@ JS;
         );
     </script>
     <script type="module">
+{$readerMarkerJs}
 {$epubReaderJs}
     </script>
 </body>
