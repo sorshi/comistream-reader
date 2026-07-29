@@ -484,14 +484,90 @@ input[type="range"]::-moz-range-thumb {
 }
 
 @media (max-width: 520px) {
+  .reader-marker-section {
+    margin: 6px 0 8px;
+    padding: 6px 8px;
+    border-left-width: 2px;
+  }
+
+  .reader-marker-heading-row {
+    gap: 8px;
+    margin-bottom: 2px;
+  }
+
+  .reader-marker-heading {
+    font-size: 0.9em;
+  }
+
+  .reader-marker-add {
+    min-height: 32px;
+    padding: 4px 8px;
+    font-size: 0.82em;
+  }
+
+  .reader-marker-status {
+    min-height: 0;
+    margin: 2px 0;
+    font-size: 0.74em;
+    line-height: 1.25;
+  }
+
+  .reader-marker-status:empty {
+    margin: 0;
+  }
+
+  .reader-marker-empty {
+    padding: 1px 2px 0;
+    font-size: 0.78em;
+    line-height: 1.3;
+  }
+
   .reader-marker-row {
-    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .reader-marker-main {
+    gap: 6px;
+    min-height: 38px;
+    padding: 5px 2px;
+  }
+
+  .reader-marker-icon,
+  .reader-marker-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .reader-marker-text {
+    flex-flow: row wrap;
+    align-items: baseline;
+    column-gap: 6px;
+    line-height: 1.2;
+  }
+
+  .reader-marker-name {
+    font-size: 0.9em;
+  }
+
+  .reader-marker-position {
+    flex: 0 0 auto;
+    font-size: 0.7em;
+    white-space: nowrap;
   }
 
   .reader-marker-actions {
-    width: 100%;
-    justify-content: flex-end;
-    padding-bottom: 6px;
+    gap: 3px;
+  }
+
+  .reader-marker-action {
+    min-height: 32px;
+    padding: 4px 6px;
+    font-size: 0.78em;
+  }
+
+  .reader-marker-name-input {
+    padding: 5px;
   }
 }
 
