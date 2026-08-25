@@ -19,6 +19,7 @@ let previewWindowHeight = Math.round(
 let currentPath = window.location.pathname;
 let currentSortBy = 'name';
 let currentSortOrder = 'asc';
+const DIRECTORY_FILTER_HISTORY_KEY = 'comistreamDirectoryFilter';
 
 // ★即座にlocalStorageから読み込んで初期値を上書きするルン！
 // Ajax開始前に確実にソート設定を反映させるための即時実行関数ルン
@@ -1201,7 +1202,8 @@ function getBookmark() {
       }
     }
 
-
+    // お気に入り情報の反映後に、保存済みの絞り込みをもう一度評価するルン！
+    applyDirectoryFilter();
   })();
 }
 
@@ -1337,6 +1339,55 @@ function searchFavButton() {
   }
 }
 
+// 絞り込み状態を現在の履歴エントリへ保存するルン！
+function saveDirectoryFilterState() {
+  try {
+    const searchForm = document.searchform;
+    const favButton = document.getElementById("favbutton");
+    if (!searchForm || !searchForm.textbox || !favButton) return;
+
+    const currentHistoryState =
+      history.state && typeof history.state === "object" ? history.state : {};
+    const nextHistoryState = Object.assign({}, currentHistoryState);
+
+    nextHistoryState[DIRECTORY_FILTER_HISTORY_KEY] = {
+      path: window.location.pathname,
+      query: searchForm.textbox.value,
+      favoriteOnly: Boolean(favButton.style.backgroundImage),
+    };
+
+    history.replaceState(nextHistoryState, "");
+  } catch (e) {
+    console.warn("Failed to save directory filter state:", e);
+  }
+}
+
+// 同じ履歴エントリに保存された絞り込み状態だけを復元するルン！
+function restoreDirectoryFilterState() {
+  try {
+    const savedState =
+      history.state && history.state[DIRECTORY_FILTER_HISTORY_KEY];
+    if (!savedState || savedState.path !== window.location.pathname) {
+      return false;
+    }
+
+    const searchForm = document.searchform;
+    const favButton = document.getElementById("favbutton");
+    if (!searchForm || !searchForm.textbox || !favButton) return false;
+
+    searchForm.textbox.value =
+      typeof savedState.query === "string" ? savedState.query : "";
+    favButton.style.backgroundImage = savedState.favoriteOnly
+      ? 'url("' + iconPath + 'staron.png")'
+      : "";
+
+    return true;
+  } catch (e) {
+    console.warn("Failed to restore directory filter state:", e);
+    return false;
+  }
+}
+
 // 最後に開いたファイルの取得
 function getHistory() {
   var pathName = comistreamConfig.currentPath;
@@ -1364,15 +1415,17 @@ function getHistory() {
   }
 }
 
-// 検索機能
-function search() {
+// 現在のフォーム値を一覧へ適用するルン！
+function applyDirectoryFilter() {
+  if (!document.searchform || !document.searchform.textbox) return;
+
   var textbox = document.searchform.textbox.value;
-  var favOnly = document.getElementById("favbutton").style.backgroundImage
-    ? true
-    : false;
+  const favButton = document.getElementById("favbutton");
+  var favOnly = favButton && favButton.style.backgroundImage ? true : false;
 
   // 全ての行を取得
   const tableBody = document.querySelector("#table-tbody");
+  if (!tableBody) return;
   const rows = tableBody.querySelectorAll("tr");
 
   let visibleCount = 0;
@@ -1413,6 +1466,12 @@ function search() {
   });
 
 
+}
+
+// 検索機能
+function search() {
+  saveDirectoryFilterState();
+  applyDirectoryFilter();
 }
 
 // プレビュー機能関連
@@ -1669,6 +1728,10 @@ function reinitializeContentFeatures() {
     // 反映失敗は致命的ではないためログのみ
     console.error("applyBookmarkCache in reinitializeContentFeatures failed:", e);
   }
+
+  // Ajaxで一覧行を作り直した後にも、履歴の絞り込み状態を反映するルン！
+  restoreDirectoryFilterState();
+  applyDirectoryFilter();
 }
 
 // プレビュー機能の再初期化
@@ -1964,6 +2027,15 @@ document.addEventListener("DOMContentLoaded", function () {
     updateCoverSideGutter();
   } catch (e) {}
 });
+
+// BFCacheから戻った場合も、フォームと一覧表示を同じ状態にそろえるルン！
+window.addEventListener("pageshow", function () {
+  restoreDirectoryFilterState();
+  applyDirectoryFilter();
+});
+
+// 入力イベントを経由しない遷移でも、離脱直前の状態を残すルン！
+window.addEventListener("pagehide", saveDirectoryFilterState);
 
 // カバービューの左右ガター（外側余白）を計算してCSS変数に反映
 function updateCoverSideGutter() {
