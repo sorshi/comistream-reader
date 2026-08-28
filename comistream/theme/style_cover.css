@@ -264,17 +264,19 @@ td.indexcolicon {
   padding-left: 10px;
   padding-right: 10px;
   text-align: right;
-  background: url("icons/staroff.png") -20px center no-repeat;
   z-index: 1;
+}
+tr.file-entry-row td.indexcolicon {
+  background: url("icons/staroff.png") -20px center no-repeat;
   cursor: pointer;
 }
-td.indexcolicon:hover {
+tr.file-entry-row td.indexcolicon:hover {
   background-position-x: 5px;
 }
 
 /* タッチデバイス向けのhover効果無効化 */
 @media (hover: none) {
-  td.indexcolicon:hover {
+  tr.file-entry-row td.indexcolicon:hover {
     background-position-x: -20px;
   }
 }

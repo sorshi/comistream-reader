@@ -349,10 +349,25 @@ function openBookDetail()
 } //end function openBookDetail
 
 
+/**
+ * favのパス指定が共有領域内の通常ファイルを指すことを確認するルン。
+ *
+ * @return string|false 解決済み絶対パス。フォルダや不正パスならfalse。
+ */
+function resolveFavoriteTargetFile($shareDirectory, $requestedFile)
+{
+    $decodedFile = str_replace('+', '%2B', (string)$requestedFile);
+    $decodedFile = urldecode($decodedFile);
+    $relativeFile = ltrim($decodedFile, "/\\");
+
+    return resolveFileWithinBaseDirectory($shareDirectory, $relativeFile);
+}
+
+
 ##### お気に入り設定 ####################################################################
 function setFavorite()
 {
-    global $user, $base_file_hash, $file, $bookmarkDir, $global_use_db_flag, $dbh, $mode;
+    global $user, $base_file_hash, $file, $bookmarkDir, $global_use_db_flag, $dbh, $mode, $sharePath;
 
     if ($user !== "guest") {
         $use_base_file_hash = 0;
@@ -364,6 +379,14 @@ function setFavorite()
             writelog("DEBUG setFavorite() use_base_file_hash mode $base_file_hash");
         } else {
             $use_base_file_hash = 0;
+
+            // UIを迂回したリクエストでも、フォルダを履歴へ登録させないルン。
+            if (resolveFavoriteTargetFile($sharePath, $file) === false) {
+                http_response_code(400);
+                writelog("WARNING setFavorite() rejected non-file target: $file");
+                exit(0);
+            }
+
             $file = preg_replace('/\.\.\//', '', $file);
             $file = str_replace('+', '%2B', $file);
             $file = urldecode($file);

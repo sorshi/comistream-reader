@@ -175,4 +175,6 @@ Comistream Project.
 
 ## ライセンス
 
-[GPL-3.0ライセンス](LICENSE)
+Comistream Readerのプロジェクト独自部分は、[GNU Affero General Public License version 3 only](LICENSE)（`AGPL-3.0-only`）で提供します。
+
+過去にGPLv3で公開された版、および同梱する第三者コンポーネントの条件については、[LICENSING.md](LICENSING.md)を参照してください。

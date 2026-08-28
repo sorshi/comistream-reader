@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 表紙画像/プレビュー画像作成時に同名ファイルでもファイルの中身を判定して同一ファイル化判定
 
 ### 変更
+- フォルダにfavがつかないように修正
+- 読書履歴export metadataの`deployment_mode`値を、利用形態を直接表す`multiuser` / `single-user`へ変更
 - unrar path設定項目を削除
 - comistream.phpの引数にsize=FULLを付ける運用を終了して、sessionやcookieから自動判定されるように変更
 - セッションの有効期限を31日に設定

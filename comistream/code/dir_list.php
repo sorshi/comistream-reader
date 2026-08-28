@@ -445,8 +445,8 @@ $global_debug_flag = isset($global_debug_flag) ? $global_debug_flag : false;
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
-    ? '/theme/style_cover.css?2025100900'
-    : '/theme/style.css?2025100900';
+    ? '/theme/style_cover.css?2026082601'
+    : '/theme/style.css?2026082601';
 
 header('Content-Type: text/html; charset=utf-8');
 
@@ -1340,6 +1340,9 @@ if ($is_404_mode) {
                     let rowClass = '';
                     if (item.is_parent) {
                         rowClass = ' class="parent-dir-row"';
+                    } else if (!item.is_dir) {
+                        // fav操作は通常ファイルの行だけに限定するルン。
+                        rowClass = ' class="file-entry-row"';
                     }
 
                     htmlContent += '<tr' + rowClass + '>';
@@ -1490,6 +1493,9 @@ if ($is_404_mode) {
                     let rowClass = '';
                     if (item.is_parent) {
                         rowClass = ' class="parent-dir-row"';
+                    } else if (!item.is_dir) {
+                        // 高速描画でも通常描画と同じ種別を保持するルン。
+                        rowClass = ' class="file-entry-row"';
                     }
 
                     htmlContent += '<tr' + rowClass + '>';

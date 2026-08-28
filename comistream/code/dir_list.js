@@ -1098,7 +1098,10 @@ function getBookmark() {
       // 要素が見つからない場合は、類似するIDがないか調査
       if (!elm) {
 
-        const allIndexColName = document.getElementsByClassName("indexcolname");
+        // フォルダと同名の書籍があっても、書籍行だけを復元対象にするルン。
+        const allIndexColName = document.querySelectorAll(
+          "#table-tbody tr.file-entry-row td.indexcolname"
+        );
         for (
           let searchIdx = 0;
           searchIdx < Math.min(allIndexColName.length, 10);
@@ -1227,7 +1230,10 @@ function applyBookmarkCache() {
       let elm = document.getElementById(fileName);
       if (!elm) {
         // テキスト一致で救済
-        const allIndexColName = document.getElementsByClassName("indexcolname");
+        // キャッシュの再適用でもフォルダへ既読・fav表示を付けないルン。
+        const allIndexColName = document.querySelectorAll(
+          "#table-tbody tr.file-entry-row td.indexcolname"
+        );
         for (let searchIdx = 0; searchIdx < Math.min(allIndexColName.length, 10); searchIdx++) {
           const searchElm = allIndexColName[searchIdx];
           const searchText = searchElm.firstChild
@@ -1282,8 +1288,21 @@ function applyBookmarkCache() {
 
 // お気に入りフラグの設定
 function toggleFavorite(e) {
+  const favoriteCell = e.currentTarget;
+  const fileRow = favoriteCell && favoriteCell.closest
+    ? favoriteCell.closest("tr.file-entry-row")
+    : null;
+  if (!favoriteCell || !fileRow) return;
+
+  const fileAnchor = favoriteCell.querySelector("a[data-filepath]");
+  if (!fileAnchor) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
   // data-filepath属性から正確なファイルパスを取得（#文字対応）
-  var fileLink = getCleanFilePath(e.target.firstChild);
+  var fileLink = getCleanFilePath(fileAnchor);
+  if (!fileLink) return;
 
   // URLパラメータ用にエンコード
   fileLink = encodeURIComponent(fileLink)
@@ -1292,13 +1311,13 @@ function toggleFavorite(e) {
 
   // fileLink はこの直前で encodeURIComponent 済み（& と = も置換済み）なので再エンコードしない
   var favQuery = "file=" + fileLink + "&mode=";
-  if (e.target.style.backgroundImage) {
-    e.target.style.backgroundImage = "";
-    e.target.style.backgroundPosition = "";
+  if (favoriteCell.style.backgroundImage) {
+    favoriteCell.style.backgroundImage = "";
+    favoriteCell.style.backgroundPosition = "";
     favQuery = favQuery + "favOFF";
   } else {
-    e.target.style.backgroundImage = 'url("' + iconPath + 'staron.png")';
-    e.target.style.backgroundPosition = "5px";
+    favoriteCell.style.backgroundImage = 'url("' + iconPath + 'staron.png")';
+    favoriteCell.style.backgroundPosition = "5px";
     favQuery = favQuery + "favON";
   }
 
@@ -1307,7 +1326,7 @@ function toggleFavorite(e) {
   // キャッシュも同期更新（UIと状態のズレを防止）
   try {
     if (window._bookmarkCache && window._bookmarkCache.items) {
-      const linkEl = e.target.querySelector("a");
+      const linkEl = favoriteCell.querySelector("a");
       const fileName = linkEl ? linkEl.textContent : null;
       if (fileName) {
         const prev = window._bookmarkCache.items.get(fileName) || {
@@ -1706,9 +1725,11 @@ function reinitializeContentFeatures() {
     }
   }
 
-  // 行ごとのお気に入りトグル（indexcoliconセルにクリックハンドラを設定）
+  // 通常ファイル行だけにお気に入りトグルを設定するルン。
   try {
-    const iconCells = document.querySelectorAll("#table-tbody td.indexcolicon");
+    const iconCells = document.querySelectorAll(
+      "#table-tbody tr.file-entry-row td.indexcolicon"
+    );
     let boundCount = 0;
     iconCells.forEach((cell) => {
       if (cell && cell.onclick !== toggleFavorite) {

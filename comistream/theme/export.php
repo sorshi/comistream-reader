@@ -433,7 +433,7 @@ function fetchHistoryExportUsers(PDO $dbh): array
  *
  * @param PDO $dbh DB 接続
  * @param int $historyUserCount 履歴ユーザー数
- * @return string cloud / onpremise
+ * @return string multiuser / single-user
  */
 function detectHistoryExportDeploymentMode(PDO $dbh, int $historyUserCount): string
 {
@@ -441,13 +441,13 @@ function detectHistoryExportDeploymentMode(PDO $dbh, int $historyUserCount): str
         $stmt = $dbh->query('SELECT COUNT(*) FROM users');
         $userCount = (int)$stmt->fetchColumn();
         if ($historyUserCount > 1 || $userCount > 1) {
-            return 'cloud';
+            return 'multiuser';
         }
     } catch (Throwable $e) {
         historyExportPerfLog('detect_deployment_mode_failed', ['message' => $e->getMessage()], 'WARNING');
     }
 
-    return 'onpremise';
+    return 'single-user';
 }
 
 /**
