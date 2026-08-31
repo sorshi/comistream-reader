@@ -141,8 +141,13 @@ echo "[" >"$bookmark_file" # JSONファイルを初期化
 current_dir=""
 first_entry=true
 
-find "$output_dir" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.avif" \) | sort -V | while IFS= read -r file; do
-    link_name=$(printf "%s/%04d.jpg" "$output_dir" "$count")
+find "$output_dir" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.avif" -o -iname "*.jxl" \) | sort -V | while IFS= read -r file; do
+    link_extension="jpg"
+    if [[ "$file" =~ \.[jJ][xX][lL]$ ]]; then
+        # JPEG XLだけは配信時に形式を識別できるよう拡張子を維持するルン！
+        link_extension="jxl"
+    fi
+    link_name=$(printf "%s/%04d.%s" "$output_dir" "$count" "$link_extension")
     parent_dir=$(dirname "$file")
 
     if [[ "$parent_dir" != "$current_dir" ]]; then

@@ -1278,6 +1278,22 @@ function outputPage($isFileout = false)
     if ($isFileout) {
         return $pageInput . $crop_half_cmd;
     }
+    if (preg_match('/\.jxl$/i', $pagefile)) {
+        // JPEG XLはブラウザへそのまま渡し、サーバー側では変換しないルン！
+        $pageImg = shell_exec($pageInput);
+        if (strlen($pageImg) == 0) {
+            header("Cache-Control: no-store");
+            writelog("ERROR outputPage() JPEG XL image cannot be extracted. Delete cache and reload.$file");
+            deleteCacheDirAndReload();
+        } else {
+            header("Content-type: image/jxl");
+            header("Cache-Control: private, max-age=86400");
+            echo $pageImg;
+            writelog("DEBUG outputPage() JPEG XL straight filesize:" . strlen($pageImg));
+            unset($pageImg);
+        }
+        return;
+    }
     if ($size === 'FULL') {
         // フルサイズで出力
         writelog("DEBUG outputPage() fullsize_png_compress:" . $fullsize_png_compress);
@@ -2990,7 +3006,7 @@ function splitArchiveListLines($listText)
 
 function getArchiveImagePathsFromPlainList($listText)
 {
-    $imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'bmp', 'gif'];
+    $imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'jxl', 'bmp', 'gif'];
     $paths = [];
 
     foreach (splitArchiveListLines($listText) as $path) {
@@ -3181,7 +3197,7 @@ function openZipRar()
     }
 
     // 画像ファイルを抽出
-    $imagePaths = getArchivePathsByExtension($archiveEntries, ['jpg', 'jpeg', 'png', 'webp', 'avif', 'bmp', 'gif']);
+    $imagePaths = getArchivePathsByExtension($archiveEntries, ['jpg', 'jpeg', 'png', 'webp', 'avif', 'jxl', 'bmp', 'gif']);
     $firstFile = $imagePaths[0] ?? '';
     writelog("DEBUG openZipRar() firstFile:" . $firstFile . " extracted from rawindex");
 
@@ -3240,7 +3256,7 @@ function openZipRar()
         $nestedCacheItems = scandir("$cacheDir/$file/");
         if ($nestedCacheItems !== false) {
             foreach ($nestedCacheItems as $nestedCacheItem) {
-                if (archivePathHasExtension($nestedCacheItem, ['jpg', 'jpeg', 'png', 'webp', 'avif', 'bmp', 'gif'])) {
+                if (archivePathHasExtension($nestedCacheItem, ['jpg', 'jpeg', 'png', 'webp', 'avif', 'jxl', 'bmp', 'gif'])) {
                     $nestedImagePaths[] = $nestedCacheItem;
                 }
             }
@@ -3298,7 +3314,7 @@ function openZipRar()
 
         $targetRawIndex = shell_exec("LANG=ja_JP.UTF8 $p7zip l -slt \"$cacheDir/$file/file\" " . escapeshellarg($firstFile));
         $targetEntries = parseSevenZipSltEntries($targetRawIndex);
-        $checkFileEntry = findArchiveFileEntry($targetEntries, $firstFile, ['jpg', 'jpeg', 'png', 'webp', 'avif', 'bmp', 'gif']);
+        $checkFileEntry = findArchiveFileEntry($targetEntries, $firstFile, ['jpg', 'jpeg', 'png', 'webp', 'avif', 'jxl', 'bmp', 'gif']);
         $checkFile = $checkFileEntry['path'] ?? '';
         writelog("DEBUG openZipRar() checkFile:" . mb_convert_encoding($checkFile, 'UTF-8', 'auto'));
 

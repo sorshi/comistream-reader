@@ -25,7 +25,7 @@
  */
 function generateHTML()
 {
-    global $conf, $size, $global_preload_pages, $global_debug_flag, $page, $maxPage, $degree,
+    global $conf, $cacheDir, $size, $global_preload_pages, $global_debug_flag, $page, $maxPage, $degree,
         $indexArray, $position, $direction, $autosplit, $fileSize, $averagePageBytes, $baseFile,
         $escapedFile, $file, $size, $view_query, $global_preload_delay_ms, $publicDir, $pageTitle,
         $bookName, $contents, $split_button_class, $split_button_text, $pagemode_button_class, $pagemode_button_text;
@@ -156,6 +156,19 @@ function generateHTML()
     $readerMarkerFormatJson = json_encode(
         strtolower(pathinfo((string)$baseFile, PATHINFO_EXTENSION)) === 'pdf' ? 'pdf' : 'archive'
     );
+
+    // 収録されている最初のJPEG XLページをブラウザのデコード確認に使うルン！
+    $jpegXlProbePage = 0;
+    $archiveIndexPath = $cacheDir . '/' . $file . '/index';
+    $archiveIndexLines = @file($archiveIndexPath, FILE_IGNORE_NEW_LINES);
+    if (is_array($archiveIndexLines)) {
+        foreach ($archiveIndexLines as $pageIndex => $archivePagePath) {
+            if (preg_match('/\.jxl\s*$/i', $archivePagePath)) {
+                $jpegXlProbePage = $pageIndex + 1;
+                break;
+            }
+        }
+    }
 
     // HTMLエスケープ処理 ルン！XSS対策大事ルン！
     $apple_mobile_web_app_title = htmlspecialchars($apple_mobile_web_app_title, ENT_QUOTES, 'UTF-8');
@@ -299,6 +312,7 @@ function generateHTML()
             isGuest: $readerMarkerIsGuestJson,
             format: $readerMarkerFormatJson
         };
+        const jpegXlProbePage = $jpegXlProbePage;
         let global_preload_pages = $global_preload_pages;
         $pageGenerator
 

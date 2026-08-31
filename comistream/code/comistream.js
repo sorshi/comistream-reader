@@ -1364,7 +1364,38 @@ async function preLoadInitialImages(startPage) {
   }
 }
 
-function restorePage() {
+async function browserCanDecodeJpegXlPage(pageNumber) {
+  const probeImage = new Image();
+  return new Promise((resolve) => {
+    probeImage.onload = () => {
+      resolve(probeImage.naturalWidth > 0 && probeImage.naturalHeight > 0);
+    };
+    probeImage.onerror = () => {
+      resolve(false);
+    };
+    probeImage.src = getFullImageUrl(pageNumber);
+  });
+}
+
+async function ensureJpegXlSupport() {
+  if (!jpegXlProbePage) {
+    return true;
+  }
+
+  if (await browserCanDecodeJpegXlPage(jpegXlProbePage)) {
+    return true;
+  }
+
+  alert("ブラウザで未対応の画像フォーマットです:JPEG XL");
+  window.history.back();
+  return false;
+}
+
+async function restorePage() {
+  if (!(await ensureJpegXlSupport())) {
+    return;
+  }
+
   if (page == 1) {
     page = parseInt(window.localStorage.getItem(file) || page);
   }
