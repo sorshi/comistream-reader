@@ -8,7 +8,7 @@
  * @package     sorshi/comistream-reader
  * @author      Comistream Project.
  * @copyright   2024 Comistream Project.
- * @license     GPL3.0 License
+ * @license     AGPL-3.0-only for Comistream Reader project-specific portions; see repository-root LICENSING.md
  * @version     1.1.0
  *
  * 主な機能:
@@ -68,7 +68,7 @@ class PreCache {
 
     let img = new Image();
     // ★ 注意: crossOrigin属性を設定するとCORSヘッダーが必要になるルン
-    // R2 WorkerがCORSヘッダーを返さない場合、画像自体が読み込めなくなるルン
+    // 画像配信元がCORSヘッダーを返さない場合、画像自体が読み込めなくなるルン
     // そのため、crossOrigin属性は設定せず、Canvas操作（帯域測定）は諦めるルン
     img.src = imageUrl;
 

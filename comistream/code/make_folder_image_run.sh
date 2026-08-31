@@ -15,7 +15,7 @@
 #
 # 作成者: Comistream Project
 # バージョン: 1.0.1
-# ライセンス: GPL3.0
+# ライセンス: プロジェクト独自部分はAGPL-3.0-only（リポジトリルートのLICENSING.md参照）
 # https://github.com/sorshi/comistream-reader
 #
 ###############################################################################

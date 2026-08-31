@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### 追加
+- Contribution手順を定める`CONTRIBUTING.md`と、著作権譲渡を伴わないContributor License Agreement Draftを追加
 - jsDelivrからComistream向けFoliate-js forkの固定コミットを読み込むEPUB readerを追加。展開済みEPUBをローカルキャッシュから配信し、EPUB CFIによる読書位置の保存・復帰に対応。
 - 低メモリモード追加。デフォルトは有効。有効時にはAVIFソースのトリミングを無効にする。
 - ログ表示で表紙画像とプレビュー画像の作成に要した時間を記録する機能追加
@@ -31,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 表紙画像/プレビュー画像作成時に同名ファイルでもファイルの中身を判定して同一ファイル化判定
 
 ### 変更
+- プロジェクト独自部分の既存ソースヘッダーを`AGPL-3.0-only`へ統一し、第三者部分は各固有ライセンスを維持
 - フォルダにfavがつかないように修正
 - 読書履歴export metadataの`deployment_mode`値を、利用形態を直接表す`multiuser` / `single-user`へ変更
 - unrar path設定項目を削除
