@@ -25,7 +25,25 @@ Comistream Readerのプロジェクト独自部分は`AGPL-3.0-only`で提供し
 
 採用するContributionには、[CLA.md](CLA.md)のContributor License Agreementへの同意が必要です。CLAは著作権譲渡ではありません。Contributorは自らのContributionに対する権利を保持しながら、プロジェクト管理者へ、プロジェクトの継続的な保守、配布およびライセンス管理に必要な非独占ライセンスを付与します。
 
-CLA.mdがDraftである間は、同文書を有効な同意書として使用しません。正式な契約当事者、適用法および同意取得・保存方法が確定し、CLAの状態が有効版へ更新されるまで、外部Contributionをmergeしません。Issueでの提案や採用前の技術的検討は可能です。
+### Pull RequestでのCLA同意
+
+Pull Requestを提出するときは、Pull Request templateのCLA同意欄を確認してください。
+
+1. [CLA.md](CLA.md) version 1.0を確認してください。
+2. GitHubへloginした状態で、Pull RequestのCLA同意欄を自分でcheckしてください。
+3. CLAへの同意と、Contributionを提出する権限があることの確認を行ってください。
+4. Project Maintainerが同意を確認した後、通常のcode reviewへ進みます。
+
+同意欄をcheckせずにPull Requestを作成した場合は、Contributor本人が当該Pull Requestへ次の文を投稿してください。
+
+```text
+I have read and agree to CLA.md version 1.0 and submit my
+contributions in this pull request under its terms.
+```
+
+Pull Requestに複数の人間のauthorまたはco-authorが含まれる場合、各Contributorが上記の同意文を当該Pull Requestへ投稿してください。Project Maintainerが明示的に許可したbot accountは対象外となる場合があります。
+
+CLAを実質的に変更した場合はversionを更新し、変更後のPull Requestから新しいversionへの同意を求めます。
 
 ## 4. 開発の進め方
 
@@ -49,7 +67,7 @@ CLA.mdがDraftである間は、同文書を有効な同意書として使用し
 - [ ] 第三者コード・素材・依存の出典とライセンスを記載した
 - [ ] AI支援を実質的に利用した場合、その内容と確認結果を記載した
 - [ ] 秘密情報、個人情報および認証情報を含まないことを確認した
-- [ ] 有効なCLAへの同意を完了した（CLA運用開始後）
+- [ ] Pull RequestのCLA同意欄をcheckした、または指定された同意文を投稿した
 
 ## 6. レビューと採否
 

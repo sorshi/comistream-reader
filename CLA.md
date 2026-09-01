@@ -1,10 +1,14 @@
 # Comistream Reader Individual Contributor License Agreement
 
-状態: Draft / 発効前の法務・運用確認用
+状態: 有効
 
 作成日: 2026-08-31
 
-> 本Draftは、正式な契約当事者、準拠法、合意管轄および同意取得・保存方法が未確定です。これらを確定し、本項の状態を有効版へ更新するまで、署名、同意取得またはContribution受入れの根拠として使用しません。
+CLA version: 1.0
+
+発効日: 2026-08-31
+
+> Contributorは、Pull Requestごとに設けられたCLA同意欄をcheckするか、指定された同意文を当該Pull Requestへ投稿することにより、本CLAへ明示的に同意します。
 
 ## 1. 目的
 
@@ -15,8 +19,8 @@
 ## 2. 定義
 
 1. 「Project」とは、`https://github.com/sorshi/comistream-reader`で管理されるComistream Readerをいいます。
-2. 「Project License」とは、Contribution受入れ時にProjectのプロジェクト独自部分へ適用される公開ライセンスをいいます。本Draft作成時点では`AGPL-3.0-only`です。
-3. 「Project Maintainer」とは、`【発効前要確定：本CLAの契約当事者となる個人権利者の正式氏名および連絡先】`ならびにその適法な承継人をいいます。
+2. 「Project License」とは、Contribution受入れ時にProjectのプロジェクト独自部分へ適用される公開ライセンスをいいます。本CLA version 1.0の発効時点では`AGPL-3.0-only`です。
+3. 「Project Maintainer」とは、`宗子<sorshi@dcc-jpl.com>`ならびにその適法な承継人をいいます。
 4. 「You」または「Contributor」とは、自らが権利者として、または権利者から正当に権限を与えられて、本CLAに同意してContributionを提出する個人をいいます。
 5. 「Contribution」とは、Projectへの採用を目的として、Contributorが意図的に提出する著作物、コード、文書、翻訳、テスト、画像その他の素材、および既存のものへの変更または追加をいいます。
 6. 「Submitted」とは、Project Maintainerが管理または指定するソースコード管理、Issue tracker、電子メール、電子署名その他の経路を通じ、Projectの改善を目的として送信することをいいます。ただし、Contributorが明瞭に`Not a Contribution`と表示したものを除きます。
@@ -74,23 +78,31 @@ Contributorは、自ら希望する場合を除き、Contributionのサポート
 
 ## 9. 記録と変更
 
-1. Project Maintainerは、合意者の氏名、連絡先、合意日、対象CLAのversion、合意方法その他合意を証明するために必要な記録を保存します。
-2. 本CLAの変更後に提出されるContributionへ変更後の条件を適用する場合、Contributorから改めて明示的な同意を取得します。
-3. 変更前に受け入れたContributionには、同意時のCLAが引き続き適用されます。
+1. Project Maintainerは、Pull RequestおよびGitHubが提供するmetadataを、少なくとも次の事項を確認できる同意記録として保存します。
+   1. ContributorのGitHub loginおよび変更されないGitHub user ID
+   2. 同意日時
+   3. 対象CLAのversion
+   4. 同意対象となったPull Request
+   5. Contributorが行った明示的な同意操作または同意文
+2. Project Maintainerはmerge前に、Pull Requestの同意欄または同意コメントを確認します。
+3. 同意記録は、CLAへの同意確認、Contributionの権利管理、Contributorへの連絡および紛争対応に必要な範囲で利用します。
+4. 本CLAを実質的に変更した場合はversionを更新し、変更後のContributionを受け入れる前に、Contributorから変更後のversionへの同意を取得します。
+5. 変更前に受け入れたContributionには、同意時のCLAが引き続き適用されます。
 
 ## 10. 準拠法、管轄および合意方法
 
-- 準拠法: `【発効前要確定】`
-- 第一審の合意管轄: `【発効前要確定】`
-- CLA version: `Draft-2026-08-31`
-- 有効な同意方法: `【発効前要確定：電子署名、署名済文書、CLA管理サービスその他】`
-- 同意記録の保存場所・管理方法: `【発効前要確定】`
-- 問い合わせ先: `【発効前要確定】`
-
-Pull Request、commit sign-off、Issueコメントまたは本Draftへのリンクだけでは、上記の有効な同意方法が確定するまで、本CLAへの同意として扱いません。
+1. 本CLAは日本法に準拠し、日本法に従って解釈します。
+2. 本CLAまたはContributionに関して訴訟の必要が生じた場合、東京地方裁判所を第一審の専属的合意管轄裁判所とします。
+3. Contributorは、GitHubへloginした状態で、Pull Requestのdescriptionに設けられたCLA同意欄を自らcheckして提出するか、Project Maintainerが指定する同意文を当該Pull Requestへ投稿することにより、本CLAへ明示的に同意します。
+4. 前項の同意は、当該Pull Requestに含まれるContributorのContributionへ適用します。
+5. CLAへの明示的な同意が確認できないPull Requestはmergeしません。
+6. 1つのPull Requestに複数の人間のauthorまたはco-authorが含まれる場合、各Contributorが当該Pull Request上で同意を表明します。
+7. Project Maintainerが明示的に許可したbot accountには、本条の同意手続を適用しないことがあります。
+8. commitの`Signed-off-by`、Contributionの提出、本CLAへのlink、または一般的なIssueコメントだけでは、本CLAへの同意として扱いません。ただし、第3項に基づく同意欄のcheckまたは指定された同意文の投稿を除きます。
+9. 将来CLA確認を自動化する場合も、本条で定めるPull Request上の明示的な同意内容を維持します。
 
 ## 11. 参考と留保
 
-本Draftは、Apache Software Foundation Individual Contributor License Agreementの一般的な権利許諾構造を参考にした派生文書であり、Comistream Reader用に内容を変更しています。Apache Software Foundationの文書そのものではなく、同団体による確認、推奨または保証を受けたものではありません。
+本CLAは、Apache Software Foundation Individual Contributor License Agreementの一般的な権利許諾構造を参考にした派生文書であり、Comistream Reader用に内容を変更しています。Apache Software Foundationの文書そのものではなく、同団体による確認、推奨または保証を受けたものではありません。
 
-発効前に、Project Maintainerの正式表示、個人情報の保存方法、著作者人格権、特許条項、準拠法、管轄および電子的同意の成立方法について、必要に応じて弁護士の確認を受けます。
+著作者人格権、特許条項、GitHub上の明示的同意、同意記録および個人情報の取扱いについて、必要に応じて弁護士の確認を受けます。
