@@ -17,6 +17,7 @@
 // library
 if (file_exists(__DIR__ . "/comistream_lib.php")) {
     require(__DIR__ . "/comistream_lib.php");
+    require_once(__DIR__ . "/music_metadata.php");
     writelog("DEBUG library file exist:" . __DIR__ . "/comistream_lib.php", 'MusicPlayer');
 } else {
     exit(1);
@@ -322,9 +323,9 @@ function openMusicPlayer()
         .icon-repeat-one .repeat-one-symbol { display: block; }
         .shuffle-active, .repeat-active { color: var(--accent); background: #7799dd1f; border-color: #7799dd52; }
         .secondary-controls { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+        .secondary-controls.volume-unavailable { justify-content: flex-end; }
         .volume-container { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; color: var(--muted); }
         .volume-slider { --progress: 70%; }
-        .volume-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
         .queue-panel { min-width: 0; border: 1px solid var(--line); border-radius: 28px; background: #111a2a; overflow: hidden; }
         .queue-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 24px 22px 16px; }
         .queue-heading h2 { font-size: 20px; margin: 7px 0 0; }
@@ -431,7 +432,7 @@ function openMusicPlayer()
                     <button class="control-btn icon-repeat" id="repeatBtn" title="リピート: OFF" aria-label="リピート: OFF" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-repeat"/><text class="repeat-one-symbol" x="10" y="15" stroke="none" fill="currentColor" font-size="9">1</text></svg></button>
                 </div>
                 <div class="secondary-controls">
-                    <div class="volume-container"><svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg><input type="range" class="range-slider volume-slider" id="volumeSlider" min="0" max="100" value="70" aria-label="音量"><p class="volume-hint" id="volumeHint" hidden>音量は端末のボタンで調整</p></div>
+                    <div class="volume-container" id="volumeContainer"><svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg><input type="range" class="range-slider volume-slider" id="volumeSlider" min="0" max="100" value="70" aria-label="音量"></div>
                     <a class="control-btn" id="downloadBtn" title="ダウンロード" aria-label="現在の曲をダウンロード" href="#" download><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg></a>
                 </div>
             </section>
@@ -642,21 +643,23 @@ function getMetadata()
     }
 
     $meta = ['title' => '', 'artist' => ''];
-    $max = 3145728; // 3MBまでスキャン
-    $fp = @fopen($path, 'rb');
-    if (!$fp) {
-        echo json_encode(['success' => false, 'error' => 'open failed']);
-        return;
-    }
-    $buf = fread($fp, $max);
-    fclose($fp);
+    if ($ext === 'm4a' || $ext === 'mp4' || $ext === 'aac') {
+        $meta = readMP4MetadataFromFile($path);
+    } else {
+        $max = 3145728; // ID3 / FLAC メタデータは先頭3MBまでスキャン
+        $fp = @fopen($path, 'rb');
+        if (!$fp) {
+            echo json_encode(['success' => false, 'error' => 'open failed']);
+            return;
+        }
+        $buf = fread($fp, $max);
+        fclose($fp);
 
-    if ($ext === 'mp3') {
-        $meta = parseID3v2Metadata($buf);
-    } elseif ($ext === 'flac') {
-        $meta = parseFLACVorbisComment($buf);
-    } elseif ($ext === 'm4a' || $ext === 'mp4' || $ext === 'aac') {
-        $meta = parseMP4IlstMetadata($buf);
+        if ($ext === 'mp3') {
+            $meta = parseID3v2Metadata($buf);
+        } elseif ($ext === 'flac') {
+            $meta = parseFLACVorbisComment($buf);
+        }
     }
 
     echo json_encode(['success' => true, 'title' => $meta['title'], 'artist' => $meta['artist']]);
@@ -685,22 +688,24 @@ function getCoverArt()
         return;
     }
 
-    $max = 4194304; // 4MBまでスキャン
-    $fp = @fopen($path, 'rb');
-    if (!$fp) {
-        http_response_code(500);
-        return;
-    }
-    $buf = fread($fp, $max);
-    fclose($fp);
-
     $result = null;
-    if ($ext === 'mp3') {
-        $result = extractMP3CoverFromBuffer($buf);
-    } elseif ($ext === 'flac') {
-        $result = extractFLACCoverFromBuffer($buf);
-    } elseif ($ext === 'm4a' || $ext === 'mp4' || $ext === 'aac') {
-        $result = extractMP4CoverFromBuffer($buf);
+    if ($ext === 'm4a' || $ext === 'mp4' || $ext === 'aac') {
+        $result = extractMP4CoverFromFile($path);
+    } else {
+        $max = 4194304; // ID3 / FLAC カバーは先頭4MBまでスキャン
+        $fp = @fopen($path, 'rb');
+        if (!$fp) {
+            http_response_code(500);
+            return;
+        }
+        $buf = fread($fp, $max);
+        fclose($fp);
+
+        if ($ext === 'mp3') {
+            $result = extractMP3CoverFromBuffer($buf);
+        } elseif ($ext === 'flac') {
+            $result = extractFLACCoverFromBuffer($buf);
+        }
     }
 
     if ($result && isset($result['data'])) {
@@ -807,52 +812,6 @@ function parseFLACVorbisComment($buf)
     return $meta;
 }
 
-function parseMP4IlstMetadata($buf)
-{
-    $meta = ['title' => '', 'artist' => ''];
-    $len = strlen($buf);
-    $offset = 0;
-    while ($offset + 8 <= $len) {
-        $size = unpack('N', substr($buf, $offset, 4))[1];
-        $type = substr($buf, $offset + 4, 4);
-        if ($size <= 0) break;
-        $inner = $offset + 8 + ($type === 'meta' ? 4 : 0);
-        $end = min($len, $offset + $size);
-        if (in_array($type, ['moov', 'udta', 'meta', 'ilst'])) {
-            while ($inner + 8 <= $end) {
-                $ssize = unpack('N', substr($buf, $inner, 4))[1];
-                $stype = substr($buf, $inner + 4, 4);
-                if ($ssize <= 0) break;
-                if ($stype === "\xA9" . 'nam' || $stype === "\xA9" . 'ART' || $stype === 'aART') {
-                    $p = $inner + 8;
-                    $subEnd = min($end, $inner + $ssize);
-                    while ($p + 8 <= $subEnd) {
-                        $dsize = unpack('N', substr($buf, $p, 4))[1];
-                        $dtype = substr($buf, $p + 4, 4);
-                        if ($dsize <= 0) break;
-                        if ($dtype === 'data') {
-                            // skip 8 bytes (version/flags + type set) + 4 bytes locale
-                            $payloadStart = $p + 16;
-                            $payloadLen = min($subEnd, $p + $dsize) - $payloadStart;
-                            if ($payloadLen > 0) {
-                                $text = substr($buf, $payloadStart, $payloadLen);
-                                $text = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
-                                if ($stype === "\xA9" . 'nam') $meta['title'] = $text;
-                                else $meta['artist'] = $text;
-                            }
-                            break;
-                        }
-                        $p += $dsize;
-                    }
-                }
-                $inner += $ssize;
-            }
-        }
-        $offset += $size;
-    }
-    return $meta;
-}
-
 function extractMP3CoverFromBuffer($buf)
 {
     if (strlen($buf) < 10 || substr($buf, 0, 3) !== 'ID3') return null;
@@ -927,56 +886,6 @@ function extractFLACCoverFromBuffer($buf)
         }
         $offset += $size;
         if ($isLast) break;
-    }
-    return null;
-}
-
-function extractMP4CoverFromBuffer($buf)
-{
-    $len = strlen($buf);
-    $offset = 0;
-    while ($offset + 8 <= $len) {
-        $size = unpack('N', substr($buf, $offset, 4))[1];
-        $type = substr($buf, $offset + 4, 4);
-        if ($size <= 0) break;
-        $inner = $offset + 8 + ($type === 'meta' ? 4 : 0);
-        $end = min($len, $offset + $size);
-        if (in_array($type, ['moov', 'udta', 'meta', 'ilst', 'covr'])) {
-            if ($type === 'covr') {
-                // inside covr, look for data atom
-                $p = $inner;
-                $subEnd = $end;
-                while ($p + 8 <= $subEnd) {
-                    $dsize = unpack('N', substr($buf, $p, 4))[1];
-                    $dtype = substr($buf, $p + 4, 4);
-                    if ($dsize <= 0) break;
-                    if ($dtype === 'data') {
-                        $payloadStart = $p + 16;
-                        $payloadLen = min($subEnd, $p + $dsize) - $payloadStart;
-                        if ($payloadLen > 0) {
-                            $img = substr($buf, $payloadStart, $payloadLen);
-                            $mime = (strlen($img) > 1 && ord($img[0]) === 0x89 && ord($img[1]) === 0x50) ? 'image/png' : 'image/jpeg';
-                            return ['mime' => $mime, 'data' => $img];
-                        }
-                        break;
-                    }
-                    $p += $dsize;
-                }
-            } else {
-                while ($inner + 8 <= $end) {
-                    $ssize = unpack('N', substr($buf, $inner, 4))[1];
-                    $stype = substr($buf, $inner + 4, 4);
-                    if ($ssize <= 0) break;
-                    if ($stype === 'covr') {
-                        // recurse into covr
-                        $sub = extractMP4CoverFromBuffer(substr($buf, $inner, $ssize));
-                        if ($sub) return $sub;
-                    }
-                    $inner += $ssize;
-                }
-            }
-        }
-        $offset += $size;
     }
     return null;
 }

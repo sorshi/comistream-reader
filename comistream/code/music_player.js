@@ -36,6 +36,8 @@ class MusicPlayer {
 
     // DOM要素の取得
     this.initDOMElements();
+    this.usesSystemVolume = this.isIOSDevice();
+    this.configureVolumeControl();
 
     // イベントリスナーの設定
     this.initEventListeners();
@@ -44,7 +46,9 @@ class MusicPlayer {
     this.initMediaSession();
 
     this.initPlaylistDialog();
-    this.setVolume(this.volume);
+    if (!this.usesSystemVolume) {
+      this.setVolume(this.volume);
+    }
 
     // 初期楽曲をロード
     this.loadCurrentTrack();
@@ -81,6 +85,8 @@ class MusicPlayer {
 
     // ボリューム
     this.volumeSlider = document.getElementById("volumeSlider");
+    this.volumeContainer = document.getElementById("volumeContainer");
+    this.secondaryControls = document.querySelector(".secondary-controls");
 
     // プレイリスト関連
     this.showPlaylistBtn = document.getElementById("showPlaylistBtn");
@@ -269,6 +275,8 @@ class MusicPlayer {
   }
 
   setupHardwareVolumeSync() {
+    if (this.usesSystemVolume) return;
+
     // ハードウェアボリューム変化の検出を試行
     // 注意: セキュリティ上の制限により多くのブラウザで制限されています
     try {
@@ -898,15 +906,28 @@ class MusicPlayer {
   }
 
   setVolume(volume) {
+    if (this.usesSystemVolume) return;
+
     const requested = Math.max(0, Math.min(volume, 1));
     this.audioPlayer.volume = requested;
     this.volume = this.audioPlayer.volume;
     this.volumeSlider.value = this.volume * 100;
     this.volumeSlider.style.setProperty("--progress", `${this.volume * 100}%`);
-    // 音量変更が反映されない端末では、本体の操作を案内するルン。
-    const systemVolume = Math.abs(this.volume - requested) > 0.01;
-    this.volumeSlider.hidden = systemVolume;
-    document.getElementById("volumeHint").hidden = !systemVolume;
+  }
+
+  isIOSDevice() {
+    return (
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+    );
+  }
+
+  configureVolumeControl() {
+    this.volumeContainer.hidden = this.usesSystemVolume;
+    this.secondaryControls.classList.toggle(
+      "volume-unavailable",
+      this.usesSystemVolume
+    );
   }
 
   onMetadataLoaded() {
@@ -1146,11 +1167,13 @@ class MusicPlayer {
         this.nextTrack();
         break;
       case "ArrowUp":
+        if (this.usesSystemVolume) break;
         event.preventDefault();
         this.setVolume(Math.min(this.volume + 0.1, 1));
         this.volumeSlider.value = this.volume * 100;
         break;
       case "ArrowDown":
+        if (this.usesSystemVolume) break;
         event.preventDefault();
         this.setVolume(Math.max(this.volume - 0.1, 0));
         this.volumeSlider.value = this.volume * 100;
