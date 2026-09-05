@@ -193,13 +193,19 @@ function openMusicPlayer()
     }
 
     // 音楽ファイルリストをJSONに変換
-    $musicFilesJson = json_encode($musicFiles);
+    $musicFilesJson = json_encode(
+        $musicFiles,
+        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE
+    );
     $themeDir = $conf["comistream_tool_dir"];
 
     // HTMLページ出力
     $safeBaseFile = htmlspecialchars($baseFile, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $currentIndex = (int)$currentIndex;
-    $user = htmlspecialchars($user, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+    $userJson = json_encode(
+        $user,
+        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE
+    );
     echo <<<HTML
 <!DOCTYPE html>
 <html lang="ja">
@@ -208,348 +214,245 @@ function openMusicPlayer()
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <!-- iOS 18 Safari PWA および バックグラウンド再生対応 -->
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#667eea">
+    <meta name="theme-color" content="#0b1018">
     <link rel="apple-touch-icon" href="/theme/icons/audio.png">
     <link rel="manifest" href="/theme/manifest.json">
     <title>$safeBaseFile - Music Player</title>
     <style>
-        html {
-            text-autospace: normal;
+        :root {
+            color-scheme: dark;
+            --bg: #0b1018;
+            --panel: #121b2b;
+            --text: #f1f6fc;
+            --muted: #9eafc3;
+            --accent: #7799dd;
+            --line: #293750;
         }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { box-sizing: border-box; }
+        html { text-autospace: normal; }
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            height: 100vh;
-            overflow: hidden;
+            margin: 0;
+            min-height: 100vh;
+            min-height: 100dvh;
+            background: radial-gradient(ellipse at 15% 0%, #1b2b47 0%, transparent 55%), var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            -webkit-text-size-adjust: 100%;
         }
-
+        button, input, select, textarea { font: inherit; }
+        button, a, input { -webkit-tap-highlight-color: transparent; }
+        button, a { touch-action: manipulation; }
+        button { cursor: pointer; }
+        button, a { color: inherit; }
+        button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 4px;
+        }
+        button:disabled { opacity: .45; cursor: default; }
+        .icon { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+        .icon-definitions { position: absolute; width: 0; height: 0; overflow: hidden; }
         .music-player {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            max-width: 400px;
-            margin: 0 auto;
-            background: rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(10px);
+            width: min(100%, 1200px);
+            margin: auto;
+            padding: max(20px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
         }
-
-        .player-header {
-            text-align: center;
-            padding: 20px;
-            background: rgba(0, 0, 0, 0.2);
-        }
-
+        .app-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0 26px; }
+        .brand { display: flex; align-items: center; gap: 12px; }
+        .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #526b9d; border-radius: 14px; color: var(--accent); background: #1c2a48; }
+        .brand-name { font-size: 12px; font-weight: 700; letter-spacing: .16em; }
+        .brand-subtitle { margin-top: 3px; font-size: 12px; color: var(--muted); }
+        .header-note { font-size: 12px; color: var(--muted); }
+        .player-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+        .now-playing { min-width: 0; padding: 28px; border: 1px solid var(--line); border-radius: 28px; background: linear-gradient(160deg, #1a2942, #141d2d 65%); box-shadow: 0 24px 70px #0003; }
+        .section-label { margin: 0; font-size: 11px; letter-spacing: .18em; color: var(--accent); font-weight: 700; }
+        .stage-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .track-position { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
         .album-art {
-            width: 200px;
-            height: 200px;
-            border-radius: 15px;
-            margin: 20px auto;
-            background: rgba(255, 255, 255, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 48px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        }
-
-        .track-info {
-            text-align: center;
-            padding: 20px;
-        }
-
-        .track-title {
-            font-size: 20px;
-            font-weight: bold;
-            margin-bottom: 8px;
-            word-break: break-word;
-        }
-
-        .track-artist {
-            font-size: 16px;
-            opacity: 0.8;
-            margin-bottom: 20px;
-        }
-
-        .progress-container {
-            padding: 0 30px;
-            margin-bottom: 20px;
-        }
-
-        .progress-bar {
-            width: 100%;
-            height: 4px;
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 2px;
-            margin: 10px 0;
-            cursor: pointer;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: white;
-            border-radius: 2px;
-            width: 0%;
-            transition: width 0.1s ease;
-        }
-
-        .time-display {
-            display: flex;
-            justify-content: space-between;
-            font-size: 12px;
-            opacity: 0.8;
-        }
-
-        .controls {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 20px;
-            padding: 20px;
-        }
-
-        .control-btn {
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            color: white;
-            font-size: 18px;
-            transition: all 0.3s ease;
             position: relative;
+            width: min(100%, 310px);
+            aspect-ratio: 1;
+            margin: 26px auto;
+            border-radius: 22px;
+            overflow: hidden;
+            background: radial-gradient(circle at 20% 20%, #4e6693, #2a3d66 45%, #162239 85%);
+            background-size: cover;
+            background-position: center;
+            box-shadow: 0 20px 35px #0005, inset 0 0 0 1px #ffffff12;
+            touch-action: pan-y;
         }
-
-        .control-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: scale(1.1);
-        }
-
-        .play-pause-btn {
-            width: 60px;
-            height: 60px;
-            font-size: 24px;
-            background: rgba(255, 255, 255, 0.9);
-            color: #333;
-        }
-
-        /* アイコンはISO/IEC 10646準拠のUnicode記号を使用 */
-        .icon-play::before { content: '▶'; }
-        .icon-pause::before { content: '⏸'; }
-        .icon-prev::before { content: '⏮'; }
-        .icon-next::before { content: '⏭'; }
-        .icon-shuffle::before { content: '🔀'; }
-        .icon-repeat::before { content: '🔁'; }
-        .icon-repeat-one::before { content: '🔂'; }
-        .icon-download::before { content: '⤓'; }
-        .control-btn::before {
-            font-size: 18px;
-            line-height: 1;
-        }
-
-        .shuffle-active {
-            background: rgba(255, 255, 255, 0.4) !important;
-        }
-
-        .repeat-active {
-            background: rgba(255, 255, 255, 0.4) !important;
-        }
-
-        .volume-container {
-            padding: 0 30px 20px;
-        }
-
-        .volume-slider {
-            width: 100%;
-            height: 4px;
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 2px;
-            outline: none;
-            -webkit-appearance: none;
-        }
-
-        .volume-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 16px;
-            height: 16px;
+        .album-art::before {
+            content: '';
+            position: absolute;
+            inset: 12%;
             border-radius: 50%;
-            background: white;
-            cursor: pointer;
+            background: repeating-radial-gradient(circle, #18243a 0 2px, #314365 3px 4px, #151f33 5px 7px);
+            box-shadow: 8px 12px 25px #0005;
         }
-
-        .playlist-container {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            background: rgba(0, 0, 0, 0.2);
+        .album-art::after {
+            content: 'C';
+            position: absolute;
+            inset: 37%;
+            display: grid;
+            place-items: center;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #101a32;
+            font-size: 24px;
+            font-weight: 800;
+            transform: rotate(-20deg);
         }
-
-        .playlist-item {
-            padding: 10px;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            cursor: pointer;
-            transition: background 0.2s ease;
-            display: flex;
-            align-items: center;
+        .album-art.has-cover::before, .album-art.has-cover::after { display: none; }
+        .track-info { min-width: 0; text-align: center; }
+        .track-title { margin: 0; font-size: clamp(21px, 2.5vw, 28px); line-height: 1.35; font-weight: 750; overflow-wrap: anywhere; }
+        .track-artist { margin: 9px 0 0; font-size: 14px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+        .progress-container { margin-top: 22px; }
+        .range-slider { display: block; width: 100%; height: 44px; margin: 0; padding: 0; appearance: none; -webkit-appearance: none; background: transparent; cursor: pointer; }
+        .range-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--accent) var(--progress, 0%), #425270 var(--progress, 0%)); }
+        .range-slider::-moz-range-track { height: 4px; border-radius: 4px; background: #425270; }
+        .range-slider::-moz-range-progress { height: 4px; background: var(--accent); }
+        .range-slider::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--text); border: 0; box-shadow: 0 0 0 4px #ffffff0c; }
+        .range-slider::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--text); }
+        .time-display { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+        .controls { display: flex; justify-content: center; align-items: center; gap: clamp(8px, 2vw, 24px); margin: 20px 0 12px; }
+        .control-btn { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 48px; height: 48px; border: 1px solid transparent; border-radius: 50%; background: transparent; color: var(--text); text-decoration: none; }
+        .play-pause-btn { width: 68px; height: 68px; background: var(--accent); color: #101a32; box-shadow: 0 6px 24px #7799dd26; }
+        .play-pause-btn .icon { width: 28px; height: 28px; }
+        .icon-play .pause-symbol, .icon-pause .play-symbol { display: none; }
+        .repeat-one-symbol { display: none; }
+        .icon-repeat-one .repeat-one-symbol { display: block; }
+        .shuffle-active, .repeat-active { color: var(--accent); background: #7799dd1f; border-color: #7799dd52; }
+        .secondary-controls { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+        .volume-container { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; color: var(--muted); }
+        .volume-slider { --progress: 70%; }
+        .volume-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+        .queue-panel { min-width: 0; border: 1px solid var(--line); border-radius: 28px; background: #111a2a; overflow: hidden; }
+        .queue-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 24px 22px 16px; }
+        .queue-heading h2 { font-size: 20px; margin: 7px 0 0; }
+        .queue-heading .section-label { color: var(--muted); }
+        .queue-toggle { padding: 0 12px; min-height: 44px; border: 1px solid var(--line); border-radius: 12px; background: transparent; font-size: 12px; }
+        .queue-summary { margin: 0; padding: 0 22px 18px; color: var(--muted); font-size: 12px; }
+        .playlist-container { max-height: min(60vh, 640px); max-height: min(60dvh, 640px); overflow-y: auto; padding: 0 10px 10px; scrollbar-width: thin; scrollbar-color: #425270 transparent; }
+        .playlist-item { width: 100%; min-height: 64px; display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid transparent; border-radius: 14px; background: transparent; text-align: left; margin-bottom: 4px; }
+        .playlist-item.active { background: #7799dd1f; border-color: #7799dd52; }
+        .track-number { flex: 0 0 26px; text-align: center; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+        .active .track-number { color: var(--accent); }
+        .track-name { min-width: 0; flex: 1; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+        .track-format { flex-shrink: 0; color: var(--muted); font-size: 10px; letter-spacing: .05em; }
+        .playlist-controls { display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--line); padding: 16px 20px; }
+        .playlist-btn { min-height: 44px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: #1a2943; font-size: 12px; }
+        .player-status { min-height: 20px; margin: 16px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+        dialog { width: min(440px, calc(100% - 32px)); max-height: calc(100dvh - 32px); padding: 24px; border: 1px solid #425270; border-radius: 22px; background: var(--panel); color: var(--text); overflow-y: auto; }
+        dialog::backdrop { background: #050a12bb; backdrop-filter: blur(8px); }
+        dialog h2 { font-size: 20px; margin: 0 0 22px; }
+        .dialog-field { display: block; margin: 16px 0; font-size: 13px; color: var(--muted); }
+        .dialog-field input, .dialog-field textarea, .dialog-field select { display: block; width: 100%; margin-top: 8px; padding: 12px; border: 1px solid #425270; border-radius: 10px; background: var(--bg); color: var(--text); font-size: 16px; }
+        .dialog-field textarea { resize: vertical; min-height: 80px; }
+        .dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+        .primary-btn { background: var(--accent); color: #101a32; border-color: var(--accent); font-weight: 700; }
+        .dialog-status { color: var(--muted); font-size: 13px; line-height: 1.5; }
+        [hidden], .hidden { display: none !important; }
+        @media (hover: hover) {
+            .control-btn:hover { background: #ffffff12; }
+            .play-pause-btn:hover { background: #9bb8f2; }
+            .playlist-item:hover, .playlist-btn:hover, .queue-toggle:hover { border-color: #5f76a8; background: #263754; }
+            .primary-btn:hover { background: #9bb8f2; color: #101a32; }
         }
-
-        .playlist-item:hover {
-            background: rgba(255, 255, 255, 0.1);
+        @media (max-width: 899px) {
+            .music-player { padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+            .app-header { padding: 4px 0 18px; }
+            .header-note { display: none; }
+            .player-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+            .now-playing { padding: 20px; border-radius: 24px; }
+            .album-art { width: min(64vw, 270px); margin: 20px auto; }
+            .queue-panel { border-radius: 24px; }
+            .playlist-container { max-height: 380px; }
         }
-
-        .playlist-item.active {
-            background: rgba(255, 255, 255, 0.2);
+        @media (min-width: 600px) and (max-height: 540px) and (orientation: landscape) {
+            .music-player { padding-top: max(8px, env(safe-area-inset-top)); }
+            .app-header { padding-bottom: 12px; }
+            .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
+            .player-layout { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
+            .now-playing { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px 14px; padding: 16px; border-radius: 20px; }
+            .stage-heading, .progress-container, .controls, .secondary-controls { grid-column: 1 / -1; }
+            .album-art { width: 88px; margin: 0; border-radius: 12px; }
+            .album-art::after { font-size: 14px; }
+            .track-info { text-align: left; align-self: center; }
+            .track-title { font-size: 18px; }
+            .track-artist { font-size: 12px; margin-top: 5px; }
+            .progress-container { margin-top: 0; }
+            .controls { margin: 0; gap: 6px; justify-content: space-between; }
+            .control-btn { width: 44px; height: 44px; }
+            .play-pause-btn { width: 54px; height: 54px; }
+            .secondary-controls { padding-top: 4px; }
+            .queue-heading { padding: 18px 16px 12px; }
+            .queue-summary { padding: 0 16px 12px; }
+            .playlist-container { max-height: 230px; }
+            .playlist-controls { padding: 12px; }
         }
-
-        .track-number {
-            width: 30px;
-            text-align: center;
-            opacity: 0.6;
-            font-size: 14px;
-        }
-
-        .track-name {
-            flex: 1;
-            padding-left: 10px;
-            word-break: break-word;
-        }
-
-        .playlist-controls {
-            padding: 15px 20px;
-            background: rgba(0, 0, 0, 0.3);
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .playlist-btn {
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            border-radius: 20px;
-            padding: 8px 16px;
-            color: white;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.3s ease;
-        }
-
-        .playlist-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        /* デスクトップ向けカスタムツールチップ */
-        @media (hover: hover) and (pointer: fine) {
-            .control-btn[data-tooltip] {
-                position: relative;
-            }
-            .control-btn[data-tooltip]:hover::after {
-                content: attr(data-tooltip);
-                position: absolute;
-                bottom: 110%;
-                left: 50%;
-                transform: translateX(-50%);
-                background: rgba(0,0,0,0.75);
-                color: #fff;
-                padding: 6px 8px;
-                border-radius: 6px;
-                white-space: nowrap;
-                font-size: 12px;
-                pointer-events: none;
-            }
-            .control-btn[data-tooltip]:hover::before {
-                filter: drop-shadow(0 0 2px rgba(0,0,0,0.3));
-            }
-        }
-
-        .hidden {
-            display: none;
-        }
-
-        @media (max-width: 480px) {
-            .music-player {
-                max-width: 100%;
-            }
-
-            .album-art {
-                width: 150px;
-                height: 150px;
-                font-size: 36px;
-            }
-
-            .controls {
-                gap: 15px;
-            }
-
-            .control-btn {
-                width: 45px;
-                height: 45px;
-                font-size: 16px;
-            }
-
-            .play-pause-btn {
-                width: 55px;
-                height: 55px;
-                font-size: 20px;
-            }
+        @media (prefers-reduced-motion: no-preference) {
+            button, a { transition: background-color .15s, border-color .15s; }
         }
     </style>
 </head>
 <body>
-    <div class="music-player">
-        <div class="player-header">
-            <div class="album-art">🎵</div>
+    <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13M9 8l11-2"/><ellipse cx="6" cy="18" rx="3" ry="3"/><ellipse cx="17" cy="16" rx="3" ry="3"/></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" stroke-width="4"/></symbol>
+        <symbol id="i-prev" viewBox="0 0 24 24"><path d="M5 5v14m14-14L8 12l11 7Z"/></symbol>
+        <symbol id="i-next" viewBox="0 0 24 24"><path d="M19 5v14M5 5l11 7-11 7Z"/></symbol>
+        <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M3 6h3c5 0 7 12 12 12h3m-4-4 4 4-4 4M3 18h3c2 0 3-2 4-4m4-4c1-2 2-4 4-4h3m-4-4 4 4-4 4"/></symbol>
+        <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M4 10V8a3 3 0 0 1 3-3h13m-4-4 4 4-4 4M20 14v2a3 3 0 0 1-3 3H4m4-4-4 4 4 4"/></symbol>
+        <symbol id="i-volume" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 15v5h16v-5"/></symbol>
+    </svg>
+    <main class="music-player">
+        <header class="app-header">
+            <div class="brand"><span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg></span><div><div class="brand-name">COMISTREAM</div><div class="brand-subtitle">Music Player</div></div></div>
+            <span class="header-note">あなたのライブラリを、心地よく。</span>
+        </header>
+        <div class="player-layout">
+            <section class="now-playing" aria-label="音楽プレイヤー">
+                <div class="stage-heading"><p class="section-label">NOW PLAYING</p><span class="track-position" id="trackPosition"></span></div>
+                <div class="album-art" role="img" aria-label="アルバムアート"></div>
+                <div class="track-info" aria-live="polite" aria-atomic="true">
+                    <h1 class="track-title" id="trackTitle">$safeBaseFile</h1>
+                    <p class="track-artist" id="trackArtist">アーティスト不明</p>
+                </div>
+                <div class="progress-container">
+                    <input type="range" class="range-slider" id="progressBar" min="0" max="1000" value="0" step="1" aria-label="再生位置" aria-valuetext="0:00" disabled>
+                    <div class="time-display"><span id="currentTime">0:00</span><span id="totalTime">0:00</span></div>
+                </div>
+                <div class="controls">
+                    <button class="control-btn icon-shuffle" id="shuffleBtn" title="シャッフル: OFF" aria-label="シャッフル: OFF" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-shuffle"/></svg></button>
+                    <button class="control-btn icon-prev" id="prevBtn" title="前の曲" aria-label="前の曲"><svg class="icon" aria-hidden="true"><use href="#i-prev"/></svg></button>
+                    <button class="control-btn play-pause-btn icon-play" id="playPauseBtn" title="再生" aria-label="再生"><svg class="icon" aria-hidden="true"><use class="play-symbol" href="#i-play"/><use class="pause-symbol" href="#i-pause"/></svg></button>
+                    <button class="control-btn icon-next" id="nextBtn" title="次の曲" aria-label="次の曲"><svg class="icon" aria-hidden="true"><use href="#i-next"/></svg></button>
+                    <button class="control-btn icon-repeat" id="repeatBtn" title="リピート: OFF" aria-label="リピート: OFF" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-repeat"/><text class="repeat-one-symbol" x="10" y="15" stroke="none" fill="currentColor" font-size="9">1</text></svg></button>
+                </div>
+                <div class="secondary-controls">
+                    <div class="volume-container"><svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg><input type="range" class="range-slider volume-slider" id="volumeSlider" min="0" max="100" value="70" aria-label="音量"><p class="volume-hint" id="volumeHint" hidden>音量は端末のボタンで調整</p></div>
+                    <a class="control-btn" id="downloadBtn" title="ダウンロード" aria-label="現在の曲をダウンロード" href="#" download><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg></a>
+                </div>
+            </section>
+            <section class="queue-panel" aria-labelledby="queueTitle">
+                <div class="queue-heading"><div><p class="section-label">PLAY QUEUE</p><h2 id="queueTitle">再生リスト</h2></div><button class="queue-toggle" id="showPlaylistBtn" aria-expanded="true" aria-controls="playlistContainer">折りたたむ</button></div>
+                <p class="queue-summary" id="queueSummary"></p>
+                <div class="playlist-container" id="playlistContainer" role="group" aria-label="再生する曲を選択"></div>
+                <div class="playlist-controls"><button class="playlist-btn" id="createPlaylistBtn">＋ プレイリスト作成</button><button class="playlist-btn" id="addToPlaylistBtn">現在の曲を追加</button></div>
+            </section>
         </div>
-
-        <div class="track-info">
-            <div class="track-title" id="trackTitle">$safeBaseFile</div>
-            <div class="track-artist" id="trackArtist">Unknown Artist</div>
-        </div>
-
-        <div class="progress-container">
-            <div class="progress-bar" id="progressBar">
-                <div class="progress-fill" id="progressFill"></div>
-            </div>
-            <div class="time-display">
-                <span id="currentTime">0:00</span>
-                <span id="totalTime">0:00</span>
-            </div>
-        </div>
-
-        <div class="controls">
-            <button class="control-btn icon-prev" id="prevBtn" title="前の曲" data-tooltip="前の曲"></button>
-            <button class="control-btn play-pause-btn icon-play" id="playPauseBtn" title="再生" data-tooltip="再生"></button>
-            <button class="control-btn icon-next" id="nextBtn" title="次の曲" data-tooltip="次の曲"></button>
-            <button class="control-btn icon-shuffle" id="shuffleBtn" title="シャッフル: OFF" data-tooltip="シャッフル: OFF"></button>
-            <button class="control-btn icon-repeat" id="repeatBtn" title="リピート: OFF" data-tooltip="リピート: OFF"></button>
-            <a class="control-btn icon-download" id="downloadBtn" title="ダウンロード" data-tooltip="ダウンロード" href="#" download></a>
-        </div>
-
-        <div class="volume-container">
-            <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="70">
-        </div>
-
-        <div class="playlist-controls">
-            <button class="playlist-btn" id="showPlaylistBtn">プレイリスト</button>
-            <button class="playlist-btn" id="createPlaylistBtn">新規作成</button>
-            <button class="playlist-btn" id="addToPlaylistBtn">追加</button>
-        </div>
-
-        <div class="playlist-container" id="playlistContainer">
-            <!-- プレイリストアイテムがここに動的に追加される -->
-        </div>
-    </div>
+        <p class="player-status" id="playerStatus" role="status" aria-live="polite"></p>
+    </main>
+    <dialog id="playlistDialog" aria-labelledby="dialogTitle">
+        <form id="playlistForm">
+            <h2 id="dialogTitle">プレイリスト作成</h2>
+            <div id="createFields"><label class="dialog-field">プレイリスト名<input id="playlistName" name="name" required autocomplete="off"></label><label class="dialog-field">説明（任意）<textarea id="playlistDescription" name="description" rows="2"></textarea></label></div>
+            <label class="dialog-field" id="selectField" hidden>追加先のプレイリスト<select id="playlistSelect" name="playlist_id"></select></label>
+            <p class="dialog-status" id="dialogStatus" role="status"></p>
+            <div class="dialog-actions"><button class="playlist-btn" id="dialogCancel" type="button">キャンセル</button><button class="playlist-btn primary-btn" id="dialogSubmit" type="submit">作成</button></div>
+        </form>
+    </dialog>
 
     <!-- iOS 18 Safari バックグラウンド再生対応のオーディオ要素 -->
     <audio id="audioPlayer" preload="auto" crossorigin="anonymous" playsinline webkit-playsinline x-webkit-airplay="allow"></audio>
@@ -558,7 +461,7 @@ function openMusicPlayer()
         // PHP から JavaScript へのデータ渡し
         window.musicFiles = $musicFilesJson;
         window.currentIndex = $currentIndex;
-        window.user = '$user';
+        window.user = $userJson;
         window.baseDir = window.location.origin + '/';
 
         $contents_js
