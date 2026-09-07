@@ -76,6 +76,67 @@ try {
     $mp3Lyrics = readEmbeddedMusicLyrics($mp3Path, 'mp3');
     expectMusicLyricsTest(is_array($mp3Lyrics) && $mp3Lyrics['format'] === 'lrc', 'MP3 USLT LRC was not normalized.');
 
+    $v24ExtendedPath = $temporaryRoot . '/uslt-v24-extended.mp3';
+    $v24Payload = chr(3) . 'jpn' . "\0" . 'v2.4拡張ヘッダー';
+    $v24Frame = 'USLT' . musicLyricsTestID3Syncsafe(strlen($v24Payload)) . "\0\0" . $v24Payload;
+    $v24ExtendedHeader = musicLyricsTestID3Syncsafe(6) . chr(1) . chr(0);
+    file_put_contents(
+        $v24ExtendedPath,
+        'ID3' . chr(4) . chr(0) . chr(0x40)
+            . musicLyricsTestID3Syncsafe(strlen($v24ExtendedHeader . $v24Frame))
+            . $v24ExtendedHeader . $v24Frame
+    );
+    expectMusicLyricsTest(
+        readMP3EmbeddedLyrics($v24ExtendedPath) === ['v2.4拡張ヘッダー'],
+        'ID3v2.4 extended header size was not interpreted as including itself.'
+    );
+
+    $v24FooterPath = $temporaryRoot . '/uslt-v24-footer.mp3';
+    $v24FooterPayload = chr(3) . 'jpn' . "\0" . 'v2.4フッター';
+    $v24FooterFrame = 'USLT' . musicLyricsTestID3Syncsafe(strlen($v24FooterPayload)) . "\0\0" . $v24FooterPayload;
+    $v24FooterHeader = 'ID3' . chr(4) . chr(0) . chr(0x10)
+        . musicLyricsTestID3Syncsafe(strlen($v24FooterFrame));
+    $v24Footer = '3DI' . substr($v24FooterHeader, 3);
+    file_put_contents($v24FooterPath, $v24FooterHeader . $v24FooterFrame . $v24Footer);
+    expectMusicLyricsTest(
+        readMP3EmbeddedLyrics($v24FooterPath) === ['v2.4フッター'],
+        'ID3v2.4 footer flag incorrectly shortened the frame area.'
+    );
+
+    $v24UnsynchronisedPath = $temporaryRoot . '/uslt-v24-unsynchronised.mp3';
+    $v24OriginalPayload = chr(0) . 'eng' . "\0" . "C\xFF\xE0D";
+    $v24UnsynchronisedPayload = str_replace("\xFF\xE0", "\xFF\0\xE0", $v24OriginalPayload);
+    $v24UnsynchronisedFramePayload = musicLyricsTestID3Syncsafe(strlen($v24OriginalPayload))
+        . $v24UnsynchronisedPayload;
+    $v24UnsynchronisedFrame = 'USLT'
+        . musicLyricsTestID3Syncsafe(strlen($v24UnsynchronisedFramePayload))
+        . "\0\x03" . $v24UnsynchronisedFramePayload;
+    file_put_contents(
+        $v24UnsynchronisedPath,
+        'ID3' . chr(4) . chr(0) . chr(0)
+            . musicLyricsTestID3Syncsafe(strlen($v24UnsynchronisedFrame))
+            . $v24UnsynchronisedFrame
+    );
+    expectMusicLyricsTest(
+        readMP3EmbeddedLyrics($v24UnsynchronisedPath) === ["CÿàD"],
+        'ID3v2.4 frame-level unsynchronisation and data length indicator were not handled.'
+    );
+
+    $v23UnsynchronisedPath = $temporaryRoot . '/uslt-v23-unsynchronised.mp3';
+    $v23Payload = chr(0) . 'eng' . "\0" . "A\xFF\xE0B";
+    $v23Frame = 'USLT' . pack('N', strlen($v23Payload)) . "\0\0" . $v23Payload;
+    $v23UnsynchronisedTag = str_replace("\xFF\xE0", "\xFF\0\xE0", $v23Frame);
+    file_put_contents(
+        $v23UnsynchronisedPath,
+        'ID3' . chr(3) . chr(0) . chr(0x80)
+            . musicLyricsTestID3Syncsafe(strlen($v23UnsynchronisedTag))
+            . $v23UnsynchronisedTag
+    );
+    expectMusicLyricsTest(
+        readMP3EmbeddedLyrics($v23UnsynchronisedPath) === ["AÿàB"],
+        'ID3v2.3 tag-level unsynchronisation was not removed before frame parsing.'
+    );
+
     $utf16Uslt = chr(1) . 'jpn' . "\xFF\xFE" . "\0\0"
         . iconv('UTF-8', 'UTF-16LE', "UTF-16のUSLT歌詞");
     $parsedUtf16Uslt = parseMusicLyricsUSLT($utf16Uslt);

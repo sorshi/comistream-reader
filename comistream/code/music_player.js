@@ -53,6 +53,7 @@ class MusicPlayer {
     this.activeAudioSource = null;
     this.playbackInfo = null;
     this.audioFallbackAttempted = false;
+    this.audioFallbackInProgress = false;
     this.audioFallbackProfiles = new Set();
     this.pendingPlay = false;
     this.audioLeaseTimer = null;
@@ -347,6 +348,7 @@ class MusicPlayer {
     this.activeAudioSource = null;
     this.playbackInfo = null;
     this.audioFallbackAttempted = false;
+    this.audioFallbackInProgress = false;
     this.audioFallbackProfiles = new Set();
 
     this.audioPlayer.pause();
@@ -441,8 +443,8 @@ class MusicPlayer {
       if (prepared) return true;
     }
 
-    if (directCandidate) {
-      // 能力APIが未確定でも、最後に原本を1回だけ試すルン。
+    if (directCandidate || playbackInfo.source?.codec !== "alac") {
+      // MIMEを特定できない既存対応形式も、回帰を避けて原本を1回だけ試すルン。
       this.setAudioSource(this.buildTrackAudioUrl(track), loadId, "original");
       return true;
     }
@@ -528,8 +530,12 @@ class MusicPlayer {
       this.setAudioSource(data.stream_url, loadId, "converted", data.asset_id);
       return true;
     }
-    if (response.status === 429 && Number(data?.retry_after) > 0) {
-      this.setStatus("別の互換音声を変換中です。順番を待っています…");
+    if ([429, 503].includes(response.status) && Number(data?.retry_after) > 0) {
+      this.setStatus(
+        response.status === 429
+          ? "別の互換音声を変換中です。順番を待っています…"
+          : "音声キャッシュの処理を待っています…"
+      );
       try {
         await this.waitForAudioDelay(Math.min(Number(data.retry_after) * 1000, 30000), signal);
       } catch (error) {
@@ -1513,19 +1519,30 @@ class MusicPlayer {
     if (!source || source.loadId !== this.audioLoadId) return;
 
     const mediaErrorCode = Number(this.audioPlayer.error?.code);
-    if (
-      source.sourceType === "original" &&
-      !this.audioFallbackAttempted &&
-      (mediaErrorCode === 3 || mediaErrorCode === 4) &&
-      this.playbackInfo &&
-      Array.isArray(this.playbackInfo.conversion)
-    ) {
-      this.audioFallbackAttempted = true;
+    const conversionCandidates = Array.isArray(this.playbackInfo?.conversion)
+      ? this.playbackInfo.conversion
+      : [];
+    const hasUntriedConversion = conversionCandidates.some((candidate) =>
+      typeof candidate?.profile === "string" &&
+      !this.audioFallbackProfiles.has(candidate.profile)
+    );
+    const canTryFallback = (mediaErrorCode === 3 || mediaErrorCode === 4) &&
+      !this.audioFallbackInProgress &&
+      conversionCandidates.length > 0 &&
+      ((source.sourceType === "original" && !this.audioFallbackAttempted) ||
+        (source.sourceType === "converted" && hasUntriedConversion));
+    if (canTryFallback) {
+      if (source.sourceType === "original") this.audioFallbackAttempted = true;
+      this.audioFallbackInProgress = true;
       this.audioSourcePending = true;
-      this.setStatus("原本を再生できないため、互換音声を準備中…");
+      this.setStatus(
+        source.sourceType === "original"
+          ? "原本を再生できないため、互換音声を準備中…"
+          : "別の互換音声形式を準備中…"
+      );
       this.tryAudioConversionProfiles(
         this.musicFiles[this.currentIndex],
-        this.playbackInfo.conversion,
+        conversionCandidates,
         this.audioLoadId,
         this.audioAbortController?.signal
       ).then((prepared) => {
@@ -1533,6 +1550,8 @@ class MusicPlayer {
           this.audioSourcePending = false;
           this.setStatus("互換音声を再生できませんでした。");
         }
+      }).finally(() => {
+        if (source.loadId === this.audioLoadId) this.audioFallbackInProgress = false;
       });
       return;
     }

@@ -75,7 +75,6 @@ cache_limit_days=$(sqlite3 "$dbfile" "SELECT value FROM system_config WHERE key=
 #$cacheDir = $conf["comistream_tool_dir"] . "/data/cache";
 cacheDir="$SCRIPT_DIR/../data/cache"
 music_cache_lock_dir="$SCRIPT_DIR/../data/runtime/music"
-music_cache_lock_file="$music_cache_lock_dir/music-cache.lock"
 
 # 音楽キャッシュはアプリと同じ固定ロックを守って1項目ずつ削除するルン。
 is_music_lyrics_cache_entry() {
@@ -118,6 +117,11 @@ remove_cache_entry() {
 
     if is_music_cache_entry "$cache_entry"; then
         entry_name=$(basename "$cache_entry")
+        local cache_hash
+        local music_cache_lock_file
+        cache_hash=${entry_name#music-audio-}
+        cache_hash=${cache_hash#music-lyrics-}
+        music_cache_lock_file="$music_cache_lock_dir/music-cache-${cache_hash:0:2}.lock"
         if ! mkdir -p "$music_cache_lock_dir"; then
             logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.warning "Cannot create music cache lock directory; skipping $entry_name"
             return 1
@@ -130,6 +134,32 @@ remove_cache_entry() {
             logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.notice "Music cache is busy; skipping $entry_name"
             exec {lock_fd}>&-
             return 1
+        fi
+        if is_music_audio_cache_entry "$cache_entry"; then
+            local latest_activity=0
+            local candidate_activity
+            local now_epoch
+            local activity_file
+            for activity_file in "$cache_entry/manifest.json" "$cache_entry/access"; do
+                [ -f "$activity_file" ] || continue
+                candidate_activity=$(stat -c %Y "$activity_file" 2>/dev/null || echo 0)
+                if [[ "$candidate_activity" =~ ^[0-9]+$ ]] && [ "$candidate_activity" -gt "$latest_activity" ]; then
+                    latest_activity=$candidate_activity
+                fi
+            done
+            if [ -f "$cache_entry/access" ]; then
+                IFS= read -r candidate_activity < "$cache_entry/access"
+                if [[ "$candidate_activity" =~ ^[0-9]+$ ]] && [ "$candidate_activity" -gt "$latest_activity" ]; then
+                    latest_activity=$candidate_activity
+                fi
+            fi
+            now_epoch=$(date +%s)
+            if [ "$latest_activity" -gt 0 ] && [ $((now_epoch - latest_activity)) -le 180 ]; then
+                logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.notice "Audio cache lease is active; skipping $entry_name"
+                flock -u "$lock_fd"
+                exec {lock_fd}>&-
+                return 1
+            fi
         fi
         rm -rf -- "$cache_entry"
         result=$?
@@ -165,6 +195,10 @@ fi
 # cache_limit_daysより古いディレクトリを消す
 if [ "$cache_limit_days" -gt 0 ] && [ -d "$cacheDir" ]; then
     while IFS= read -r -d '' cache_subdir; do
+        # 音楽キャッシュはctimeではなく、下の明示的なaccess時刻で判定するルン。
+        if is_music_cache_entry "$cache_subdir"; then
+            continue
+        fi
         remove_cache_entry "$cache_subdir" || logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.notice "Skipped old cache entry: $(basename "$cache_subdir")"
     done < <(find "$cacheDir" -mindepth 1 -maxdepth 1 -type d -ctime +"$cache_limit_days" -print0)
 fi
@@ -181,13 +215,17 @@ if [ "$atime_limit_days" -gt 0 ] && [ -d "$cacheDir" ]; then
 
         if is_music_cache_entry "$cache_subdir"; then
             target_file="${cache_subdir}access"
+            access_epoch=""
             if [ -f "$target_file" ]; then
                 IFS= read -r access_epoch < "$target_file"
-                now_epoch=$(date +%s)
-                if [[ "$access_epoch" =~ ^[0-9]+$ ]] && [ $((now_epoch - access_epoch)) -gt $((atime_limit_days * 86400)) ]; then
-                    logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.debug "Removing music lyrics directory due to old access time: $cache_dirname"
-                    remove_cache_entry "$cache_subdir" || logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.notice "Skipped busy music lyrics cache: $cache_dirname"
-                fi
+            fi
+            if ! [[ "$access_epoch" =~ ^[0-9]+$ ]]; then
+                access_epoch=$(stat -c %Y "$cache_subdir" 2>/dev/null || echo 0)
+            fi
+            now_epoch=$(date +%s)
+            if [[ "$access_epoch" =~ ^[0-9]+$ ]] && [ $((now_epoch - access_epoch)) -gt $((atime_limit_days * 86400)) ]; then
+                logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.debug "Removing music cache directory due to old access time: $cache_dirname"
+                remove_cache_entry "$cache_subdir" || logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.notice "Skipped busy music cache: $cache_dirname"
             fi
             continue
         fi

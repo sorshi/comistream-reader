@@ -484,24 +484,36 @@ function readMP3EmbeddedLyrics(string $path): array
             return [];
         }
 
-        $frameEnd = $tagSize;
-        if ($version >= 4 && ($flags & 0x10) !== 0 && $frameEnd >= 10) {
-            $frameEnd -= 10; // v2.4 footerはタグサイズに含まれる場合があるルン。
+        // v2.3のタグ全体unsynchronisationはフレーム境界を読む前に戻すルン。
+        if ($version === 3 && ($flags & 0x80) !== 0) {
+            $tag = removeMusicLyricsID3Unsynchronisation($tag);
         }
+        // v2.4のヘッダーサイズはfooterを含まないため、読み込んだ全体を走査するルン。
+        $frameEnd = strlen($tag);
         $offset = 0;
 
         if (($flags & 0x40) !== 0) {
             if ($offset + 4 > $frameEnd) {
                 return [];
             }
-            $extendedSize = $version >= 4
-                ? readMusicLyricsSyncsafe($tag, $offset)
-                : (unpack('Nsize', substr($tag, $offset, 4))['size'] ?? null);
-            if ($extendedSize === null || $extendedSize > $frameEnd - $offset - 4) {
+            if ($version >= 4) {
+                // v2.4はサイズフィールド自身を含む（最小6バイト）ルン。
+                $extendedSize = readMusicLyricsSyncsafe($tag, $offset);
+                $extendedEnd = $extendedSize === null ? null : $offset + $extendedSize;
+                $validExtendedHeader = $extendedSize !== null && $extendedSize >= 6
+                    && $extendedEnd <= $frameEnd;
+            } else {
+                // v2.3はサイズフィールド自身を含まないルン。
+                $extendedSize = unpack('Nsize', substr($tag, $offset, 4))['size'] ?? null;
+                $extendedEnd = $extendedSize === null ? null : $offset + 4 + $extendedSize;
+                $validExtendedHeader = $extendedSize !== null && $extendedSize >= 6
+                    && $extendedEnd <= $frameEnd;
+            }
+            if (!$validExtendedHeader || $extendedEnd === null) {
                 musicLyricsLog('WARNING', 'readMP3EmbeddedLyrics() invalid ID3 extended header');
                 return [];
             }
-            $offset += 4 + $extendedSize;
+            $offset = $extendedEnd;
         }
 
         $candidates = [];
@@ -525,11 +537,20 @@ function readMP3EmbeddedLyrics(string $path): array
 
             $formatFlags = ord($tag[$offset + 9]);
             $unsupportedFormatFlags = $version >= 4
-                ? ($formatFlags !== 0)
+                ? (($formatFlags & 0xFC) !== 0)
                 : (($formatFlags & 0xE0) !== 0);
             if ($frameId === 'USLT' && !$unsupportedFormatFlags && $frameSize > 0) {
                 $payload = substr($tag, $offset + 10, $frameSize);
-                $parsed = parseMusicLyricsUSLT($payload, ($flags & 0x80) !== 0);
+                if ($version >= 4 && ($formatFlags & 0x01) !== 0) {
+                    if (strlen($payload) < 4 || readMusicLyricsSyncsafe($payload) === null) {
+                        $offset += 10 + $frameSize;
+                        continue;
+                    }
+                    $payload = substr($payload, 4);
+                }
+                $unsynchronised = $version >= 4
+                    && ((($flags & 0x80) !== 0) || (($formatFlags & 0x02) !== 0));
+                $parsed = parseMusicLyricsUSLT($payload, $unsynchronised);
                 if ($parsed !== null) {
                     $candidates[] = $parsed['text'];
                 }
@@ -757,13 +778,14 @@ function resolveLocalMusicLyrics(string $path, string $extension, array $sidecar
 /**
  * 歌詞キャッシュのロックファイルを開きます。
  */
-function openMusicLyricsCacheLock(string $toolDirectory)
+function openMusicLyricsCacheLock(string $toolDirectory, string $cacheKey)
 {
-    if ($toolDirectory === '') {
+    if ($toolDirectory === '' || preg_match('/^[a-f0-9]{64}$/', $cacheKey) !== 1) {
         return false;
     }
-    if (function_exists('openMusicCacheLock')) {
-        return openMusicCacheLock($toolDirectory);
+    $entryName = 'music-lyrics-' . $cacheKey;
+    if (function_exists('openMusicCacheEntryLock')) {
+        return openMusicCacheEntryLock($toolDirectory, $entryName);
     }
     $lockDirectory = rtrim($toolDirectory, DIRECTORY_SEPARATOR)
         . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'runtime'
@@ -772,7 +794,10 @@ function openMusicLyricsCacheLock(string $toolDirectory)
         musicLyricsLog('WARNING', 'openMusicLyricsCacheLock() failed to create runtime directory');
         return false;
     }
-    $lock = @fopen($lockDirectory . DIRECTORY_SEPARATOR . 'music-cache.lock', 'c');
+    $lock = @fopen(
+        $lockDirectory . DIRECTORY_SEPARATOR . 'music-cache-' . substr($cacheKey, 0, 2) . '.lock',
+        'c'
+    );
     if ($lock === false) {
         musicLyricsLog('WARNING', 'openMusicLyricsCacheLock() failed to open lock file');
     }
@@ -791,7 +816,7 @@ function readMusicLyricsCache(
     if (preg_match('/^[a-f0-9]{64}$/', $cacheKey) !== 1) {
         return null;
     }
-    $lock = openMusicLyricsCacheLock($toolDirectory);
+    $lock = openMusicLyricsCacheLock($toolDirectory, $cacheKey);
     if ($lock === false || !@flock($lock, LOCK_SH | LOCK_NB)) {
         if (is_resource($lock)) {
             fclose($lock);
@@ -858,7 +883,7 @@ function writeMusicLyricsCache(
         return false;
     }
 
-    $lock = openMusicLyricsCacheLock($toolDirectory);
+    $lock = openMusicLyricsCacheLock($toolDirectory, $cacheKey);
     if ($lock === false || !@flock($lock, LOCK_EX | LOCK_NB)) {
         if (is_resource($lock)) {
             fclose($lock);

@@ -768,6 +768,7 @@ function outputMusicLyricsError(int $status, string $error): void
 function getLyrics(): void
 {
     global $conf, $audioFormats, $writelog_process_name;
+    musicAudioReleaseSessionLock();
 
     header('Content-Type: application/json; charset=UTF-8');
     header('Cache-Control: private, max-age=60, must-revalidate');
@@ -861,6 +862,7 @@ function resolveMusicPlayerAudioPath(string $requestedFile)
 function getMetadata()
 {
     global $conf, $audioFormats, $writelog_process_name;
+    musicAudioReleaseSessionLock();
     $file = isset($_REQUEST['file']) ? (string)$_REQUEST['file'] : '';
     $path = resolveMusicPlayerAudioPath($file);
 
@@ -909,6 +911,7 @@ function getMetadata()
 function getCoverArt()
 {
     global $conf, $audioFormats, $writelog_process_name;
+    musicAudioReleaseSessionLock();
     $file = isset($_REQUEST['file']) ? (string)$_REQUEST['file'] : '';
     $path = resolveMusicPlayerAudioPath($file);
 

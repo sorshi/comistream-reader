@@ -155,11 +155,29 @@ function musicAudioResolveFFmpeg(array $conf): ?string
 }
 
 /**
+ * バックグラウンドワーカーにはFPM実行ファイルではなくCLI PHPを選びます。
+ */
+function musicAudioResolveWorkerPhp(array $conf): ?string
+{
+    $configured = musicAudioResolveExecutable($conf['php'] ?? null);
+    if ($configured !== null) {
+        return $configured;
+    }
+    $cli = musicAudioResolveExecutable('php');
+    if ($cli !== null) {
+        return $cli;
+    }
+    return PHP_SAPI === 'cli' && is_file(PHP_BINARY) && is_executable(PHP_BINARY)
+        ? PHP_BINARY
+        : null;
+}
+
+/**
  * 外部コマンドを実行し、終了状態を返します。
  * stdout/stderrは指定されたファイルへ出し、パイプ詰まりを避けます。
  */
 function musicAudioRunProcess(
-    string $command,
+    array|string $command,
     string $stdoutPath,
     string $stderrPath,
     int $timeoutSeconds,
@@ -177,7 +195,7 @@ function musicAudioRunProcess(
         return ['started' => false, 'exitCode' => -1, 'timedOut' => false, 'limitExceeded' => false];
     }
 
-    $timeoutSeconds = max(1, min($timeoutSeconds, 86400));
+    $timeoutSeconds = max(1, min($timeoutSeconds, 604800));
     $startedAt = microtime(true);
     $timedOut = false;
     $limitExceeded = false;
@@ -192,12 +210,22 @@ function musicAudioRunProcess(
             if ($currentSize !== false && $currentSize > $maxOutputBytes) {
                 $limitExceeded = true;
                 @proc_terminate($process, 15);
+                usleep(250000);
+                $lastStatus = proc_get_status($process);
+                if (($lastStatus['running'] ?? false)) {
+                    @proc_terminate($process, 9);
+                }
                 break;
             }
             $freeBytes = @disk_free_space(dirname($monitorPath));
             if ($freeBytes !== false && $freeBytes < 16777216) {
                 $limitExceeded = true;
                 @proc_terminate($process, 15);
+                usleep(250000);
+                $lastStatus = proc_get_status($process);
+                if (($lastStatus['running'] ?? false)) {
+                    @proc_terminate($process, 9);
+                }
                 break;
             }
         }
@@ -254,9 +282,19 @@ function musicAudioProbe(string $path, array $conf): array
     $entries = 'format=format_name,duration,size,start_time:'
         . 'stream=index,codec_type,codec_name,profile,sample_rate,channels,channel_layout,'
         . 'bits_per_sample,bits_per_raw_sample,duration,start_time,disposition';
-    $command = escapeshellarg($ffprobe)
-        . ' -v error -print_format json -show_entries ' . escapeshellarg($entries)
-        . ' -show_streams -show_format -i ' . escapeshellarg($path);
+    $command = [
+        $ffprobe,
+        '-v',
+        'error',
+        '-print_format',
+        'json',
+        '-show_entries',
+        $entries,
+        '-show_streams',
+        '-show_format',
+        '-i',
+        $path,
+    ];
     $result = musicAudioRunProcess($command, $stdoutPath, $stderrPath, 60);
     $json = @file_get_contents($stdoutPath, false, null, 0, 1048576);
     $diagnostic = trim((string)@file_get_contents($stderrPath, false, null, 0, 8192));
@@ -408,6 +446,48 @@ function musicAudioOpenCacheLock(string $toolDirectory)
 }
 
 /**
+ * 1つの音声キャッシュ項目を変換・配信・削除から保護するロックを開きます。
+ */
+function musicAudioOpenEntryLock(string $toolDirectory, string $assetId)
+{
+    $entryName = musicAudioCacheEntryName($assetId);
+    if ($entryName === null || $toolDirectory === '') {
+        return false;
+    }
+    if (function_exists('openMusicCacheEntryLock')) {
+        return openMusicCacheEntryLock($toolDirectory, $entryName);
+    }
+    $lockDirectory = rtrim($toolDirectory, DIRECTORY_SEPARATOR)
+        . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'runtime'
+        . DIRECTORY_SEPARATOR . 'music';
+    if (!is_dir($lockDirectory) && !@mkdir($lockDirectory, 0775, true) && !is_dir($lockDirectory)) {
+        return false;
+    }
+    return @fopen(
+        $lockDirectory . DIRECTORY_SEPARATOR . 'music-cache-' . substr($assetId, 0, 2) . '.lock',
+        'c'
+    );
+}
+
+/**
+ * 長時間ジョブの生存確認はPIDだけに頼らず、項目ロックの所有状態で確認します。
+ */
+function musicAudioEntryLockIsHeld(string $toolDirectory, string $assetId): bool
+{
+    $lock = musicAudioOpenEntryLock($toolDirectory, $assetId);
+    if ($lock === false) {
+        return false;
+    }
+    if (!@flock($lock, LOCK_EX | LOCK_NB)) {
+        fclose($lock);
+        return true;
+    }
+    @flock($lock, LOCK_UN);
+    fclose($lock);
+    return false;
+}
+
+/**
  * キャッシュ直下の音声項目名を安全に検証します。
  */
 function musicAudioCacheEntryName(string $assetId): ?string
@@ -526,10 +606,25 @@ function musicAudioPcmDigest(string $path, array $conf, int $timeoutSeconds): ?s
         }
         return null;
     }
-    $command = escapeshellarg($ffmpeg)
-        . ' -v error -nostdin -i ' . escapeshellarg($path)
-        . ' -map 0:a:0 -map_metadata -1 -af ' . escapeshellarg('asetnsamples=n=4096:pad=0')
-        . ' -f framemd5 -';
+    $command = [
+        $ffmpeg,
+        '-v',
+        'error',
+        '-nostdin',
+        '-i',
+        $path,
+        '-map',
+        '0:a:0',
+        '-map_metadata',
+        '-1',
+        '-c:a',
+        'pcm_s32le',
+        '-f',
+        'hash',
+        '-hash',
+        'sha256',
+        '-',
+    ];
     $result = musicAudioRunProcess($command, $stdoutPath, $stderrPath, $timeoutSeconds);
     $contents = @file_get_contents($stdoutPath);
     $diagnostic = trim((string)@file_get_contents($stderrPath, false, null, 0, 4096));
@@ -539,9 +634,12 @@ function musicAudioPcmDigest(string $path, array $conf, int $timeoutSeconds): ?s
         musicAudioLog('WARNING', 'musicAudioPcmDigest() ffmpeg failed: ' . substr($diagnostic, 0, 160));
         return null;
     }
-    // ヘッダーは除外し、フレーム内容だけを比較するルン。
-    $contents = preg_replace('/^#.*(?:\r?\n|$)/m', '', $contents) ?? $contents;
-    return hash('sha256', trim($contents));
+    // 32bit PCMへ正規化した連続バイト列のダイジェストだけを比較するルン。
+    if (preg_match('/\ASHA256=([a-f0-9]{64})\s*\z/i', $contents, $matches) !== 1) {
+        musicAudioLog('WARNING', 'musicAudioPcmDigest() invalid hash output');
+        return null;
+    }
+    return strtolower($matches[1]);
 }
 
 /**
@@ -598,7 +696,9 @@ function musicAudioValidateOutput(
             return ['ok' => false, 'error' => 'pcm verification failed'];
         }
     } elseif ($profile === 'aac_lc') {
-        if (($outputProbe['codec'] ?? '') !== 'aac' || $outputChannels < 1 || $outputChannels > 2) {
+        $codecProfile = strtolower(trim((string)($outputProbe['codecProfile'] ?? '')));
+        if (($outputProbe['codec'] ?? '') !== 'aac' || $codecProfile !== 'lc'
+            || $outputChannels < 1 || $outputChannels > 2) {
             return ['ok' => false, 'error' => 'not aac lc'];
         }
     } else {
@@ -636,14 +736,25 @@ function musicAudioProcessIsAlive($pid): bool
     return false;
 }
 
-function musicAudioJobIsStale(array $manifest, int $now): bool
+function musicAudioJobIsStale(
+    array $manifest,
+    int $now,
+    string $toolDirectory = '',
+    string $assetId = ''
+): bool
 {
     $updatedAt = (int)($manifest['updatedAt'] ?? $manifest['createdAt'] ?? 0);
+    if ($updatedAt >= $now - 300) {
+        return false;
+    }
+    if ($toolDirectory !== '' && musicAudioCacheEntryName($assetId) !== null) {
+        return !musicAudioEntryLockIsHeld($toolDirectory, $assetId);
+    }
     $pid = $manifest['pid'] ?? null;
     if ($pid !== null && musicAudioProcessIsAlive($pid)) {
         return false;
     }
-    return $updatedAt < $now - 300;
+    return true;
 }
 
 function musicAudioMaxConcurrentJobs(array $conf): int
@@ -651,7 +762,11 @@ function musicAudioMaxConcurrentJobs(array $conf): int
     return musicAudioPositiveConfig($conf, 'musicAudioMaxConcurrent', 1, 32);
 }
 
-function musicAudioCountActiveJobs(string $cacheDirectory): int
+function musicAudioCountActiveJobs(
+    string $cacheDirectory,
+    string $toolDirectory,
+    string $excludedAssetId = ''
+): int
 {
     $count = 0;
     foreach ((array)@glob(rtrim($cacheDirectory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'music-audio-*') as $entry) {
@@ -663,7 +778,12 @@ function musicAudioCountActiveJobs(string $cacheDirectory): int
             continue;
         }
         $status = (string)($manifest['status'] ?? '');
-        if (($status === 'queued' || $status === 'converting') && !musicAudioJobIsStale($manifest, time())) {
+        $assetId = substr(basename($entry), strlen('music-audio-'));
+        if ($assetId === $excludedAssetId) {
+            continue;
+        }
+        if (($status === 'queued' || $status === 'converting')
+            && !musicAudioJobIsStale($manifest, time(), $toolDirectory, $assetId)) {
             $count++;
         }
     }
@@ -689,6 +809,16 @@ function musicAudioValidateCsrfToken($provided): bool
 {
     $expected = musicAudioEnsureCsrfToken();
     return is_string($provided) && $expected !== '' && hash_equals($expected, $provided);
+}
+
+/**
+ * 長いプローブ・変換待ち・Range配信で同じ利用者の他要求を止めないようにします。
+ */
+function musicAudioReleaseSessionLock(): void
+{
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
 }
 
 /**
@@ -720,11 +850,32 @@ function musicAudioResolveManifestSource(array $conf, array $manifest): string|f
 /**
  * 原本の現在バージョンがキャッシュのマニフェストと一致するか確認します。
  */
-function musicAudioManifestSourceIsCurrent(array $manifest, string $sourcePath): bool
+function musicAudioManifestSourceIsCurrent(
+    array $manifest,
+    string $sourcePath,
+    bool $verifyContents = false
+): bool
 {
-    $current = musicAudioBuildSourceManifest($sourcePath);
-    return is_array($current)
-        && hash_equals((string)($manifest['sourceVersion'] ?? ''), (string)$current['version']);
+    clearstatcache(true, $sourcePath);
+    $stat = @stat($sourcePath);
+    $expected = $manifest['source']['identity'] ?? null;
+    $realPath = realpath($sourcePath);
+    if ($stat === false || !is_array($expected) || $realPath === false
+        || !is_file($sourcePath) || is_link($sourcePath)
+        || (string)($expected['path'] ?? '') !== $realPath
+        || (int)($expected['size'] ?? -1) !== (int)($stat['size'] ?? -2)
+        || (int)($expected['mtime'] ?? -1) !== (int)($stat['mtime'] ?? -2)
+        || (int)($expected['ctime'] ?? -1) !== (int)($stat['ctime'] ?? -2)
+        || (int)($expected['mode'] ?? -1) !== (int)($stat['mode'] ?? -2)) {
+        return false;
+    }
+    if (!$verifyContents) {
+        return true;
+    }
+    $expectedHash = (string)($expected['sha256'] ?? '');
+    $currentHash = @hash_file('sha256', $sourcePath);
+    return is_string($currentHash) && preg_match('/^[a-f0-9]{64}$/', $expectedHash) === 1
+        && hash_equals($expectedHash, $currentHash);
 }
 
 function musicAudioStreamUrl(string $assetId): string
@@ -746,6 +897,7 @@ function musicAudioJson(array $payload, int $status = 200): void
 function musicAudioGetPlaybackInfo(): void
 {
     global $conf, $audioFormats, $writelog_process_name;
+    musicAudioReleaseSessionLock();
     $requestedFile = (string)($_REQUEST['file'] ?? '');
     $sourcePath = function_exists('resolveFileWithinBaseDirectory')
         ? resolveFileWithinBaseDirectory($conf['sharePath'] ?? '', $requestedFile)
@@ -838,10 +990,7 @@ function musicAudioStartWorker(array $conf, string $assetId): bool
         musicAudioLog('ERROR', 'musicAudioStartWorker() worker script is missing');
         return false;
     }
-    $php = musicAudioResolveExecutable($conf['php'] ?? null);
-    if ($php === null && is_executable(PHP_BINARY)) {
-        $php = PHP_BINARY;
-    }
+    $php = musicAudioResolveWorkerPhp($conf);
     if ($php === null) {
         musicAudioLog('ERROR', 'musicAudioStartWorker() PHP executable is unavailable');
         return false;
@@ -876,6 +1025,7 @@ function musicAudioPrepareAudio(): void
         musicAudioJson(['success' => false, 'error' => 'csrf failed'], 403);
         return;
     }
+    musicAudioReleaseSessionLock();
     if (!musicAudioIsEnabled($conf)) {
         musicAudioJson(['success' => false, 'error' => 'audio conversion disabled'], 503);
         return;
@@ -944,11 +1094,60 @@ function musicAudioPrepareAudio(): void
     }
 
     $lock = musicAudioOpenCacheLock($toolDirectory);
-    if ($lock === false || !@flock($lock, LOCK_EX)) {
-        if (is_resource($lock)) {
-            fclose($lock);
+    if ($lock === false) {
+        musicAudioJson(['success' => false, 'error' => 'audio cache lock is unavailable'], 503);
+        return;
+    }
+    if (!@flock($lock, LOCK_EX)) {
+        fclose($lock);
+        musicAudioJson(['success' => false, 'error' => 'audio cache lock failed'], 503);
+        return;
+    }
+
+    // 全体ロックはジョブ枠の予約だけに使い、実データは曲単位で保護するルン。
+    $entryLock = musicAudioOpenEntryLock($toolDirectory, $assetId);
+    if ($entryLock === false) {
+        @flock($lock, LOCK_UN);
+        fclose($lock);
+        musicAudioJson(['success' => false, 'error' => 'audio cache entry lock is unavailable'], 503);
+        return;
+    }
+    if (!@flock($entryLock, LOCK_EX | LOCK_NB)) {
+        fclose($entryLock);
+        @flock($lock, LOCK_UN);
+        fclose($lock);
+        $busyManifest = musicAudioReadManifest($entryDirectory);
+        $busyStatus = is_array($busyManifest) ? (string)($busyManifest['status'] ?? '') : '';
+        $busyManifestMatches = ($busyManifest['sourceVersion'] ?? '') === $sourceManifest['version']
+            && ($busyManifest['profile'] ?? '') === $profile;
+        if ($busyManifestMatches && $busyStatus === 'ready'
+            && musicAudioOutputIsReady($entryDirectory, $profile, $busyManifest)) {
+            $busyPayload = [
+                'success' => true,
+                'status' => $busyStatus,
+                'job_id' => $assetId,
+                'asset_id' => $assetId,
+                'profile' => $profile,
+                'stream_url' => musicAudioStreamUrl($assetId),
+            ];
+            musicAudioJson($busyPayload, 200);
+        } elseif ($busyManifestMatches && in_array($busyStatus, ['queued', 'converting'], true)) {
+            musicAudioJson([
+                'success' => true,
+                'status' => $busyStatus,
+                'job_id' => $assetId,
+                'asset_id' => $assetId,
+                'profile' => $profile,
+                'retry_after' => 1,
+            ], 202);
+        } else {
+            musicAudioJson([
+                'success' => false,
+                'status' => 'busy',
+                'error' => 'audio cache is busy',
+                'retry_after' => 2,
+            ], 503);
         }
-        musicAudioJson(['success' => false, 'error' => 'audio cache is busy', 'retryAfter' => 2], 503);
         return;
     }
 
@@ -970,12 +1169,12 @@ function musicAudioPrepareAudio(): void
             if ($status === 'ready' && musicAudioOutputIsReady($entryDirectory, $profile, $manifest)) {
                 $response = ['status' => 'ready', 'httpStatus' => 200];
             } elseif (($status === 'queued' || $status === 'converting')
-                && !musicAudioJobIsStale($manifest, time())) {
+                && (int)($manifest['updatedAt'] ?? $manifest['createdAt'] ?? 0) >= time() - 300) {
                 $response = ['status' => $status, 'httpStatus' => 202];
             }
         }
         if ($response === null) {
-            if (musicAudioCountActiveJobs($cacheDirectory) >= musicAudioMaxConcurrentJobs($conf)) {
+            if (musicAudioCountActiveJobs($cacheDirectory, $toolDirectory, $assetId) >= musicAudioMaxConcurrentJobs($conf)) {
                 $response = ['status' => 'queued', 'httpStatus' => 429, 'retryAfter' => 5];
             } else {
                 @unlink($entryDirectory . DIRECTORY_SEPARATOR . 'audio.flac');
@@ -1006,6 +1205,8 @@ function musicAudioPrepareAudio(): void
             }
         }
     } finally {
+        @flock($entryLock, LOCK_UN);
+        fclose($entryLock);
         @flock($lock, LOCK_UN);
         fclose($lock);
     }
@@ -1016,17 +1217,19 @@ function musicAudioPrepareAudio(): void
             session_write_close();
         }
         if (!musicAudioStartWorker($conf, $assetId)) {
-            $repairLock = musicAudioOpenCacheLock($toolDirectory);
-            if ($repairLock !== false && @flock($repairLock, LOCK_EX)) {
-                $repairManifest = musicAudioReadManifest($entryDirectory);
-                if (is_array($repairManifest) && ($repairManifest['status'] ?? '') === 'queued') {
-                    $repairManifest['status'] = 'failed';
-                    $repairManifest['error'] = 'worker unavailable';
-                    $repairManifest['updatedAt'] = time();
-                    $repairManifest['failedAt'] = time();
-                    musicAudioWriteManifest($entryDirectory, $repairManifest);
+            $repairLock = musicAudioOpenEntryLock($toolDirectory, $assetId);
+            if ($repairLock !== false) {
+                if (@flock($repairLock, LOCK_EX)) {
+                    $repairManifest = musicAudioReadManifest($entryDirectory);
+                    if (is_array($repairManifest) && ($repairManifest['status'] ?? '') === 'queued') {
+                        $repairManifest['status'] = 'failed';
+                        $repairManifest['error'] = 'worker unavailable';
+                        $repairManifest['updatedAt'] = time();
+                        $repairManifest['failedAt'] = time();
+                        musicAudioWriteManifest($entryDirectory, $repairManifest);
+                    }
+                    @flock($repairLock, LOCK_UN);
                 }
-                @flock($repairLock, LOCK_UN);
                 fclose($repairLock);
             }
             musicAudioJson(['success' => false, 'status' => 'failed', 'error' => 'audio worker unavailable'], 503);
@@ -1060,6 +1263,7 @@ function musicAudioPrepareAudio(): void
 function musicAudioGetStatus(): void
 {
     global $conf;
+    musicAudioReleaseSessionLock();
     $assetId = strtolower((string)($_GET['job_id'] ?? $_GET['asset_id'] ?? ''));
     $cacheDirectory = rtrim((string)($conf['cacheDir'] ?? ''), DIRECTORY_SEPARATOR);
     $toolDirectory = rtrim((string)($conf['comistream_tool_dir'] ?? ''), DIRECTORY_SEPARATOR);
@@ -1068,17 +1272,8 @@ function musicAudioGetStatus(): void
         musicAudioJson(['success' => false, 'error' => 'invalid job id'], 400);
         return;
     }
-    $lock = musicAudioOpenCacheLock($toolDirectory);
-    if ($lock === false || !@flock($lock, LOCK_SH)) {
-        if (is_resource($lock)) {
-            fclose($lock);
-        }
-        musicAudioJson(['success' => false, 'error' => 'audio cache is busy', 'retryAfter' => 2], 503);
-        return;
-    }
+    // manifestはrenameで公開されるため、変換中も待たずに状態を読めるルン。
     $manifest = musicAudioReadManifest($entryDirectory);
-    @flock($lock, LOCK_UN);
-    fclose($lock);
     if (!is_array($manifest)) {
         musicAudioJson(['success' => false, 'error' => 'job not found'], 404);
         return;
@@ -1089,21 +1284,24 @@ function musicAudioGetStatus(): void
         return;
     }
     $status = (string)($manifest['status'] ?? 'failed');
-    if (($status === 'queued' || $status === 'converting') && musicAudioJobIsStale($manifest, time())) {
-        $repairLock = musicAudioOpenCacheLock($toolDirectory);
-        if ($repairLock !== false && @flock($repairLock, LOCK_EX)) {
-            $latest = musicAudioReadManifest($entryDirectory);
-            if (is_array($latest) && in_array(($latest['status'] ?? ''), ['queued', 'converting'], true)
-                && musicAudioJobIsStale($latest, time())) {
-                $latest['status'] = 'failed';
-                $latest['error'] = 'worker stopped';
-                $latest['updatedAt'] = time();
-                $latest['failedAt'] = time();
-                musicAudioWriteManifest($entryDirectory, $latest);
-                $manifest = $latest;
-                $status = 'failed';
+    if (($status === 'queued' || $status === 'converting')
+        && musicAudioJobIsStale($manifest, time(), $toolDirectory, $assetId)) {
+        $repairLock = musicAudioOpenEntryLock($toolDirectory, $assetId);
+        if ($repairLock !== false) {
+            if (@flock($repairLock, LOCK_EX | LOCK_NB)) {
+                $latest = musicAudioReadManifest($entryDirectory);
+                if (is_array($latest) && in_array(($latest['status'] ?? ''), ['queued', 'converting'], true)
+                    && (int)($latest['updatedAt'] ?? $latest['createdAt'] ?? 0) < time() - 300) {
+                    $latest['status'] = 'failed';
+                    $latest['error'] = 'worker stopped';
+                    $latest['updatedAt'] = time();
+                    $latest['failedAt'] = time();
+                    musicAudioWriteManifest($entryDirectory, $latest);
+                    $manifest = $latest;
+                    $status = 'failed';
+                }
+                @flock($repairLock, LOCK_UN);
             }
-            @flock($repairLock, LOCK_UN);
             fclose($repairLock);
         }
     }
@@ -1142,6 +1340,7 @@ function musicAudioGetStatus(): void
 function musicAudioTouch(): void
 {
     global $conf;
+    musicAudioReleaseSessionLock();
     $assetId = strtolower((string)($_GET['asset_id'] ?? $_POST['asset_id'] ?? ''));
     $cacheDirectory = rtrim((string)($conf['cacheDir'] ?? ''), DIRECTORY_SEPARATOR);
     $toolDirectory = rtrim((string)($conf['comistream_tool_dir'] ?? ''), DIRECTORY_SEPARATOR);
@@ -1150,7 +1349,7 @@ function musicAudioTouch(): void
         musicAudioJson(['success' => false, 'error' => 'invalid asset id'], 400);
         return;
     }
-    $lock = musicAudioOpenCacheLock($toolDirectory);
+    $lock = musicAudioOpenEntryLock($toolDirectory, $assetId);
     if ($lock === false || !@flock($lock, LOCK_SH)) {
         if (is_resource($lock)) {
             fclose($lock);
@@ -1227,6 +1426,7 @@ function musicAudioIfRangeMatches(?string $ifRange, string $etag, int $mtime): b
 function musicAudioStream(): void
 {
     global $conf;
+    musicAudioReleaseSessionLock();
     $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
     if (!in_array($method, ['GET', 'HEAD'], true)) {
         http_response_code(405);
@@ -1241,7 +1441,7 @@ function musicAudioStream(): void
         http_response_code(404);
         return;
     }
-    $lock = musicAudioOpenCacheLock($toolDirectory);
+    $lock = musicAudioOpenEntryLock($toolDirectory, $assetId);
     if ($lock === false || !@flock($lock, LOCK_SH)) {
         if (is_resource($lock)) {
             fclose($lock);
@@ -1365,7 +1565,7 @@ function musicAudioRunWorker(array $conf, string $assetId): bool
     if ($entryDirectory === null || $toolDirectory === '' || !is_dir($entryDirectory)) {
         return false;
     }
-    $lock = musicAudioOpenCacheLock($toolDirectory);
+    $lock = musicAudioOpenEntryLock($toolDirectory, $assetId);
     if ($lock === false || !@flock($lock, LOCK_EX)) {
         return false;
     }
@@ -1381,7 +1581,7 @@ function musicAudioRunWorker(array $conf, string $assetId): bool
         if ($profile === null || $sourcePath === false || !is_array($sourceProbe)
             || ($sourceProbe['status'] ?? '') !== 'ok'
             || !musicAudioProfileCanConvert($profile, $sourceProbe)
-            || !musicAudioManifestSourceIsCurrent($manifest, $sourcePath)) {
+            || !musicAudioManifestSourceIsCurrent($manifest, $sourcePath, true)) {
             $manifest['status'] = 'failed';
             $manifest['error'] = 'source changed or unavailable';
             $manifest['failedAt'] = time();
@@ -1413,19 +1613,47 @@ function musicAudioRunWorker(array $conf, string $assetId): bool
         if ($freeBytes !== false && $freeBytes < $requiredFreeBytes) {
             throw new RuntimeException('insufficient disk space');
         }
-        $map = '-map 0:a:0 -vn -map_metadata 0 -map_chapters -1';
+        $command = [
+            $ffmpeg,
+            '-hide_banner',
+            '-nostdin',
+            '-loglevel',
+            'error',
+            '-y',
+            '-i',
+            $sourcePath,
+            '-map',
+            '0:a:0',
+            '-vn',
+            '-map_metadata',
+            '0',
+            '-map_chapters',
+            '-1',
+        ];
         if ($profile === 'flac') {
-            $options = '-c:a flac -f flac';
+            array_push($command, '-c:a', 'flac', '-f', 'flac');
         } elseif ($profile === 'aac_lc') {
             $channels = max(1, min(2, (int)($sourceProbe['channels'] ?? 0)));
-            $options = '-c:a aac -profile:a aac_low -b:a 256k -ac ' . $channels . ' -movflags +faststart -f ipod';
+            array_push(
+                $command,
+                '-c:a',
+                'aac',
+                '-profile:a',
+                'aac_low',
+                '-b:a',
+                '256k',
+                '-ac',
+                (string)$channels,
+                '-movflags',
+                '+faststart',
+                '-f',
+                'ipod'
+            );
         } else {
             throw new RuntimeException('unknown output profile');
         }
         @unlink($outputPath);
-        $command = escapeshellarg($ffmpeg)
-            . ' -hide_banner -nostdin -loglevel error -y -i ' . escapeshellarg($sourcePath)
-            . ' ' . $map . ' ' . $options . ' ' . escapeshellarg($outputPath);
+        $command[] = $outputPath;
         $result = musicAudioRunProcess($command, '/dev/null', $stderrPath, $timeout, $outputPath, $maxOutputBytes);
         if (!$result['started']) {
             throw new RuntimeException('ffmpeg could not start');
@@ -1445,6 +1673,9 @@ function musicAudioRunWorker(array $conf, string $assetId): bool
         $validation = musicAudioValidateOutput($outputPath, $profile, $sourceProbe, $conf, $timeout);
         if (!($validation['ok'] ?? false)) {
             throw new RuntimeException((string)($validation['error'] ?? 'output validation failed'));
+        }
+        if (!musicAudioManifestSourceIsCurrent($manifest, $sourcePath, true)) {
+            throw new RuntimeException('source changed during conversion');
         }
         $finalPath = musicAudioOutputPath($entryDirectory, $profile);
         if ($finalPath === null || !@rename($outputPath, $finalPath)) {

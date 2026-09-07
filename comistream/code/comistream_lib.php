@@ -2698,6 +2698,34 @@ function openMusicCacheLock($toolDirectory)
 }
 
 /**
+ * 音楽キャッシュ項目用の固定ロック群から、対象に対応するロックを開くルン。
+ *
+ * ロックファイルは削除対象の外に置き、先頭1バイトのハッシュで256本へ
+ * 分散する。これにより、別の曲の変換・配信・歌詞取得を互いに止めない。
+ */
+function openMusicCacheEntryLock($toolDirectory, $entryName)
+{
+    $toolDirectory = rtrim((string)$toolDirectory, DIRECTORY_SEPARATOR);
+    if ($toolDirectory === '' || !is_string($entryName)
+        || preg_match('/^music-(?:audio|lyrics)-([a-f0-9]{64})$/', $entryName, $matches) !== 1) {
+        return false;
+    }
+    $lockDirectory = $toolDirectory . DIRECTORY_SEPARATOR . 'data'
+        . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'music';
+    if (!is_dir($lockDirectory) && !@mkdir($lockDirectory, 0775, true) && !is_dir($lockDirectory)) {
+        writelog("WARNING openMusicCacheEntryLock() failed to create lock directory: $lockDirectory");
+        return false;
+    }
+    $lockPath = $lockDirectory . DIRECTORY_SEPARATOR . 'music-cache-'
+        . substr($matches[1], 0, 2) . '.lock';
+    $lock = @fopen($lockPath, 'c');
+    if ($lock === false) {
+        writelog("WARNING openMusicCacheEntryLock() failed to open lock file");
+    }
+    return $lock;
+}
+
+/**
  * 音声キャッシュのディレクトリ名か確認するルン。
  */
 function isMusicAudioCacheEntryName($name)
@@ -2706,12 +2734,42 @@ function isMusicAudioCacheEntryName($name)
 }
 
 /**
- * 歌詞キャッシュを削除するときの固定ロックを開くルン。
+ * 音楽キャッシュを削除するときの項目ロックを開くルン。
  */
-function openMusicLyricsCacheEvictionLock($cacheDirectory)
+function openMusicCacheEvictionLock($cacheDirectory, $entryName)
 {
     $toolDirectory = dirname(dirname(rtrim((string)$cacheDirectory, DIRECTORY_SEPARATOR)));
-    return openMusicCacheLock($toolDirectory);
+    return openMusicCacheEntryLock($toolDirectory, $entryName);
+}
+
+/**
+ * 音声キャッシュのジョブ開始直後と再生リース中は容量削除から保護するルン。
+ */
+function isMusicAudioCacheProtectedForPushout($entryPath, $now = null)
+{
+    if (!is_string($entryPath) || !isMusicAudioCacheEntryName(basename($entryPath))
+        || !is_dir($entryPath) || is_link($entryPath)) {
+        return false;
+    }
+    $now = is_int($now) ? $now : time();
+    $latestActivity = 0;
+    foreach (['manifest.json', 'access'] as $fileName) {
+        $path = rtrim($entryPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $fileName;
+        if (!is_file($path) || is_link($path)) {
+            continue;
+        }
+        $mtime = @filemtime($path);
+        if ($mtime !== false) {
+            $latestActivity = max($latestActivity, (int)$mtime);
+        }
+        if ($fileName === 'access') {
+            $value = trim((string)@file_get_contents($path, false, null, 0, 32));
+            if (preg_match('/^[0-9]{1,12}$/', $value) === 1) {
+                $latestActivity = max($latestActivity, (int)$value);
+            }
+        }
+    }
+    return $latestActivity > 0 && $latestActivity >= $now - 180;
 }
 
 /**
@@ -2727,15 +2785,20 @@ function deleteCacheEntryForPushout($cacheDirectory, $entryName)
     $entryPath = rtrim((string)$cacheDirectory, DIRECTORY_SEPARATOR)
         . DIRECTORY_SEPARATOR . $entryName;
     if (isMusicLyricsCacheEntryName($entryName) || isMusicAudioCacheEntryName($entryName)) {
-        $lock = openMusicLyricsCacheEvictionLock($cacheDirectory);
+        $lock = openMusicCacheEvictionLock($cacheDirectory, $entryName);
         if ($lock === false || !@flock($lock, LOCK_EX | LOCK_NB)) {
             if (is_resource($lock)) {
                 fclose($lock);
             }
-            writelog("NOTICE deleteCacheEntryForPushout() music lyrics cache is busy: $entryName");
+            writelog("NOTICE deleteCacheEntryForPushout() music cache is busy: $entryName");
             return false;
         }
         try {
+            if (isMusicAudioCacheEntryName($entryName)
+                && isMusicAudioCacheProtectedForPushout($entryPath)) {
+                writelog("NOTICE deleteCacheEntryForPushout() audio cache lease is active: $entryName");
+                return false;
+            }
             return deleteDirectory($entryPath);
         } finally {
             @flock($lock, LOCK_UN);
