@@ -75,13 +75,23 @@ cache_limit_days=$(sqlite3 "$dbfile" "SELECT value FROM system_config WHERE key=
 #$cacheDir = $conf["comistream_tool_dir"] . "/data/cache";
 cacheDir="$SCRIPT_DIR/../data/cache"
 music_cache_lock_dir="$SCRIPT_DIR/../data/runtime/music"
-music_cache_lock_file="$music_cache_lock_dir/music-lyrics.lock"
+music_cache_lock_file="$music_cache_lock_dir/music-cache.lock"
 
-# 歌詞キャッシュはアプリと同じ固定ロックを守って1項目ずつ削除するルン。
+# 音楽キャッシュはアプリと同じ固定ロックを守って1項目ずつ削除するルン。
 is_music_lyrics_cache_entry() {
     local entry_name
     entry_name=$(basename "$1")
     [[ "$entry_name" =~ ^music-lyrics-[0-9a-f]{64}$ ]]
+}
+
+is_music_audio_cache_entry() {
+    local entry_name
+    entry_name=$(basename "$1")
+    [[ "$entry_name" =~ ^music-audio-[0-9a-f]{64}$ ]]
+}
+
+is_music_cache_entry() {
+    is_music_lyrics_cache_entry "$1" || is_music_audio_cache_entry "$1"
 }
 
 remove_cache_entry() {
@@ -106,18 +116,18 @@ remove_cache_entry() {
     [ -d "$cache_entry" ] || return 0
     [ -L "$cache_entry" ] && return 1
 
-    if is_music_lyrics_cache_entry "$cache_entry"; then
+    if is_music_cache_entry "$cache_entry"; then
         entry_name=$(basename "$cache_entry")
         if ! mkdir -p "$music_cache_lock_dir"; then
-            logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.warning "Cannot create music lyrics lock directory; skipping $entry_name"
+            logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.warning "Cannot create music cache lock directory; skipping $entry_name"
             return 1
         fi
         if ! exec {lock_fd}>"$music_cache_lock_file"; then
-            logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.warning "Cannot open music lyrics lock file; skipping $entry_name"
+            logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.warning "Cannot open music cache lock file; skipping $entry_name"
             return 1
         fi
         if ! flock -n "$lock_fd"; then
-            logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.notice "Music lyrics cache is busy; skipping $entry_name"
+            logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.notice "Music cache is busy; skipping $entry_name"
             exec {lock_fd}>&-
             return 1
         fi
@@ -136,9 +146,9 @@ if [[ "$cache_limit_size" =~ ^[0-9]+$ ]] && [ "$cache_limit_size" -gt 0 ]; then
 elif [ "$cache_limit_size" = "0" ]; then
     logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.info "Cache directory size management is disabled."
 else
-    # 未定義時は1GB/30日で削除
-    logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.info "cache_limit_size was not defined. set 1GB."
-    cache_limit_size=1000
+    # DDLの初期値と同じ3GBで削除するルン。
+    logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.info "cache_limit_size was not defined. set 3GB."
+    cache_limit_size=3000
 fi
 
 # 日数制限による古いファイルの削除
@@ -169,7 +179,7 @@ if [ "$atime_limit_days" -gt 0 ] && [ -d "$cacheDir" ]; then
         [ -d "$cache_subdir" ] || continue
         cache_dirname=$(basename "$cache_subdir")
 
-        if is_music_lyrics_cache_entry "$cache_subdir"; then
+        if is_music_cache_entry "$cache_subdir"; then
             target_file="${cache_subdir}access"
             if [ -f "$target_file" ]; then
                 IFS= read -r access_epoch < "$target_file"
@@ -219,7 +229,7 @@ find_oldest_cache_entry() {
         case "|$skipped_cache_entries|" in
             *"|$cache_name|"*) continue ;;
         esac
-        if is_music_lyrics_cache_entry "$cache_subdir" && [ -f "${cache_subdir}access" ]; then
+        if is_music_cache_entry "$cache_subdir" && [ -f "${cache_subdir}access" ]; then
             IFS= read -r timestamp < "${cache_subdir}access"
         else
             timestamp=$(stat -c %Y "$cache_subdir" 2>/dev/null || echo 0)

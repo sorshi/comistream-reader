@@ -22,6 +22,7 @@ ENV TZ Asia/Tokyo
 COPY /comistream-tools/7zz /usr/local/bin/
 COPY /comistream-tools/cpdf /usr/local/bin/
 COPY /comistream-tools/ffmpeg /usr/local/bin/
+COPY /comistream-tools/ffprobe /usr/local/bin/
 COPY /comistream-tools/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.xz /tmp/
 COPY /comistream-tools/comistream.tar.gz /tmp/comistream.tar.gz
 # システムの更新と必要なパッケージのインストール

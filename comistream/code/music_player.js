@@ -46,6 +46,17 @@ class MusicPlayer {
     this.showingLyrics = false;
     this.queueExpanded = true;
 
+    // ALAC互換再生のリクエスト世代とキャッシュ利用リースを管理するルン。
+    this.audioLoadId = 0;
+    this.audioAbortController = null;
+    this.audioSourcePending = false;
+    this.activeAudioSource = null;
+    this.playbackInfo = null;
+    this.audioFallbackAttempted = false;
+    this.audioFallbackProfiles = new Set();
+    this.pendingPlay = false;
+    this.audioLeaseTimer = null;
+
     // DOM要素の取得
     this.initDOMElements();
     this.usesSystemVolume = this.isIOSDevice();
@@ -323,13 +334,26 @@ class MusicPlayer {
   }
 
   loadCurrentTrack() {
-    if (this.musicFiles.length === 0) return;
+    if (this.musicFiles.length === 0) return Promise.resolve(false);
 
     const currentTrack = this.musicFiles[this.currentIndex];
-    if (!currentTrack) return;
+    if (!currentTrack) return Promise.resolve(false);
+
+    const loadId = ++this.audioLoadId;
+    this.audioAbortController?.abort();
+    this.audioAbortController = new AbortController();
+    this.stopAudioLease();
+    this.audioSourcePending = true;
+    this.activeAudioSource = null;
+    this.playbackInfo = null;
+    this.audioFallbackAttempted = false;
+    this.audioFallbackProfiles = new Set();
+
+    this.audioPlayer.pause();
+    this.audioPlayer.removeAttribute("src");
+    this.audioPlayer.load();
 
     // オーディオソースを設定
-    const audioUrl = this.baseDir + currentTrack.path.split("/").map(encodeURIComponent).join("/");
     this.isSeeking = false;
     this.progressBar.value = 0;
     this.progressBar.disabled = true;
@@ -339,12 +363,11 @@ class MusicPlayer {
     this.totalTime.textContent = "0:00";
     this.trackPosition.textContent = `${this.currentIndex + 1} / ${this.musicFiles.length}`;
     this.queueSummary.textContent = `${this.musicFiles.length} 曲 · 曲を選んで切り替え`;
-    this.setStatus("");
-    this.audioPlayer.src = audioUrl;
+    this.setStatus("再生形式を確認中…");
     this.resetLyricsForTrack(currentTrack);
     // ダウンロードリンク更新
     if (this.downloadBtn) {
-      this.downloadBtn.href = audioUrl;
+      this.downloadBtn.href = this.buildTrackAudioUrl(currentTrack);
       this.downloadBtn.setAttribute("download", currentTrack.name || "audio");
     }
 
@@ -358,6 +381,258 @@ class MusicPlayer {
     this.updatePlaylistDisplay();
 
     console.log("Loaded track:", currentTrack.name);
+    return this.selectPlaybackSource(currentTrack, loadId);
+  }
+
+  buildTrackAudioUrl(track) {
+    return this.baseDir + track.path.split("/").map(encodeURIComponent).join("/");
+  }
+
+  async selectPlaybackSource(track, loadId) {
+    const signal = this.audioAbortController?.signal;
+    if (!signal) return false;
+
+    let playbackInfo = null;
+    try {
+      const response = await fetch(
+        `/cgi-bin/music_player.php?mode=get_playback_info&file=${encodeURIComponent(track.path)}`,
+        { signal, headers: { Accept: "application/json" }, cache: "no-store" }
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      playbackInfo = await response.json();
+    } catch (error) {
+      if (error.name === "AbortError" || loadId !== this.audioLoadId) return false;
+      // 判定APIの通信失敗はコーデック非対応とみなさず、原本再生を試すルン。
+      this.setAudioSource(this.buildTrackAudioUrl(track), loadId, "original");
+      return true;
+    }
+
+    if (loadId !== this.audioLoadId || signal.aborted) return false;
+    if (!playbackInfo || playbackInfo.success === false) {
+      this.setAudioSource(this.buildTrackAudioUrl(track), loadId, "original");
+      return true;
+    }
+    this.playbackInfo = playbackInfo;
+
+    if (playbackInfo.probeStatus !== "ok") {
+      // 判定不能時は変換を決め打ちせず、原本を一度だけ試すルン。
+      this.setAudioSource(this.buildTrackAudioUrl(track), loadId, "original");
+      return true;
+    }
+
+    const directCandidate = Array.isArray(playbackInfo.direct)
+      ? playbackInfo.direct[0]
+      : null;
+    if (directCandidate && await this.canPlayAudioCandidate(directCandidate, signal)) {
+      this.setAudioSource(this.buildTrackAudioUrl(track), loadId, "original");
+      return true;
+    }
+
+    const conversionCandidates = Array.isArray(playbackInfo.conversion)
+      ? playbackInfo.conversion
+      : [];
+    if (conversionCandidates.length > 0) {
+      const prepared = await this.tryAudioConversionProfiles(
+        track,
+        conversionCandidates,
+        loadId,
+        signal
+      );
+      if (prepared) return true;
+    }
+
+    if (directCandidate) {
+      // 能力APIが未確定でも、最後に原本を1回だけ試すルン。
+      this.setAudioSource(this.buildTrackAudioUrl(track), loadId, "original");
+      return true;
+    }
+
+    this.audioSourcePending = false;
+    this.setStatus(
+      playbackInfo.probeStatus !== "ok"
+        ? "音声形式を判定できないため、原本の再生を試してください。"
+        : "この端末で再生できる音声形式がありません。"
+    );
+    return false;
+  }
+
+  async canPlayAudioCandidate(candidate, signal) {
+    if (signal?.aborted) return false;
+    const contentType = candidate.contentType || candidate.mime;
+    if (typeof contentType !== "string" || contentType === "") return false;
+    let canPlay = "";
+    try {
+      canPlay = this.audioPlayer.canPlayType(contentType).toLowerCase();
+    } catch (_) {}
+    if (canPlay === "probably" || canPlay === "maybe") return true;
+
+    if (!navigator.mediaCapabilities?.decodingInfo) return false;
+    const channels = Number(candidate.channels);
+    const sampleRate = Number(candidate.sampleRate);
+    try {
+      const result = await navigator.mediaCapabilities.decodingInfo({
+        type: "file",
+        audio: {
+          contentType,
+          channels: Number.isInteger(channels) && channels > 0 ? String(channels) : "2",
+          bitrate: candidate.profile === "aac_lc" ? 256000 : 1411200,
+          samplerate: Number.isInteger(sampleRate) && sampleRate > 0 ? sampleRate : 44100,
+        },
+      });
+      return result?.supported === true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async tryAudioConversionProfiles(track, candidates, loadId, signal) {
+    for (const candidate of candidates) {
+      if (loadId !== this.audioLoadId || signal.aborted) return false;
+      const profile = typeof candidate.profile === "string" ? candidate.profile : "";
+      if (profile === "" || this.audioFallbackProfiles.has(profile)) continue;
+      if (!(await this.canPlayAudioCandidate(candidate, signal))) continue;
+      this.audioFallbackProfiles.add(profile);
+      const prepared = await this.prepareAudioProfile(track, candidate, loadId, signal);
+      if (prepared) return true;
+    }
+    return false;
+  }
+
+  async prepareAudioProfile(track, candidate, loadId, signal) {
+    const requestBody = new URLSearchParams({
+      mode: "prepare_audio",
+      file: track.path,
+      profile: candidate.profile,
+      csrf: String(window.musicAudioCsrfToken || ""),
+    });
+    let response;
+    let data;
+    try {
+      response = await fetch("/cgi-bin/music_player.php", {
+        method: "POST",
+        body: requestBody,
+        signal,
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      data = await response.json();
+    } catch (error) {
+      if (error.name !== "AbortError" && loadId === this.audioLoadId) {
+        this.setStatus("変換要求を送信できませんでした。通信状態を確認してください。");
+      }
+      return false;
+    }
+    if (loadId !== this.audioLoadId || signal.aborted) return false;
+
+    if (data?.status === "ready" && data.stream_url) {
+      this.setAudioSource(data.stream_url, loadId, "converted", data.asset_id);
+      return true;
+    }
+    if (response.status === 429 && Number(data?.retry_after) > 0) {
+      this.setStatus("別の互換音声を変換中です。順番を待っています…");
+      try {
+        await this.waitForAudioDelay(Math.min(Number(data.retry_after) * 1000, 30000), signal);
+      } catch (error) {
+        return false;
+      }
+      if (loadId !== this.audioLoadId || signal.aborted) return false;
+      return this.prepareAudioProfile(track, candidate, loadId, signal);
+    }
+    if (!data?.job_id || !["queued", "converting"].includes(data.status)) {
+      if (response.status !== 429 && loadId === this.audioLoadId) {
+        this.setStatus("互換音声を準備できませんでした。");
+      }
+      return false;
+    }
+
+    this.setStatus("互換音声を変換中…");
+    return this.waitForAudioJob(data.job_id, loadId, signal);
+  }
+
+  waitForAudioDelay(delayMs, signal) {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new DOMException("Aborted", "AbortError"));
+        return;
+      }
+      let timer = null;
+      const abort = () => {
+        if (timer !== null) window.clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+      timer = window.setTimeout(() => {
+        signal.removeEventListener("abort", abort);
+        resolve();
+      }, delayMs);
+      signal.addEventListener("abort", abort, { once: true });
+    });
+  }
+
+  async waitForAudioJob(jobId, loadId, signal) {
+    let delayMs = 500;
+    while (loadId === this.audioLoadId && !signal.aborted) {
+      try {
+        await this.waitForAudioDelay(delayMs, signal);
+        const response = await fetch(
+          `/cgi-bin/music_player.php?mode=get_audio_status&job_id=${encodeURIComponent(jobId)}`,
+          { signal, headers: { Accept: "application/json" }, cache: "no-store" }
+        );
+        const data = await response.json();
+        if (loadId !== this.audioLoadId || signal.aborted) return false;
+        if (data.status === "ready" && data.stream_url) {
+          this.setAudioSource(data.stream_url, loadId, "converted", data.asset_id);
+          return true;
+        }
+        if (!["queued", "converting"].includes(data.status)) {
+          this.setStatus(data.status === "expired" ? "原本が更新されたため再準備が必要です。" : "互換音声の変換に失敗しました。");
+          return false;
+        }
+        this.setStatus(data.status === "queued" ? "互換音声を待機中…" : "互換音声を変換中…");
+      } catch (error) {
+        if (error.name !== "AbortError" && loadId === this.audioLoadId) {
+          this.setStatus("変換状態を取得できませんでした。");
+        }
+        return false;
+      }
+      delayMs = Math.min(delayMs * 1.5, 5000);
+    }
+    return false;
+  }
+
+  setAudioSource(url, loadId, sourceType, assetId = null) {
+    if (loadId !== this.audioLoadId) return false;
+    this.activeAudioSource = { url, loadId, sourceType, assetId };
+    this.audioSourcePending = false;
+    this.audioPlayer.src = url;
+    this.audioPlayer.load();
+    if (sourceType === "converted" && assetId) this.startAudioLease(assetId);
+    if (sourceType === "converted") this.setStatus("互換音声を読み込み中…");
+    else this.setStatus("");
+    if (this.pendingPlay) {
+      this.pendingPlay = false;
+      this.play();
+    }
+    return true;
+  }
+
+  startAudioLease(assetId) {
+    this.stopAudioLease();
+    const touch = () => {
+      fetch(`/cgi-bin/music_player.php?mode=touch_audio&asset_id=${encodeURIComponent(assetId)}`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      }).catch(() => {});
+    };
+    touch();
+    this.audioLeaseTimer = window.setInterval(touch, 60000);
+  }
+
+  stopAudioLease() {
+    if (this.audioLeaseTimer !== null) {
+      window.clearInterval(this.audioLeaseTimer);
+      this.audioLeaseTimer = null;
+    }
   }
 
   updateTrackInfo(track) {
@@ -416,6 +691,15 @@ class MusicPlayer {
   }
 
   play() {
+    if (this.audioSourcePending || !this.activeAudioSource) {
+      if (this.audioSourcePending) {
+        this.pendingPlay = true;
+        this.setStatus("再生形式の準備が終わるまで待ってください。");
+      } else {
+        this.setStatus("再生できる音声形式がありません。");
+      }
+      return;
+    }
     const playPromise = this.audioPlayer.play();
 
     if (playPromise !== undefined) {
@@ -1225,6 +1509,33 @@ class MusicPlayer {
 
   onError(event) {
     console.error("Audio error:", event);
+    const source = this.activeAudioSource;
+    if (!source || source.loadId !== this.audioLoadId) return;
+
+    const mediaErrorCode = Number(this.audioPlayer.error?.code);
+    if (
+      source.sourceType === "original" &&
+      !this.audioFallbackAttempted &&
+      (mediaErrorCode === 3 || mediaErrorCode === 4) &&
+      this.playbackInfo &&
+      Array.isArray(this.playbackInfo.conversion)
+    ) {
+      this.audioFallbackAttempted = true;
+      this.audioSourcePending = true;
+      this.setStatus("原本を再生できないため、互換音声を準備中…");
+      this.tryAudioConversionProfiles(
+        this.musicFiles[this.currentIndex],
+        this.playbackInfo.conversion,
+        this.audioLoadId,
+        this.audioAbortController?.signal
+      ).then((prepared) => {
+        if (!prepared && source.loadId === this.audioLoadId) {
+          this.audioSourcePending = false;
+          this.setStatus("互換音声を再生できませんでした。");
+        }
+      });
+      return;
+    }
     this.setStatus("音楽ファイルを再生できません。形式や通信状態を確認して、再生をやり直してください。");
   }
 

@@ -2676,22 +2676,42 @@ function isMusicLyricsCacheEntryName($name)
 }
 
 /**
+ * 音声・歌詞キャッシュで共有する固定ロックを開くルン。
+ */
+function openMusicCacheLock($toolDirectory)
+{
+    $toolDirectory = rtrim((string)$toolDirectory, DIRECTORY_SEPARATOR);
+    if ($toolDirectory === '') {
+        return false;
+    }
+    $lockDirectory = $toolDirectory . DIRECTORY_SEPARATOR . 'data'
+        . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'music';
+    if (!is_dir($lockDirectory) && !@mkdir($lockDirectory, 0775, true) && !is_dir($lockDirectory)) {
+        writelog("WARNING openMusicCacheLock() failed to create lock directory: $lockDirectory");
+        return false;
+    }
+    $lock = @fopen($lockDirectory . DIRECTORY_SEPARATOR . 'music-cache.lock', 'c');
+    if ($lock === false) {
+        writelog("WARNING openMusicCacheLock() failed to open lock file");
+    }
+    return $lock;
+}
+
+/**
+ * 音声キャッシュのディレクトリ名か確認するルン。
+ */
+function isMusicAudioCacheEntryName($name)
+{
+    return is_string($name) && preg_match('/^music-audio-[a-f0-9]{64}$/', $name) === 1;
+}
+
+/**
  * 歌詞キャッシュを削除するときの固定ロックを開くルン。
  */
 function openMusicLyricsCacheEvictionLock($cacheDirectory)
 {
     $toolDirectory = dirname(dirname(rtrim((string)$cacheDirectory, DIRECTORY_SEPARATOR)));
-    $lockDirectory = $toolDirectory . DIRECTORY_SEPARATOR . 'data'
-        . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'music';
-    if (!is_dir($lockDirectory) && !@mkdir($lockDirectory, 0775, true) && !is_dir($lockDirectory)) {
-        writelog("WARNING openMusicLyricsCacheEvictionLock() failed to create lock directory: $lockDirectory");
-        return false;
-    }
-    $lock = @fopen($lockDirectory . DIRECTORY_SEPARATOR . 'music-lyrics.lock', 'c');
-    if ($lock === false) {
-        writelog("WARNING openMusicLyricsCacheEvictionLock() failed to open lock file");
-    }
-    return $lock;
+    return openMusicCacheLock($toolDirectory);
 }
 
 /**
@@ -2706,7 +2726,7 @@ function deleteCacheEntryForPushout($cacheDirectory, $entryName)
 
     $entryPath = rtrim((string)$cacheDirectory, DIRECTORY_SEPARATOR)
         . DIRECTORY_SEPARATOR . $entryName;
-    if (isMusicLyricsCacheEntryName($entryName)) {
+    if (isMusicLyricsCacheEntryName($entryName) || isMusicAudioCacheEntryName($entryName)) {
         $lock = openMusicLyricsCacheEvictionLock($cacheDirectory);
         if ($lock === false || !@flock($lock, LOCK_EX | LOCK_NB)) {
             if (is_resource($lock)) {
@@ -2749,7 +2769,7 @@ function findOldestCacheEntryForPushout($cacheDirectory, array $excluded = [])
         }
 
         $timestamp = false;
-        if (isMusicLyricsCacheEntryName($item)) {
+        if (isMusicLyricsCacheEntryName($item) || isMusicAudioCacheEntryName($item)) {
             $accessPath = $path . DIRECTORY_SEPARATOR . 'access';
             $timestamp = is_file($accessPath) ? @filemtime($accessPath) : @filemtime($path);
         } else {
@@ -4084,6 +4104,7 @@ function system_config($dbh)
                 'p7zip' => '7-Zipコマンドのパス',
                 'cpdf' => 'CPDFコマンドのパス',
                 'ffmpeg' => 'FFmpegコマンドのパス',
+                'ffprobe' => 'FFprobeコマンドのパス。音声コーデック判定に使用します。',
                 'convert' => 'ImageMagick convertコマンドのパス',
                 'montage' => 'ImageMagick montageコマンドのパス',
                 'md5cmd' => 'ハッシュ計算コマンドのパス。b3sumコマンドがおすすめです。なければmd5sumを指定してます。',
@@ -4097,6 +4118,11 @@ function system_config($dbh)
                 'cacheSize' => 'ストレージキャッシュ確保サイズ（MB）。0を設定すると使用容量チェックがバイパスされ書籍オープンが高速化します。その場合は使用容量が増え続けるので適宜手動で削除してください。日次バッチで消し込みする場合も0を設定します。',
                 'pushoutCacheLimitSize' => '日次バッチキャッシュ削除基準値（MB）。この容量を超えた場合古いものから削除されます。0を設定すると削除されません。',
                 'pushoutCacheLimitDays' => '日次バッチキャッシュ削除基準日数。この日数を超えたものから削除されます。0を設定すると削除されません。',
+                'musicAudioEnabled' => 'ALAC互換変換を有効にします。0の場合は原本再生の試行だけを行います。',
+                'musicAudioPolicy' => 'ALAC互換変換の方針。autoはFLAC優先、lossless_onlyはFLACのみ、bandwidthはAAC-LC優先です。',
+                'musicAudioMaxConcurrent' => '同時に実行する音声変換ジョブ数の上限です。',
+                'musicAudioMaxSeconds' => '1曲の音声変換に許可する最大秒数です。',
+                'musicAudioMaxOutputMB' => '音声変換キャッシュ1項目の最大出力サイズ（MB）です。',
                 'width' => '画像の最大幅。パケット節約モード（圧縮モード）は横幅をこのサイズまで縮小します。デフォルトは800です。',
                 'quality' => '画像の品質（0-100）。デフォルトは75です。',
                 'global_preload_pages' => '先読みページ基準値。デフォルトは3です。動作時にはネットワーク帯域幅を考慮して自動的に増減します。遅いネットワークでは自動的に先読みページ数を増やします。',

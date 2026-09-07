@@ -762,6 +762,9 @@ function openMusicLyricsCacheLock(string $toolDirectory)
     if ($toolDirectory === '') {
         return false;
     }
+    if (function_exists('openMusicCacheLock')) {
+        return openMusicCacheLock($toolDirectory);
+    }
     $lockDirectory = rtrim($toolDirectory, DIRECTORY_SEPARATOR)
         . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'runtime'
         . DIRECTORY_SEPARATOR . 'music';
@@ -769,7 +772,7 @@ function openMusicLyricsCacheLock(string $toolDirectory)
         musicLyricsLog('WARNING', 'openMusicLyricsCacheLock() failed to create runtime directory');
         return false;
     }
-    $lock = @fopen($lockDirectory . DIRECTORY_SEPARATOR . 'music-lyrics.lock', 'c');
+    $lock = @fopen($lockDirectory . DIRECTORY_SEPARATOR . 'music-cache.lock', 'c');
     if ($lock === false) {
         musicLyricsLog('WARNING', 'openMusicLyricsCacheLock() failed to open lock file');
     }

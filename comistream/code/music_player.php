@@ -19,6 +19,7 @@ if (file_exists(__DIR__ . "/comistream_lib.php")) {
     require(__DIR__ . "/comistream_lib.php");
     require_once(__DIR__ . "/music_metadata.php");
     require_once(__DIR__ . "/music_lyrics.php");
+    require_once(__DIR__ . "/music_audio.php");
     writelog("DEBUG library file exist:" . __DIR__ . "/comistream_lib.php", 'MusicPlayer');
 } else {
     exit(1);
@@ -91,6 +92,21 @@ if ($mode == 'open' && $file != '') {
 } elseif ($mode == 'get_lyrics') {
     // 歌詞取得
     getLyrics();
+} elseif ($mode == 'get_playback_info') {
+    // 原本のコーデックと互換再生候補を取得
+    musicAudioGetPlaybackInfo();
+} elseif ($mode == 'prepare_audio') {
+    // 検証済み音源の変換ジョブを準備
+    musicAudioPrepareAudio();
+} elseif ($mode == 'get_audio_status') {
+    // 変換ジョブの状態を取得
+    musicAudioGetStatus();
+} elseif ($mode == 'touch_audio') {
+    // 再生中キャッシュの利用リースを延長
+    musicAudioTouch();
+} elseif ($mode == 'stream_audio') {
+    // 完成済み音源をRange対応で配信
+    musicAudioStream();
 } else {
     errorExit("invalid mode", "無効なモードです。");
 }
@@ -211,6 +227,7 @@ function openMusicPlayer()
         $user,
         JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE
     );
+    $musicAudioCsrfToken = htmlspecialchars(musicAudioEnsureCsrfToken(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     echo <<<HTML
 <!DOCTYPE html>
 <html lang="ja">
@@ -495,6 +512,7 @@ function openMusicPlayer()
         window.currentIndex = $currentIndex;
         window.user = $userJson;
         window.baseDir = window.location.origin + '/';
+        window.musicAudioCsrfToken = "$musicAudioCsrfToken";
 
         $contents_js
     </script>
