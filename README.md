@@ -1,32 +1,40 @@
 # Comistream Reader
 
-Comistream Readerは、コンパクトで使いやすいサーバー設置型オープンソースコミックリーダーです。ZIP、RAR、7z、PDFなどさまざまな形式の電子書籍をスムーズに閲覧できます。各種動画ファイルもHLS変換して再生できます。
+Comistream Readerは、コンパクトで使いやすいサーバー設置型オープンソースコミックリーダーです。ZIP、RAR、7z、PDF、EPUBなどさまざまな形式の電子書籍を閲覧でき、動画のHLS変換再生や音楽の連続再生にも対応しています。
 NASに追加すると、ブラウザさえあればどこからでもマンガが見れて大変便利です。
 開発中の電子書籍管理システムComistreamから先行してリーダー機能だけを取り出したものです。
 
 ## 主な機能
 
 - クイック見開き:スペースキー押しやスマホやiPadの向き回転や長押しで縦長単ページから見開き表示する機能。超便利。
-- マルチフォーマット対応（ZIP、RAR、7z、PDF、epub等）
+- マルチフォーマット対応（ZIP/CBZ、RAR/CBR、7z/CB7、PDF、EPUB）
+- EPUB専用リーダー（Foliate.jsベース）:目次、文字サイズ・配色の変更、読書位置の保存・復帰
+- JPEG XL（.jxl）を含む画像アーカイブの閲覧（JPEG XL対応ブラウザが必要）
 - レスポンシブデザインによるモバイル対応
 - 右綴じ/左綴じ切替
 - 圧縮/オリジナル品質の簡単切替（パケットセービングモード）
-- 一覧表示時にマウスホバーで本の中身のプレビュー表示
+- 表紙/リスト表示の切替、並べ替え、ファイル名・お気に入りによる絞り込み。ブラウザの「戻る」で絞り込み状態やスクロール位置を復元
 - デバイス間ページ位置同期
 - 横長画像自動分割表示:縦長画像、横長画像が混在してるアーカイブでもいい感じに表示
 - ネットワーク帯域自動測定により動的ページ先読み（遅いネットワークの場合先読み枚数を自動的に増やす）
-- 各種動画フォーマットのHLS変換再生
+- 各種動画フォーマットのHLS変換再生。未変換の位置へのシークとシークバーのサムネイル表示
+- 音楽プレーヤー:同じフォルダの連続再生、シャッフル、リピート、プレイリスト、曲名・アーティスト・カバーアート表示
 - 表紙画像とプレビュー画像の自動作成
 - プレビュー画像は先頭12ページ分をリスト表示時にマウスホバーで表示できる機能。マンガに多い縦書き右綴じに最適化されている。便利
 - 読書履歴、読みかけ位置、お気に入り、既読情報の記録と表示。再オープン時は前回閉じたページから再開。
-- アーカイブを展開することなく表示
+- 任意の読書位置に名前付きのしおりを追加（1冊につき100個まで）
+- 読書履歴・既読・お気に入り情報のエクスポート
+- 通常の画像アーカイブは事前の手動展開なしで閲覧可能（入れ子アーカイブやEPUBなどは必要に応じてサーバーのキャッシュへ展開）
 - zipの中にzipがあるような入れ子構造のアーカイブも自動対応
 - インスペクタ表示
 - Accept-Encoding zstd対応により転送パケットを節約（https必須）
 - シンプルなPWA対応（https必須）
 - 余白トリミングモード
+- 日本語、英語、繁体字中国語（台湾・香港）の表示切替
 - 高速で効率のいい動作
 - （オプション:文末での次巻提示機能）
+
+変更履歴は[ChangeLog.md](ChangeLog.md)を参照してください。`Unreleased`は次回リリースに向けた変更で、配布済みコンテナイメージと一致するとは限りません。
 
 ## スクリーンショット
 - [Comistream Readerメインサイト](https://comistream.dcc-jpl.com/)でご覧頂けます。
@@ -39,12 +47,17 @@ NASに追加すると、ブラウザさえあればどこからでもマンガ�
 - 【動作環境】 今のところx86_64(amd64)のみです。cpdfのarm64バイナリが見当たらなかったのでarm64は未対応です。
 - コンテナ側の/home/user/comistream/data/にDBなど永続的データ用ディレクトリを、/home/user/public/nas/にメディアデータをマウントしてください。
 - コンテナを起動したら手動インストールの「ブラウザでセットアップ」項目からセットアップしてください。
-- 実行例
-- docker run -d -p 8080:80  \
--v /home/path/to/your/data:/home/user/comistream/data  \
--v /home/path/to/your/nas:/home/user/public/nas  \
---restart unless-stopped  \
---name comistream ghcr.io/sorshi/comistream-reader/comistream-reader:latest
+- 実行例（メディアを読み取り専用でマウント）
+
+```sh
+docker run -d -p 8080:80 \
+  -v /home/path/to/your/data:/home/user/comistream/data \
+  -v /home/path/to/your/nas:/home/user/public/nas:ro \
+  --restart unless-stopped \
+  --name comistream ghcr.io/sorshi/comistream-reader/comistream-reader:latest
+```
+
+永続データ用ディレクトリはコンテナ内のApacheから書き込めるようにしてください。コンテナを更新する場合は、このディレクトリをバックアップし、新しいイメージで同じマウントを指定して再作成します。一覧や音楽プレーヤーが404になる場合は、手動インストールの配置手順にあるCGIのリンクを確認してください。
 
 ## 手動インストール
 **【重要】** 既存環境のweb rootにthemeというディレクトリと.htaccessがある場合は競合するので別環境で動かしてください。
@@ -71,6 +84,8 @@ AlmaLinux9の例だと以下のコマンドを実行します。
 - [7-zip](https://7-zip.opensource.jp/download.html)
 - [ffmpeg static build](https://johnvansickle.com/ffmpeg/)
 
+PHPはPDO SQLite、mbstring、intl、XML関連の拡張が利用できる構成にしてください。`sqlite-devel`だけではPHPのSQLiteドライバーは有効になりません。ディストリビューションに応じたPHP拡張パッケージを追加し、`php -m`とWeb側のPHP設定を確認してください。動画用の`ffprobe`も`ffmpeg`と同じディレクトリかPATH上に配置すると、再生時間の取得に利用できます。履歴エクスポートには`tar`、`zstd`、`b3sum`が必要です。
+
 4. 配置：
 /home/user/を利用して、webrootが/home/user/public/である場合の配置例と操作です。
 cloneまたは展開した中のcomistreamディレクトリを/home/user/以下に/home/user/comistream/として配置します。
@@ -78,10 +93,20 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
    ```
    sudo ln -s /home/user/comistream/code/comistream.php /var/www/cgi-bin/
    sudo ln -s /home/user/comistream/code/livestream.php /var/www/cgi-bin/
+   sudo ln -s /home/user/comistream/code/dir_list.php /var/www/cgi-bin/
+   sudo ln -s /home/user/comistream/code/dir_list_api.php /var/www/cgi-bin/
+   sudo ln -s /home/user/comistream/code/music_player.php /var/www/cgi-bin/
    mkdir -p /home/user/comistream/data/
    sudo chgrp -R apache /home/user/comistream/data/
    sudo chmod -R 775 /home/user/comistream/data/
    ```
+
+初期設定は`comistream/theme/htaccess`を参照します。リポジトリのルートにある`_htaccess`を、配置先のその名前でコピーしてください（次の例はクローンしたリポジトリのルートで実行）。`comistream/theme/.htaccess`はthemeディレクトリ内の一覧表示を禁止する別のファイルです。
+
+   ```sh
+   sudo cp _htaccess /home/user/comistream/theme/htaccess
+   ```
+
 5. コンテンツのマウント:
 - /home/user/public/や/home/user/public/nas/などにコンテンツをマウントや配置します。
 
@@ -90,12 +115,13 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 - &lt;Directory "/var/www/cgi-bin"&gt;に Options FollowSymLinks 追加します。そのままだと無制限アクセスになるので必要に応じてアクセス制限を行ってください。
 - /etc/httpd/conf.d/welcome.confを削除します。
 - &lt;Directory /&gt;をAllowOverride AllにしてAllow from allにします。
+- PHPによる一覧表示に`mod_rewrite`が必要です。特殊文字を含むパス向けの設定例は[comistream/rsrc/apache/comistream-special-chars.conf](comistream/rsrc/apache/comistream-special-chars.conf)を参照してください。`AllowEncodedSlashes`は`.htaccess`ではなくサーバーまたはVirtualHostに設定します。
 
 7. ブラウザでセットアップ：
 - インストールしたサーバーの/cgi-bin/comistream.phpにアクセスしてください。初期セットアップ画面になります。
 - 最初に管理者アカウントを設定します。
 - 次に初期設定項目を設定します。デフォルトでそれなりに使えるようになっているはずです。
-- 途中でエラーになり失敗した場合は/home/user/comistream/data/*を削除するとやり直せます。/home/user/public/themeと/home/user/public/.htaccessが存在していたらそれも削除しておいてください。
+- 初期設定をやり直す場合は、先に`/home/user/comistream/data/`と生成済みの`/home/user/public/theme`、`/home/user/public/.htaccess`を退避してください。空のdataディレクトリと、生成前のWeb公開ディレクトリからやり直せます。利用中のdataには設定・読書履歴・しおり・プレイリストが含まれるため、更新時には初期化しないでください。
 
 8. 表紙作成とプレビュー作成の初期実行：
 - apache権限でcomistream/code/make_image_run.shを実行します。コンテンツ量によりますが結構時間がかかります。進捗は必要に応じてjournalctl -fなどでログを確認してください。明示的に実行しなくても次の項でcron設定すれば自動的に起動します。
@@ -107,8 +133,10 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 - Cloudflare TunnelやTailscaleやリバースプロキシやVPNなど既存の方法で利用してください。
 
 11. アップデート
-- 基本的にgit pullしてもバージョンアップします。それかファイルを上書きします。
-- その後/theme/の中の更新ファイルをweb rootの/theme/内にパーミッションが同一になるようにコピーしてconfig画面で設定を更新してください。
+- 先に`comistream/data/`と、独自に変更した設定・テーマをバックアップします。ソースを`git pull`または上書きで更新し、dataは保持してください。
+- `comistream/theme/`の更新ファイルをWeb公開ディレクトリの`theme/`へ、所有者・権限を維持してコピーします。表紙・プレビューなどのデータ用リンクは保持してください。既存のthemeディレクトリは、設定画面を開くだけでは全ファイルが更新されません。
+- 一覧表示用の`.htaccess`も、独自設定を確認しながらリポジトリの`_htaccess`と差分を反映してください。CGIのリンクは配置手順を確認し、不足分を追加します。その後config画面で設定を更新し、ブラウザを再読み込みしてください。
+- EPUBの読書位置用カラムとしおり・音楽プレイリスト用テーブルは、対応機能の利用時に自動作成されます。DBへの書き込み権限が必要です。
 
 ## 使い方
 画像で大方わかると思いますので、その他の細かい補足を以下に記載します。
@@ -119,13 +147,35 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 - 永続的な書込が必要なデータは`~/comistream/data/`以下にまとめられています。
 - 一時的なデータ領域に`/dev/shm/`を利用します。
 - Altキー/Optionキーを押しながらファイルを押す、またはファイル長押しでサブメニューが表示されます。ここで「更新」を押すとそのファイルの表紙とプレビュー画像が削除されます。再作成したいときに用いてください。
-- お気に入りをONにすると既読フラグもONになります。Comistream Readerではまだ未読だけど、ライブラリの整理で一覧からお気に入りにまとめて変更したたい、といった場合に便利です。
-- 動画再生でmp4はそのまま再生します。mp4もHLS変換したい場合にはヘッダでモードをパケットセービングにしてください。
+- お気に入りをONにすると既読フラグもONになります。Comistream Readerではまだ未読だけど、ライブラリの整理で一覧からお気に入りにまとめて変更したい、といった場合に便利です。
 - 既読/未読/お気に入り/表紙/プレビュー画像等はコンテンツファイル名とひも付いています。内容変更やPATH移動してもひも付きは維持されますが、ファイル名が変わると別物として扱われるようになります。
 
+### 電子書籍としおり
+
+- 画像リーダーではタップ・スワイプ・キーボードでページをめくれます。画面下半分の上スワイプでも読み進められます。拡大中は誤操作防止のため操作が制限されます。
+- 目次（TOC）メニューから全画面表示、時計、インスペクターを操作できます。「しおり」欄では現在位置の追加、名前の編集、削除、保存位置への移動ができます。EPUBでもしおりを利用できます。
+- ログイン中のしおりはサーバーに保存され、同じユーザー名で他の端末から参照できます。ゲストのしおりは使用中のブラウザに保存され、端末間では同期されません。
+- EPUB専用リーダーでは目次、文字サイズ、配色を変更できます。読書位置はEPUB CFIで保存されます。表示にはブラウザからjsDelivr上のFoliate.jsモジュールへのアクセスが必要です。本文用フォントもGoogle Fontsから読み込みます。
+- JPEG XLのページはサーバーでJPEGなどへ変換せず、そのまま配信します。対応ブラウザが必要で、未対応時には通知を表示します。JPEG XLページにはパケットセービングやサーバー側の余白トリミングは適用されません。
+
+### 動画と音楽
+
+- MP4はオリジナル品質モードでは直接再生します。HLS変換したい場合はヘッダーでパケットセービングモードを選択してください。
+- HLS変換再生を利用する場合はヘッダーでユーザー名を設定してください。ゲストでは元の動画ファイルを直接開きます。HLS再生では未変換の位置にもシークでき、シーク先から変換を始めます。再生時間を取得できないファイルではシークやサムネイルが制限されます。
+- 音楽ファイルを開くと、同じフォルダの曲を再生リストに読み込みます。シャッフル、全曲/1曲リピート、プレイリストの作成・曲の追加・呼び出しに対応しています。
+- 音楽プレーヤーの対象はMP3、M4A、AAC、FLAC、AIFF、WAV、Ogg、WMAです。音声はブラウザで直接再生するため、実際に再生できるコーデックはブラウザに依存します。
+- 曲名・アーティスト・カバーアートは対応する埋め込みタグから表示し、情報がない曲はファイル名などで表示します。対応ブラウザではOSのメディア操作にも連携します。iPhone/iPadの音量は端末側で調整してください。
+
+### 読書履歴のエクスポート
+
+ヘッダーでユーザー名を設定し、`/theme/export.php`を開きます。履歴を持つユーザーが複数いる場合は対象を選択して、`tar.zst`形式でダウンロードできます。履歴、ページ位置、既読・お気に入り、書籍関連情報を出力します。
+
+このエクスポートにはメディア本体、設定、任意に追加したしおり、EPUB CFI、音楽プレイリストは含まれません。Reader内のインポート画面は未実装です。環境全体を復元するためのバックアップには`comistream/data/`も保存してください。
 
 ## 設定
 管理者アカウントで`/cgi-bin/comistream.php?mode=config`を開くことで設定画面になります。管理者ログインしている必要があります。
+
+低メモリモード（`isLowMemoryMode`）は初期状態で有効です。有効時はメモリ消費を抑えるためAVIFページの余白トリミングを行いません。
 
 ## 技術寄りのQ&A
 - Q1.なぜCSSとJavaScriptを連結して送出するのですか？
@@ -166,6 +216,7 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 
 - [oupala/apaxy: a simple, customisable theme for your apache directory listing](https://github.com/oupala/apaxy)
 - [HLS.js](https://github.com/video-dev/hls.js)
+- [Foliate.js](https://github.com/johnfactotum/foliate-js)（EPUBリーダーでは[Comistream向けfork](https://github.com/sorshi/comistream-foliate-js)を利用）
 - [long-press-event](https://github.com/john-doherty/long-press-event)
 - [CSS loading animation 12](https://codepen.io/martinvd/pen/xbQJom/)
 - [Feather](https://feathericons.com/)
