@@ -3,7 +3,7 @@
 /**
  * Comistream Reader - Music Metadata Helpers
  *
- * MP4 / M4A コンテナから楽曲情報と埋め込みカバーを読み取ります。
+ * MP4 / M4A コンテナから楽曲情報、埋め込み歌詞、埋め込みカバーを読み取ります。
  *
  * @package     sorshi/comistream-reader
  * @author      Comistream Project.
@@ -20,7 +20,19 @@
  */
 function readMP4MetadataFromFile($path)
 {
-    $metadata = ['title' => '', 'artist' => ''];
+    $metadata = readMP4MetadataAndLyricsFromFile($path);
+    return [
+        'title' => $metadata['title'],
+        'artist' => $metadata['artist'],
+    ];
+}
+
+/**
+ * MP4 / M4A ファイルから曲情報と埋め込み歌詞を取得する。
+ */
+function readMP4MetadataAndLyricsFromFile($path)
+{
+    $metadata = ['title' => '', 'artist' => '', 'lyrics' => ''];
     $handle = @fopen($path, 'rb');
     if ($handle === false) {
         return $metadata;
@@ -34,6 +46,15 @@ function readMP4MetadataFromFile($path)
 
     fclose($handle);
     return $metadata;
+}
+
+/**
+ * MP4 / M4A ファイルから埋め込み歌詞を取得する。
+ */
+function readMP4LyricsFromFile($path)
+{
+    $metadata = readMP4MetadataAndLyricsFromFile($path);
+    return $metadata['lyrics'];
 }
 
 /**
@@ -79,11 +100,13 @@ function scanMP4MetadataRange($handle, $start, $end, $depth, &$metadata)
             return;
         }
 
-        if ($atom['type'] === "\xA9" . 'nam' || $atom['type'] === "\xA9" . 'ART' || $atom['type'] === 'aART') {
+        if ($atom['type'] === "\xA9" . 'nam' || $atom['type'] === "\xA9" . 'ART' || $atom['type'] === 'aART' || $atom['type'] === "\xA9" . 'lyr') {
             $value = readMP4TextItem($handle, $atom);
             if ($value !== '') {
                 if ($atom['type'] === "\xA9" . 'nam') {
                     $metadata['title'] = $value;
+                } elseif ($atom['type'] === "\xA9" . 'lyr') {
+                    $metadata['lyrics'] = $value;
                 } elseif ($atom['type'] === "\xA9" . 'ART' || $metadata['artist'] === '') {
                     // 曲アーティストをアルバムアーティストより優先するルン。
                     $metadata['artist'] = $value;

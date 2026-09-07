@@ -18,6 +18,7 @@
 if (file_exists(__DIR__ . "/comistream_lib.php")) {
     require(__DIR__ . "/comistream_lib.php");
     require_once(__DIR__ . "/music_metadata.php");
+    require_once(__DIR__ . "/music_lyrics.php");
     writelog("DEBUG library file exist:" . __DIR__ . "/comistream_lib.php", 'MusicPlayer');
 } else {
     exit(1);
@@ -87,6 +88,9 @@ if ($mode == 'open' && $file != '') {
 } elseif ($mode == 'get_cover_art') {
     // カバーアート取得
     getCoverArt();
+} elseif ($mode == 'get_lyrics') {
+    // 歌詞取得
+    getLyrics();
 } else {
     errorExit("invalid mode", "無効なモードです。");
 }
@@ -331,6 +335,10 @@ function openMusicPlayer()
         .queue-heading h2 { font-size: 20px; margin: 7px 0 0; }
         .queue-heading .section-label { color: var(--muted); }
         .queue-toggle { padding: 0 12px; min-height: 44px; border: 1px solid var(--line); border-radius: 12px; background: transparent; font-size: 12px; }
+        .queue-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); padding: 0 14px; }
+        .queue-tab { flex: 1; min-height: 44px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--muted); font-size: 13px; }
+        .queue-tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); }
+        .queue-view { min-width: 0; }
         .queue-summary { margin: 0; padding: 0 22px 18px; color: var(--muted); font-size: 12px; }
         .playlist-container { max-height: min(60vh, 640px); max-height: min(60dvh, 640px); overflow-y: auto; padding: 0 10px 10px; scrollbar-width: thin; scrollbar-color: #425270 transparent; }
         .playlist-item { width: 100%; min-height: 64px; display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid transparent; border-radius: 14px; background: transparent; text-align: left; margin-bottom: 4px; }
@@ -341,6 +349,14 @@ function openMusicPlayer()
         .track-format { flex-shrink: 0; color: var(--muted); font-size: 10px; letter-spacing: .05em; }
         .playlist-controls { display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--line); padding: 16px 20px; }
         .playlist-btn { min-height: 44px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: #1a2943; font-size: 12px; }
+        .lyrics-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px 0; }
+        .lyrics-status { min-width: 0; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+        .lyrics-return { flex-shrink: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: #1a2943; color: var(--text); font-size: 12px; }
+        .lyrics-container { max-height: min(60vh, 640px); max-height: min(60dvh, 640px); min-height: 180px; overflow-y: auto; overscroll-behavior: contain; padding: 14px 20px 20px; scrollbar-width: thin; scrollbar-color: #425270 transparent; }
+        .lyrics-plain { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); font-size: 15px; line-height: 1.85; }
+        .lyrics-line { min-height: 1.85em; margin: 0; padding: 7px 10px; border: 1px solid transparent; border-radius: 10px; color: var(--muted); font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
+        .lyrics-line.active { border-color: #7799dd52; background: #7799dd1f; color: var(--text); }
+        .lyrics-attribution { margin: 0; padding: 0 20px 16px; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
         .player-status { min-height: 20px; margin: 16px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
         dialog { width: min(440px, calc(100% - 32px)); max-height: calc(100dvh - 32px); padding: 24px; border: 1px solid #425270; border-radius: 22px; background: var(--panel); color: var(--text); overflow-y: auto; }
         dialog::backdrop { background: #050a12bb; backdrop-filter: blur(8px); }
@@ -355,7 +371,7 @@ function openMusicPlayer()
         @media (hover: hover) {
             .control-btn:hover { background: #ffffff12; }
             .play-pause-btn:hover { background: #9bb8f2; }
-            .playlist-item:hover, .playlist-btn:hover, .queue-toggle:hover { border-color: #5f76a8; background: #263754; }
+            .playlist-item:hover, .playlist-btn:hover, .queue-toggle:hover, .queue-tab:hover, .lyrics-return:hover { border-color: #5f76a8; background: #263754; }
             .primary-btn:hover { background: #9bb8f2; color: #101a32; }
         }
         @media (max-width: 899px) {
@@ -367,6 +383,7 @@ function openMusicPlayer()
             .album-art { width: min(64vw, 270px); margin: 20px auto; }
             .queue-panel { border-radius: 24px; }
             .playlist-container { max-height: 380px; }
+            .lyrics-container { max-height: 380px; }
         }
         @media (min-width: 600px) and (max-height: 540px) and (orientation: landscape) {
             .music-player { padding-top: max(8px, env(safe-area-inset-top)); }
@@ -388,6 +405,7 @@ function openMusicPlayer()
             .queue-heading { padding: 18px 16px 12px; }
             .queue-summary { padding: 0 16px 12px; }
             .playlist-container { max-height: 230px; }
+            .lyrics-container { max-height: 230px; }
             .playlist-controls { padding: 12px; }
         }
         @media (prefers-reduced-motion: no-preference) {
@@ -437,10 +455,23 @@ function openMusicPlayer()
                 </div>
             </section>
             <section class="queue-panel" aria-labelledby="queueTitle">
-                <div class="queue-heading"><div><p class="section-label">PLAY QUEUE</p><h2 id="queueTitle">再生リスト</h2></div><button class="queue-toggle" id="showPlaylistBtn" aria-expanded="true" aria-controls="playlistContainer">折りたたむ</button></div>
-                <p class="queue-summary" id="queueSummary"></p>
-                <div class="playlist-container" id="playlistContainer" role="group" aria-label="再生する曲を選択"></div>
-                <div class="playlist-controls"><button class="playlist-btn" id="createPlaylistBtn">＋ プレイリスト作成</button><button class="playlist-btn" id="addToPlaylistBtn">現在の曲を追加</button></div>
+                <div class="queue-heading"><div><p class="section-label">PLAY QUEUE</p><h2 id="queueTitle">再生リスト</h2></div><button class="queue-toggle" id="showPlaylistBtn" aria-expanded="true" aria-controls="queueContent">折りたたむ</button></div>
+                <div id="queueContent">
+                    <div class="queue-tabs" role="tablist" aria-label="再生キューの表示">
+                        <button class="queue-tab" id="playlistTab" role="tab" aria-controls="playlistView" aria-selected="true" tabindex="0">再生リスト</button>
+                        <button class="queue-tab" id="lyricsTab" role="tab" aria-controls="lyricsView" aria-selected="false" tabindex="-1">歌詞</button>
+                    </div>
+                    <div class="queue-view" id="playlistView" role="tabpanel" aria-labelledby="playlistTab">
+                        <p class="queue-summary" id="queueSummary"></p>
+                        <div class="playlist-container" id="playlistContainer" role="group" aria-label="再生する曲を選択"></div>
+                        <div class="playlist-controls"><button class="playlist-btn" id="createPlaylistBtn">＋ プレイリスト作成</button><button class="playlist-btn" id="addToPlaylistBtn">現在の曲を追加</button></div>
+                    </div>
+                    <div class="queue-view" id="lyricsView" role="tabpanel" aria-labelledby="lyricsTab" hidden>
+                        <div class="lyrics-toolbar"><p class="lyrics-status" id="lyricsStatus" role="status" aria-live="polite">歌詞タブを開くと読み込みます。</p><button class="lyrics-return" id="lyricsReturnBtn" type="button" hidden>現在位置に戻る</button></div>
+                        <div class="lyrics-container" id="lyricsContainer" role="region" aria-label="歌詞" tabindex="0"></div>
+                        <p class="lyrics-attribution" id="lyricsAttribution" hidden></p>
+                    </div>
+                </div>
             </section>
         </div>
         <p class="player-status" id="playerStatus" role="status" aria-live="polite"></p>
@@ -619,19 +650,208 @@ function deletePlaylist()
 }
 
 /**
+ * 共有領域内の音源と、同じフォルダの歌詞サイドカーを解決するルン。
+ */
+function resolveMusicLyricsSidecars(string $sharePath, string $sourcePath): array
+{
+    $realSharePath = realpath($sharePath);
+    $sourceDirectory = realpath(dirname($sourcePath));
+    if ($realSharePath === false || $sourceDirectory === false) {
+        return [];
+    }
+
+    $sharePrefix = rtrim($realSharePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+    if (strncmp($sourceDirectory, $sharePrefix, strlen($sharePrefix)) !== 0
+        && $sourceDirectory !== rtrim($realSharePath, DIRECTORY_SEPARATOR)) {
+        return [];
+    }
+
+    $baseName = pathinfo($sourcePath, PATHINFO_FILENAME);
+    $sidecars = [];
+    foreach (['lrc', 'txt'] as $extension) {
+        $candidate = $sourceDirectory . DIRECTORY_SEPARATOR . $baseName . '.' . $extension;
+        $resolved = realpath($candidate);
+        if ($resolved === false || !is_file($resolved)) {
+            continue;
+        }
+        if (strncmp($resolved, $sharePrefix, strlen($sharePrefix)) !== 0) {
+            writelog("WARNING resolveMusicLyricsSidecars() rejected sidecar outside share boundary", 'MusicPlayer');
+            continue;
+        }
+        $sidecars[] = [
+            'path' => $resolved,
+            'name' => basename($candidate),
+            'format' => $extension,
+        ];
+    }
+    return $sidecars;
+}
+
+/**
+ * 原本とサイドカーの更新情報から歌詞のバージョンを作るルン。
+ */
+function buildMusicLyricsSourceSignature(string $sourcePath, array $sidecars): ?array
+{
+    $sourceStat = @stat($sourcePath);
+    if ($sourceStat === false) {
+        return null;
+    }
+
+    $signature = [
+        'parserVersion' => musicLyricsParserVersion(),
+        'source' => [
+            'size' => (int)($sourceStat['size'] ?? 0),
+            'mtime' => (int)($sourceStat['mtime'] ?? 0),
+            'ctime' => (int)($sourceStat['ctime'] ?? 0),
+            'path' => $sourcePath,
+        ],
+        'sidecars' => [],
+    ];
+    foreach ($sidecars as $sidecar) {
+        $sidecarStat = @stat((string)$sidecar['path']);
+        if ($sidecarStat === false) {
+            continue;
+        }
+        $signature['sidecars'][] = [
+            'name' => (string)$sidecar['name'],
+            'format' => (string)$sidecar['format'],
+            'size' => (int)($sidecarStat['size'] ?? 0),
+            'mtime' => (int)($sidecarStat['mtime'] ?? 0),
+            'ctime' => (int)($sidecarStat['ctime'] ?? 0),
+        ];
+    }
+
+    $encoded = json_encode($signature, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    if ($encoded === false) {
+        return null;
+    }
+    return [
+        'version' => hash('sha256', $encoded),
+        'manifest' => $signature,
+    ];
+}
+
+/**
+ * 歌詞APIのエラー応答を返すルン。
+ */
+function outputMusicLyricsError(int $status, string $error): void
+{
+    http_response_code($status);
+    echo json_encode([
+        'success' => false,
+        'status' => 'error',
+        'error' => $error,
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+/**
+ * 埋め込み歌詞、LRC、TXTの順で歌詞を取得する。
+ */
+function getLyrics(): void
+{
+    global $conf, $audioFormats, $writelog_process_name;
+
+    header('Content-Type: application/json; charset=UTF-8');
+    header('Cache-Control: private, max-age=60, must-revalidate');
+
+    $requestedFile = isset($_REQUEST['file']) ? (string)$_REQUEST['file'] : '';
+    $requestHash = substr(hash('sha256', $requestedFile), 0, 12);
+    $sourcePath = resolveFileWithinBaseDirectory($conf['sharePath'], $requestedFile);
+    if ($sourcePath === false) {
+        writelog("WARNING getLyrics() rejected file request:$requestHash", $writelog_process_name);
+        outputMusicLyricsError(403, 'file access denied');
+        return;
+    }
+
+    $extension = strtolower(pathinfo($sourcePath, PATHINFO_EXTENSION));
+    if (!in_array($extension, $audioFormats, true)) {
+        writelog("WARNING getLyrics() unsupported format request:$requestHash", $writelog_process_name);
+        outputMusicLyricsError(415, 'unsupported format');
+        return;
+    }
+
+    $sidecars = resolveMusicLyricsSidecars($conf['sharePath'], $sourcePath);
+    $sourceSignature = buildMusicLyricsSourceSignature($sourcePath, $sidecars);
+    if ($sourceSignature === null) {
+        writelog("ERROR getLyrics() failed to stat source request:$requestHash", $writelog_process_name);
+        outputMusicLyricsError(500, 'source unavailable');
+        return;
+    }
+
+    $sourceVersion = $sourceSignature['version'];
+    $cacheKey = hash('sha256', $sourcePath . "\0" . $sourceVersion . "\0" . musicLyricsParserVersion());
+    $cacheDirectory = (string)($conf['cacheDir'] ?? '');
+    $toolDirectory = (string)($conf['comistream_tool_dir'] ?? '');
+    $lyrics = null;
+    if ($cacheDirectory !== '' && $toolDirectory !== '') {
+        $lyrics = readMusicLyricsCache($cacheDirectory, $toolDirectory, $cacheKey, $sourceVersion);
+        if (is_array($lyrics)) {
+            writelog("DEBUG getLyrics() cache hit request:$requestHash", $writelog_process_name);
+        }
+    } else {
+        writelog("NOTICE getLyrics() cache configuration unavailable request:$requestHash", $writelog_process_name);
+    }
+
+    if (!is_array($lyrics)) {
+        $lyrics = resolveLocalMusicLyrics($sourcePath, $extension, $sidecars);
+        if (($lyrics['status'] ?? '') === 'ok') {
+            writelog("INFO getLyrics() local source:" . ($lyrics['source'] ?? 'unknown') . " format:" . ($lyrics['format'] ?? 'unknown') . " request:$requestHash", $writelog_process_name);
+        } else {
+            writelog("DEBUG getLyrics() no local lyrics request:$requestHash", $writelog_process_name);
+        }
+        if ($cacheDirectory !== '' && $toolDirectory !== '') {
+            $cacheWritten = writeMusicLyricsCache(
+                $cacheDirectory,
+                $toolDirectory,
+                $cacheKey,
+                $sourceVersion,
+                $sourceSignature['manifest'],
+                $lyrics
+            );
+            if ($cacheWritten) {
+                writelog("DEBUG getLyrics() cache stored request:$requestHash", $writelog_process_name);
+            }
+        }
+    }
+
+    $response = [
+        'success' => true,
+        'status' => $lyrics['status'] ?? 'none',
+        'sourceVersion' => $sourceVersion,
+        'source' => $lyrics['source'] ?? null,
+        'format' => $lyrics['format'] ?? null,
+        'text' => $lyrics['text'] ?? '',
+        'lines' => $lyrics['lines'] ?? [],
+        'provider' => $lyrics['provider'] ?? null,
+        'attribution' => $lyrics['attribution'] ?? null,
+    ];
+    echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+}
+
+/**
+ * 音声APIで使う原本を共有領域内へ限定して解決するルン。
+ */
+function resolveMusicPlayerAudioPath(string $requestedFile)
+{
+    global $conf;
+    return resolveFileWithinBaseDirectory($conf['sharePath'], $requestedFile);
+}
+
+/**
  * メタデータ取得（タイトル/アーティスト）
  */
 function getMetadata()
 {
     global $conf, $audioFormats, $writelog_process_name;
-    $file = isset($_REQUEST['file']) ? $_REQUEST['file'] : '';
-    $file = str_replace('..', '', $file);
-    $path = $conf['sharePath'] . '/' . ltrim($file, '/');
+    $file = isset($_REQUEST['file']) ? (string)$_REQUEST['file'] : '';
+    $path = resolveMusicPlayerAudioPath($file);
 
     header('Content-Type: application/json; charset=UTF-8');
     header('Cache-Control: private, max-age=600');
 
-    if (!file_exists($path)) {
+    if ($path === false) {
+        writelog("WARNING getMetadata() rejected file request", $writelog_process_name);
+        http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'file not found']);
         return;
     }
@@ -671,14 +891,14 @@ function getMetadata()
 function getCoverArt()
 {
     global $conf, $audioFormats, $writelog_process_name;
-    $file = isset($_REQUEST['file']) ? $_REQUEST['file'] : '';
-    $file = str_replace('..', '', $file);
-    $path = $conf['sharePath'] . '/' . ltrim($file, '/');
+    $file = isset($_REQUEST['file']) ? (string)$_REQUEST['file'] : '';
+    $path = resolveMusicPlayerAudioPath($file);
 
     header('Cache-Control: private, max-age=600');
 
-    if (!file_exists($path)) {
-        http_response_code(404);
+    if ($path === false) {
+        writelog("WARNING getCoverArt() rejected file request", $writelog_process_name);
+        http_response_code(403);
         return;
     }
 

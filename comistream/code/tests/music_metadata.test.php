@@ -26,9 +26,11 @@ $testFile = sys_get_temp_dir() . '/comistream-music-metadata-' . bin2hex(random_
 $coverData = "\xff\xd8\xff\xe0COMISTREAM\xff\xd9";
 $title = 'ALACテスト曲';
 $artist = 'Comistreamテスト';
+$lyrics = "[00:01.00]最初の行\n[00:02.00]次の行";
 
 $items = musicMetadataTestAtom("\xA9" . 'nam', musicMetadataTestDataAtom(1, $title));
 $items .= musicMetadataTestAtom("\xA9" . 'ART', musicMetadataTestDataAtom(1, $artist));
+$items .= musicMetadataTestAtom("\xA9" . 'lyr', musicMetadataTestDataAtom(1, $lyrics));
 $items .= musicMetadataTestAtom('covr', musicMetadataTestDataAtom(13, $coverData));
 $moov = musicMetadataTestAtom(
     'moov',
@@ -57,6 +59,7 @@ try {
     $metadata = readMP4MetadataFromFile($testFile);
     expectMusicMetadataTest($metadata['title'] === $title, 'M4A title was not parsed.');
     expectMusicMetadataTest($metadata['artist'] === $artist, 'M4A artist was not parsed.');
+    expectMusicMetadataTest(readMP4LyricsFromFile($testFile) === $lyrics, 'M4A lyrics were not parsed.');
 
     $cover = extractMP4CoverFromFile($testFile);
     expectMusicMetadataTest(is_array($cover), 'M4A cover was not parsed.');
@@ -72,4 +75,3 @@ try {
 }
 
 echo "music_metadata.test.php: OK\n";
-

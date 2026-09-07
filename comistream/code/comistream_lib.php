@@ -2667,6 +2667,103 @@ function searchBookByHash($dbh, $file)
     }
 } //end function searchBookByHash
 
+/**
+ * 歌詞キャッシュのディレクトリ名か確認するルン。
+ */
+function isMusicLyricsCacheEntryName($name)
+{
+    return is_string($name) && preg_match('/^music-lyrics-[a-f0-9]{64}$/', $name) === 1;
+}
+
+/**
+ * 歌詞キャッシュを削除するときの固定ロックを開くルン。
+ */
+function openMusicLyricsCacheEvictionLock($cacheDirectory)
+{
+    $toolDirectory = dirname(dirname(rtrim((string)$cacheDirectory, DIRECTORY_SEPARATOR)));
+    $lockDirectory = $toolDirectory . DIRECTORY_SEPARATOR . 'data'
+        . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'music';
+    if (!is_dir($lockDirectory) && !@mkdir($lockDirectory, 0775, true) && !is_dir($lockDirectory)) {
+        writelog("WARNING openMusicLyricsCacheEvictionLock() failed to create lock directory: $lockDirectory");
+        return false;
+    }
+    $lock = @fopen($lockDirectory . DIRECTORY_SEPARATOR . 'music-lyrics.lock', 'c');
+    if ($lock === false) {
+        writelog("WARNING openMusicLyricsCacheEvictionLock() failed to open lock file");
+    }
+    return $lock;
+}
+
+/**
+ * 容量削除用にキャッシュ項目を1つだけ安全に削除するルン。
+ */
+function deleteCacheEntryForPushout($cacheDirectory, $entryName)
+{
+    if (!is_string($entryName) || $entryName === '' || $entryName === '.' || $entryName === '..'
+        || strpbrk($entryName, '/\\') !== false) {
+        return false;
+    }
+
+    $entryPath = rtrim((string)$cacheDirectory, DIRECTORY_SEPARATOR)
+        . DIRECTORY_SEPARATOR . $entryName;
+    if (isMusicLyricsCacheEntryName($entryName)) {
+        $lock = openMusicLyricsCacheEvictionLock($cacheDirectory);
+        if ($lock === false || !@flock($lock, LOCK_EX | LOCK_NB)) {
+            if (is_resource($lock)) {
+                fclose($lock);
+            }
+            writelog("NOTICE deleteCacheEntryForPushout() music lyrics cache is busy: $entryName");
+            return false;
+        }
+        try {
+            return deleteDirectory($entryPath);
+        } finally {
+            @flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    return deleteDirectory($entryPath);
+}
+
+/**
+ * キャッシュ直下から最も古い削除候補を探すルン。
+ */
+function findOldestCacheEntryForPushout($cacheDirectory, array $excluded = [])
+{
+    $items = @scandir($cacheDirectory);
+    if ($items === false) {
+        return null;
+    }
+
+    $oldestName = null;
+    $oldestTime = PHP_INT_MAX;
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..' || in_array($item, $excluded, true)) {
+            continue;
+        }
+        $path = rtrim((string)$cacheDirectory, DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR . $item;
+        if (!is_dir($path) || is_link($path)) {
+            continue;
+        }
+
+        $timestamp = false;
+        if (isMusicLyricsCacheEntryName($item)) {
+            $accessPath = $path . DIRECTORY_SEPARATOR . 'access';
+            $timestamp = is_file($accessPath) ? @filemtime($accessPath) : @filemtime($path);
+        } else {
+            $timestamp = @filemtime($path);
+        }
+        $timestamp = $timestamp === false ? 0 : (int)$timestamp;
+        if ($oldestName === null || $timestamp < $oldestTime) {
+            $oldestName = $item;
+            $oldestTime = $timestamp;
+        }
+    }
+    return $oldestName;
+}
+
 ##### 書籍ファイルオープン ###################################################################
 function openPage()
 {
@@ -2837,16 +2934,22 @@ function openPage()
 
     // キャッシュ領域のサイズを取得
     if ($cacheSize > 0) {
-        $tempSize = shell_exec("du -sm $cacheDir | awk '{print $1}'");
-        $tempSize = trim($tempSize);
+        $tempSize = (int)trim((string)shell_exec("du -sm " . escapeshellarg($cacheDir) . " | awk '{print $1}'"));
+        $skippedCacheEntries = [];
 
         // 超過時は古いディレクトリを削除する
         while ($tempSize > $cacheSize) {
-            $cacheSubDir = shell_exec("ls -t $cacheDir | tail -n 1");
-            $cacheSubDir = trim($cacheSubDir);
-            shell_exec("rm -rf $cacheDir/$cacheSubDir");
-            $tempSize = shell_exec("du -sm $cacheDir | awk '{print $1}'");
-            $tempSize = trim($tempSize);
+            $cacheSubDir = findOldestCacheEntryForPushout($cacheDir, $skippedCacheEntries);
+            if ($cacheSubDir === null) {
+                writelog("WARNING openPage() no removable cache entry remains while over capacity: $tempSize MB");
+                break;
+            }
+            if (!deleteCacheEntryForPushout($cacheDir, $cacheSubDir)) {
+                $skippedCacheEntries[] = $cacheSubDir;
+                continue;
+            }
+            $skippedCacheEntries = [];
+            $tempSize = (int)trim((string)shell_exec("du -sm " . escapeshellarg($cacheDir) . " | awk '{print $1}'"));
         }
     }
     writelog("DEBUG openPage() \$file:" . $file);
