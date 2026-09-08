@@ -20,6 +20,7 @@ if (file_exists(__DIR__ . "/comistream_lib.php")) {
     require_once(__DIR__ . "/music_metadata.php");
     require_once(__DIR__ . "/music_lyrics.php");
     require_once(__DIR__ . "/music_audio.php");
+    require_once(__DIR__ . "/lib/music_queue.php");
     writelog("DEBUG library file exist:" . __DIR__ . "/comistream_lib.php", 'MusicPlayer');
 } else {
     exit(1);
@@ -68,6 +69,9 @@ createMusicTables($dbh);
 if ($mode == 'open' && $file != '') {
     // 音楽ファイルオープン
     openMusicPlayer();
+} elseif ($mode == 'open_directory') {
+    // フォルダ以下の音楽を再帰的にキューへ入れるルン。
+    openMusicDirectoryPlayer();
 } elseif ($mode == 'create_playlist') {
     // プレイリスト作成
     createPlaylist();
@@ -145,63 +149,53 @@ function createMusicTables($dbh)
  */
 function openMusicPlayer()
 {
-    global $conf, $file, $user, $audioFormats, $writelog_process_name;
+    global $conf, $file, $user, $audioFormats, $writelog_process_name, $musicPlayerQueueOverride;
 
-    $file = str_replace('../', '', $file);
-    $escapedFile = $file;
-    $openFile = $conf['sharePath'] . "/$file";
-    $openFile = str_replace('+', '%2B', $openFile);
-    $openFile = urldecode($openFile);
-    $baseFile = basename($openFile);
+    if (is_array($musicPlayerQueueOverride ?? null)) {
+        $queue = $musicPlayerQueueOverride;
+        $musicFiles = $queue['tracks'];
+        $currentIndex = (int)$queue['currentIndex'];
+        $baseFile = (string)$queue['label'];
+        $libraryDirectoryHref = (string)$queue['libraryDirectoryHref'];
+    } else {
+        $requestedFile = (string)$file;
+        $openFile = resolveMusicPlayerAudioPath($requestedFile);
+        $baseFile = basename($requestedFile);
 
-    // ファイル存在チェック
-    if (!file_exists($openFile)) {
-        errorExit("file not found", "ファイルが見つかりません: " . $baseFile);
-    }
+        // 明示的ファイル起点は既存の対応形式を維持するルン。
+        if ($openFile === false) {
+            errorExit("file not found", "ファイルが見つかりません: " . $baseFile);
+        }
+        $extension = strtolower(pathinfo($requestedFile, PATHINFO_EXTENSION));
+        if (!in_array($extension, $audioFormats, true)) {
+            errorExit("unsupported format", "サポートされていない音楽フォーマットです: " . $extension);
+        }
 
-    // 音楽ファイルかチェック
-    $extension = strtolower(pathinfo($openFile, PATHINFO_EXTENSION));
-    if (!in_array($extension, $audioFormats)) {
-        errorExit("unsupported format", "サポートされていない音楽フォーマットです: " . $extension);
-    }
-
-    // ディレクトリ内の音楽ファイル一覧を取得
-    $directory = dirname($openFile);
-    $musicFiles = [];
-    $currentIndex = 0;
-
-    if ($handle = opendir($directory)) {
-        while (false !== ($entry = readdir($handle))) {
-            if ($entry != "." && $entry != "..") {
-                $fullPath = $directory . '/' . $entry;
-                if (is_file($fullPath)) {
-                    $ext = strtolower(pathinfo($entry, PATHINFO_EXTENSION));
-                    if (in_array($ext, $audioFormats)) {
-                        $musicFiles[] = [
-                            'path' => str_replace($conf['sharePath'] . '/', '', $fullPath),
-                            'name' => $entry
-                        ];
-                        if ($entry === $baseFile) {
-                            $currentIndex = count($musicFiles) - 1;
-                        }
-                    }
-                }
+        try {
+            $selectedRelativePath = musicQueueNormalizeRelativeDirectory($requestedFile);
+            $selectedDirectoryRelative = dirname($selectedRelativePath);
+            $selectedDirectoryPath = rtrim((string)$conf['sharePath'], DIRECTORY_SEPARATOR);
+            if ($selectedDirectoryRelative !== '.') {
+                $selectedDirectoryPath .= DIRECTORY_SEPARATOR
+                    . str_replace('/', DIRECTORY_SEPARATOR, $selectedDirectoryRelative);
             }
+            $queue = musicQueueCollectDirectTracks(
+                $conf['sharePath'],
+                $selectedDirectoryPath,
+                $openFile,
+                $audioFormats,
+                $selectedRelativePath
+            );
+        } catch (MusicQueueException $exception) {
+            writelog("ERROR openMusicPlayer() queue failed: " . $exception->getMessage(), $writelog_process_name);
+            errorExit("file not found", "音楽キューを作成できませんでした。");
         }
-        closedir($handle);
-    }
-
-    // 音楽ファイルをソート
-    usort($musicFiles, function ($a, $b) {
-        return strnatcmp($a['name'], $b['name']);
-    });
-
-    // ソート後にcurrentIndexを再計算（起動ファイルがズレる不具合の修正）
-    foreach ($musicFiles as $idx => $mf) {
-        if ($mf['name'] === $baseFile) {
-            $currentIndex = $idx;
-            break;
-        }
+        $musicFiles = $queue['tracks'];
+        $currentIndex = (int)$queue['currentIndex'];
+        $libraryDirectoryHref = musicPlayerBuildPublicDirectoryHref(
+            (string)($conf['publicDir'] ?? ''),
+            (string)$queue['root']
+        );
     }
 
     // JavaScriptファイルの読み込み
@@ -218,14 +212,26 @@ function openMusicPlayer()
         $musicFiles,
         JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE
     );
-    $themeDir = $conf["comistream_tool_dir"];
+    $queueJson = json_encode(
+        $queue,
+        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+    $publicBasePath = musicPlayerBuildPublicDirectoryHref((string)($conf['publicDir'] ?? ''), '.');
+    $labelsJson = json_encode([
+        'queue' => musicPlayerGetText('music_queue', '再生キュー'),
+        'speed' => musicPlayerGetText('music_playback_speed', '再生速度'),
+    ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE);
+    $queueLabel = htmlspecialchars(musicPlayerGetText('music_queue', '再生キュー'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $speedLabel = htmlspecialchars(musicPlayerGetText('music_playback_speed', '再生速度'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $publicBasePathJson = json_encode(
+        $publicBasePath,
+        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+    $playerLanguage = class_exists('I18n') ? I18n::getInstance()->getCurrentLang() : 'ja';
+    $playerLanguage = htmlspecialchars((string)$playerLanguage, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
     // HTMLページ出力
     $safeBaseFile = htmlspecialchars($baseFile, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $libraryDirectory = dirname(str_replace('\\', '/', $escapedFile));
-    $libraryDirectoryHref = $libraryDirectory === '.' || $libraryDirectory === '/'
-        ? '/'
-        : '/' . urlEncodeFilePath(trim($libraryDirectory, '/')) . '/';
     $libraryDirectoryHref = htmlspecialchars($libraryDirectoryHref, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $currentIndex = (int)$currentIndex;
     $userJson = json_encode(
@@ -235,7 +241,7 @@ function openMusicPlayer()
     $musicAudioCsrfToken = htmlspecialchars(musicAudioEnsureCsrfToken(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     echo <<<HTML
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="$playerLanguage">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -345,10 +351,12 @@ function openMusicPlayer()
         .repeat-one-symbol { display: none; }
         .icon-repeat-one .repeat-one-symbol { display: block; }
         .shuffle-active, .repeat-active { color: var(--accent); background: #7799dd1f; border-color: #7799dd52; }
-        .secondary-controls { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+        .secondary-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
         .secondary-controls.volume-unavailable { justify-content: flex-end; }
-        .volume-container { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; color: var(--muted); }
+        .volume-container { display: flex; align-items: center; gap: 12px; flex: 1 1 180px; min-width: min(100%, 180px); color: var(--muted); }
         .volume-slider { --progress: 70%; }
+        .speed-container { display: flex; align-items: center; gap: 8px; min-height: 44px; color: var(--muted); font-size: 12px; }
+        .speed-select { min-height: 44px; min-width: 118px; padding: 8px 30px 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); font-size: 16px; }
         .queue-panel { min-width: 0; border: 1px solid var(--line); border-radius: 28px; background: #111a2a; overflow: hidden; }
         .queue-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 24px 22px 16px; }
         .queue-heading h2 { font-size: 20px; margin: 7px 0 0; }
@@ -364,7 +372,9 @@ function openMusicPlayer()
         .playlist-item.active { background: #7799dd1f; border-color: #7799dd52; }
         .track-number { flex: 0 0 26px; text-align: center; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
         .active .track-number { color: var(--accent); }
-        .track-name { min-width: 0; flex: 1; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+        .track-name-group { min-width: 0; flex: 1; }
+        .track-name { display: block; min-width: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+        .track-directory { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
         .track-format { flex-shrink: 0; color: var(--muted); font-size: 10px; letter-spacing: .05em; }
         .playlist-controls { display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--line); padding: 16px 20px; }
         .playlist-btn { min-height: 44px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: #1a2943; font-size: 12px; }
@@ -463,20 +473,31 @@ function openMusicPlayer()
                 </div>
                 <div class="secondary-controls">
                     <div class="volume-container" id="volumeContainer"><svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg><input type="range" class="range-slider volume-slider" id="volumeSlider" min="0" max="100" value="70" aria-label="音量"></div>
+                    <div class="speed-container">
+                        <label for="playbackRate">$speedLabel</label>
+                        <select class="speed-select" id="playbackRate" aria-label="$speedLabel">
+                            <option value="0.5">0.5×</option>
+                            <option value="0.75">0.75×</option>
+                            <option value="1" selected>1.0×（標準）</option>
+                            <option value="1.25">1.25×</option>
+                            <option value="1.5">1.5×</option>
+                            <option value="1.75">1.75×</option>
+                            <option value="2">2.0×</option>
+                        </select>
+                    </div>
                     <a class="control-btn" id="downloadBtn" title="ダウンロード" aria-label="現在の曲をダウンロード" href="#" download><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg></a>
                 </div>
             </section>
             <section class="queue-panel" aria-labelledby="queueTitle">
-                <div class="queue-heading"><div><p class="section-label">PLAY QUEUE</p><h2 id="queueTitle">再生リスト</h2></div><button class="queue-toggle" id="showPlaylistBtn" aria-expanded="true" aria-controls="queueContent">折りたたむ</button></div>
+                <div class="queue-heading"><div><p class="section-label">PLAY QUEUE</p><h2 id="queueTitle">$queueLabel</h2></div><button class="queue-toggle" id="showPlaylistBtn" aria-expanded="true" aria-controls="queueContent">折りたたむ</button></div>
                 <div id="queueContent">
                     <div class="queue-tabs" role="tablist" aria-label="再生キューの表示">
-                        <button class="queue-tab" id="playlistTab" role="tab" aria-controls="playlistView" aria-selected="true" tabindex="0">再生リスト</button>
+                        <button class="queue-tab" id="playlistTab" role="tab" aria-controls="playlistView" aria-selected="true" tabindex="0">$queueLabel</button>
                         <button class="queue-tab" id="lyricsTab" role="tab" aria-controls="lyricsView" aria-selected="false" tabindex="-1">歌詞</button>
                     </div>
                     <div class="queue-view" id="playlistView" role="tabpanel" aria-labelledby="playlistTab">
                         <p class="queue-summary" id="queueSummary"></p>
                         <div class="playlist-container" id="playlistContainer" role="group" aria-label="再生する曲を選択"></div>
-                        <div class="playlist-controls"><button class="playlist-btn" id="createPlaylistBtn">＋ プレイリスト作成</button><button class="playlist-btn" id="addToPlaylistBtn">現在の曲を追加</button></div>
                     </div>
                     <div class="queue-view" id="lyricsView" role="tabpanel" aria-labelledby="lyricsTab" hidden>
                         <div class="lyrics-toolbar"><p class="lyrics-status" id="lyricsStatus" role="status" aria-live="polite">歌詞タブを開くと読み込みます。</p><button class="lyrics-return" id="lyricsReturnBtn" type="button" hidden>現在位置に戻る</button></div>
@@ -488,15 +509,6 @@ function openMusicPlayer()
         </div>
         <p class="player-status" id="playerStatus" role="status" aria-live="polite"></p>
     </main>
-    <dialog id="playlistDialog" aria-labelledby="dialogTitle">
-        <form id="playlistForm">
-            <h2 id="dialogTitle">プレイリスト作成</h2>
-            <div id="createFields"><label class="dialog-field">プレイリスト名<input id="playlistName" name="name" required autocomplete="off"></label><label class="dialog-field">説明（任意）<textarea id="playlistDescription" name="description" rows="2"></textarea></label></div>
-            <label class="dialog-field" id="selectField" hidden>追加先のプレイリスト<select id="playlistSelect" name="playlist_id"></select></label>
-            <p class="dialog-status" id="dialogStatus" role="status"></p>
-            <div class="dialog-actions"><button class="playlist-btn" id="dialogCancel" type="button">キャンセル</button><button class="playlist-btn primary-btn" id="dialogSubmit" type="submit">作成</button></div>
-        </form>
-    </dialog>
 
     <!-- iOS 18 Safari バックグラウンド再生対応のオーディオ要素 -->
     <audio id="audioPlayer" preload="auto" crossorigin="anonymous" playsinline webkit-playsinline x-webkit-airplay="allow"></audio>
@@ -505,8 +517,10 @@ function openMusicPlayer()
         // PHP から JavaScript へのデータ渡し
         window.musicFiles = $musicFilesJson;
         window.currentIndex = $currentIndex;
+        window.musicQueue = $queueJson;
+        window.musicPlayerLabels = $labelsJson;
         window.user = $userJson;
-        window.baseDir = window.location.origin + '/';
+        window.baseDir = window.location.origin + $publicBasePathJson;
         window.musicAudioCsrfToken = "$musicAudioCsrfToken";
 
         $contents_js
@@ -516,6 +530,131 @@ function openMusicPlayer()
 HTML;
 
     writelog("DEBUG openMusicPlayer() completed for: $baseFile", $writelog_process_name);
+}
+
+/**
+ * フォルダ以下の音楽を再帰列挙してプレイヤーを開くルン。
+ */
+function openMusicDirectoryPlayer(): void
+{
+    global $conf, $audioFormats, $writelog_process_name, $musicPlayerQueueOverride;
+
+    $requestedDirectory = isset($_REQUEST['directory']) ? (string)$_REQUEST['directory'] : '.';
+    $directoryAudioFormats = array_values(array_filter(
+        $audioFormats,
+        static fn(string $extension): bool => strtolower($extension) !== 'mp4'
+    ));
+    $returnHref = musicPlayerBuildPublicDirectoryHref((string)($conf['publicDir'] ?? ''), '.');
+
+    try {
+        $resolvedDirectory = musicQueueResolveDirectory(
+            (string)$conf['sharePath'],
+            $requestedDirectory
+        );
+        $returnHref = musicPlayerBuildPublicDirectoryHref(
+            (string)($conf['publicDir'] ?? ''),
+            (string)$resolvedDirectory['relativeDirectory']
+        );
+        $queue = musicQueueCollectRecursiveTracks(
+            (string)$conf['sharePath'],
+            $requestedDirectory,
+            $directoryAudioFormats
+        );
+        $returnHref = musicPlayerBuildPublicDirectoryHref(
+            (string)($conf['publicDir'] ?? ''),
+            (string)$queue['root']
+        );
+    } catch (MusicQueueException $exception) {
+        writelog(
+            "ERROR openMusicDirectoryPlayer() queue failed: " . $exception->getMessage(),
+            $writelog_process_name
+        );
+        musicPlayerOutputQueueError($exception->getStatusCode(), $returnHref);
+        return;
+    }
+
+    if ($queue['tracks'] === []) {
+        musicPlayerOutputQueueError(200, $returnHref);
+        return;
+    }
+
+    $queue['libraryDirectoryHref'] = $returnHref;
+    $musicPlayerQueueOverride = $queue;
+    openMusicPlayer();
+    $musicPlayerQueueOverride = null;
+}
+
+/**
+ * 共有相対ディレクトリから公開URLを作るルン。
+ */
+function musicPlayerBuildPublicDirectoryHref(string $publicDirectory, string $relativeDirectory): string
+{
+    $parts = [];
+    $publicDirectory = trim(str_replace('\\', '/', $publicDirectory), '/');
+    if ($publicDirectory !== '') {
+        $parts = array_merge($parts, array_values(array_filter(explode('/', $publicDirectory), static fn(string $part): bool => $part !== '')));
+    }
+
+    $relativeDirectory = trim(str_replace('\\', '/', $relativeDirectory), '/');
+    if ($relativeDirectory !== '' && $relativeDirectory !== '.') {
+        $parts = array_merge($parts, array_values(array_filter(explode('/', $relativeDirectory), static fn(string $part): bool => $part !== '')));
+    }
+
+    $encodedParts = array_map('rawurlencode', $parts);
+    return $encodedParts === [] ? '/' : '/' . implode('/', $encodedParts) . '/';
+}
+
+/**
+ * プレイヤー画面の文言を既存の多言語機構から取得するルン。
+ */
+function musicPlayerGetText(string $key, string $fallback): string
+{
+    if (class_exists('I18n')) {
+        return (string)I18n::getInstance()->get($key, $fallback);
+    }
+    return $fallback;
+}
+
+/**
+ * フォルダキューの入力・範囲・走査エラーを直接表示するルン。
+ */
+function musicPlayerOutputQueueError(int $statusCode, string $returnHref): void
+{
+    $messages = [
+        200 => ['title' => '再生できる音楽がありません', 'message' => 'このフォルダ以下に再生できる音楽がありません。'],
+        400 => ['title' => 'フォルダ指定が不正です', 'message' => '指定されたフォルダを再生できません。'],
+        403 => ['title' => 'フォルダを再生できません', 'message' => '指定されたフォルダは再生対象として利用できません。'],
+        404 => ['title' => 'フォルダが見つかりません', 'message' => '指定されたフォルダが見つかりません。'],
+        422 => ['title' => 'フォルダが大きすぎます', 'message' => '曲数またはフォルダの規模が上限を超えています。対象フォルダを絞ってください。'],
+        503 => ['title' => 'フォルダを読み取れません', 'message' => 'フォルダの読み取りに失敗しました。時間を置いて再度お試しください。'],
+    ];
+    $message = $messages[$statusCode] ?? $messages[503];
+    http_response_code($statusCode);
+    header('Cache-Control: no-store');
+    $safeTitle = htmlspecialchars($message['title'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $safeMessage = htmlspecialchars($message['message'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $safeReturnHref = htmlspecialchars($returnHref, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    echo <<<HTML
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>$safeTitle - Music Player</title>
+    <style>
+        html { color-scheme: dark; background: #0b1018; }
+        body { min-height: 100vh; display: grid; place-items: center; margin: 0; padding: 24px; box-sizing: border-box; background: #0b1018; color: #f1f6fc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-align: center; }
+        main { width: min(560px, 100%); padding: 32px; border: 1px solid #293750; border-radius: 24px; background: #121b2b; }
+        h1 { margin: 0 0 16px; font-size: 24px; }
+        p { color: #9eafc3; line-height: 1.7; }
+        a { display: inline-flex; align-items: center; min-height: 44px; margin-top: 12px; padding: 0 16px; border-radius: 10px; background: #7799dd; color: #101a32; text-decoration: none; font-weight: 700; }
+        a:focus-visible { outline: 3px solid #f1f6fc; outline-offset: 4px; }
+    </style>
+</head>
+<body><main><h1>$safeTitle</h1><p>$safeMessage</p><a href="$safeReturnHref">フォルダへ戻る</a></main></body>
+</html>
+HTML;
+    exit;
 }
 
 /**

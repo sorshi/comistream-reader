@@ -222,4 +222,8 @@ return [
     'tooltip_clock' => '左上に時刻表示をします',
     'tooltip_inspector' => '左下に詳細情報を表示します',
     'tooltip_language' => '表示言語を切り替えます',
+    'music_folder_actions' => 'フォルダ操作',
+    'music_folder_play' => 'このフォルダ以下の音楽を再生',
+    'music_queue' => '再生キュー',
+    'music_playback_speed' => '再生速度',
 ];

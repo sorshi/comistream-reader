@@ -222,4 +222,8 @@ return [
     'tooltip_clock' => 'Display time in the upper left corner',
     'tooltip_inspector' => 'Display detailed information in the lower left corner',
     'tooltip_language' => 'Switch display language',
+    'music_folder_actions' => 'Folder actions',
+    'music_folder_play' => 'Play music in this folder and below',
+    'music_queue' => 'Playback queue',
+    'music_playback_speed' => 'Playback speed',
 ];

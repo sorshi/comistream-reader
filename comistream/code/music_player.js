@@ -17,6 +17,8 @@ class MusicPlayer {
     this.audioPlayer = document.getElementById("audioPlayer");
     this.currentIndex = window.currentIndex || 0;
     this.musicFiles = window.musicFiles || [];
+    this.musicQueue = window.musicQueue || { source: "file", recursive: false, label: "" };
+    this.musicPlayerLabels = window.musicPlayerLabels || { queue: "再生キュー", speed: "再生速度" };
     this.user = window.user || "guest";
     this.baseDir = window.baseDir || "/";
 
@@ -26,6 +28,8 @@ class MusicPlayer {
     this.repeatMode = 0; // 0: none, 1: all, 2: one
     this.volume = 0.7;
     this.volumeDragging = false;
+    this.requestedPlaybackRate = 1;
+    this.allowedPlaybackRates = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
     // プレイリスト関連
     this.currentPlaylist = null;
@@ -69,13 +73,17 @@ class MusicPlayer {
     // Media Session API の設定 (iOS 18 Safari バックグラウンド再生対応)
     this.initMediaSession();
 
-    this.initPlaylistDialog();
     if (!this.usesSystemVolume) {
       this.setVolume(this.volume);
     }
 
     // 初期楽曲をロード
-    this.loadCurrentTrack();
+    const initialLoad = this.loadCurrentTrack();
+    if (this.musicQueue.source === "directory") {
+      Promise.resolve(initialLoad).then((loaded) => {
+        if (loaded) this.play();
+      });
+    }
 
     console.log(
       "Music Player initialized with",
@@ -111,11 +119,10 @@ class MusicPlayer {
     this.volumeSlider = document.getElementById("volumeSlider");
     this.volumeContainer = document.getElementById("volumeContainer");
     this.secondaryControls = document.querySelector(".secondary-controls");
+    this.playbackRateSelect = document.getElementById("playbackRate");
 
     // プレイリスト関連
     this.showPlaylistBtn = document.getElementById("showPlaylistBtn");
-    this.createPlaylistBtn = document.getElementById("createPlaylistBtn");
-    this.addToPlaylistBtn = document.getElementById("addToPlaylistBtn");
     this.playlistContainer = document.getElementById("playlistContainer");
     this.queueContent = document.getElementById("queueContent");
     this.queueTitle = document.getElementById("queueTitle");
@@ -201,6 +208,12 @@ class MusicPlayer {
     this.audioPlayer.addEventListener("error", (e) => this.onError(e));
     this.audioPlayer.addEventListener("waiting", () => this.setStatus("読み込み中…"));
     this.audioPlayer.addEventListener("playing", () => this.setStatus("再生中"));
+    this.audioPlayer.addEventListener("ratechange", () => this.onPlaybackRateChange());
+
+    // 再生速度はキュー全体で維持するルン。
+    this.playbackRateSelect.addEventListener("change", (event) => {
+      this.setPlaybackRate(event.target.value);
+    });
 
     // プレイリスト関連
     this.showPlaylistBtn.addEventListener("click", () => this.togglePlaylistView());
@@ -210,12 +223,6 @@ class MusicPlayer {
     this.lyricsTab.addEventListener("keydown", (event) => this.handleQueueTabKey(event));
     this.lyricsContainer.addEventListener("scroll", () => this.onLyricsScroll(), { passive: true });
     this.lyricsReturnBtn.addEventListener("click", () => this.resumeLyricsFollowing());
-    this.createPlaylistBtn.addEventListener("click", () =>
-      this.showCreatePlaylistDialog()
-    );
-    this.addToPlaylistBtn.addEventListener("click", () =>
-      this.showAddToPlaylistDialog()
-    );
 
     // キーボードショートカット
     document.addEventListener("keydown", (e) => this.handleKeyPress(e));
@@ -353,7 +360,9 @@ class MusicPlayer {
 
     this.audioPlayer.pause();
     this.audioPlayer.removeAttribute("src");
+    this.applyPlaybackRate();
     this.audioPlayer.load();
+    this.applyPlaybackRate();
 
     // オーディオソースを設定
     this.isSeeking = false;
@@ -364,7 +373,7 @@ class MusicPlayer {
     this.currentTime.textContent = "0:00";
     this.totalTime.textContent = "0:00";
     this.trackPosition.textContent = `${this.currentIndex + 1} / ${this.musicFiles.length}`;
-    this.queueSummary.textContent = `${this.musicFiles.length} 曲 · 曲を選んで切り替え`;
+    this.queueSummary.textContent = this.getQueueSummary();
     this.setStatus("再生形式を確認中…");
     this.resetLyricsForTrack(currentTrack);
     // ダウンロードリンク更新
@@ -610,8 +619,10 @@ class MusicPlayer {
     if (loadId !== this.audioLoadId) return false;
     this.activeAudioSource = { url, loadId, sourceType, assetId };
     this.audioSourcePending = false;
+    this.applyPlaybackRate();
     this.audioPlayer.src = url;
     this.audioPlayer.load();
+    this.applyPlaybackRate();
     if (sourceType === "converted" && assetId) this.startAudioLease(assetId);
     if (sourceType === "converted") this.setStatus("互換音声を読み込み中…");
     else this.setStatus("");
@@ -639,6 +650,73 @@ class MusicPlayer {
       window.clearInterval(this.audioLeaseTimer);
       this.audioLeaseTimer = null;
     }
+  }
+
+  setPlaybackRate(value) {
+    const requested = Number(value);
+    if (!this.allowedPlaybackRates.includes(requested)) {
+      this.updatePlaybackRateControl(this.audioPlayer.playbackRate);
+      this.setStatus("選択できない再生速度です。");
+      return false;
+    }
+
+    this.requestedPlaybackRate = requested;
+    return this.applyPlaybackRate();
+  }
+
+  applyPlaybackRate() {
+    const requested = this.requestedPlaybackRate;
+    if (!this.audioPlayer || !this.allowedPlaybackRates.includes(requested)) return false;
+
+    try {
+      this.audioPlayer.defaultPlaybackRate = requested;
+      this.audioPlayer.playbackRate = requested;
+      if ("preservesPitch" in this.audioPlayer) this.audioPlayer.preservesPitch = true;
+      if ("mozPreservesPitch" in this.audioPlayer) this.audioPlayer.mozPreservesPitch = true;
+      if ("webkitPreservesPitch" in this.audioPlayer) this.audioPlayer.webkitPreservesPitch = true;
+    } catch (error) {
+      console.warn("Playback rate is not supported:", error);
+      this.requestedPlaybackRate = Number(this.audioPlayer.playbackRate) || 1;
+      this.updatePlaybackRateControl(this.audioPlayer.playbackRate);
+      this.setStatus("このブラウザでは再生速度を変更できません。");
+      this.updateMediaPosition();
+      return false;
+    }
+
+    const actual = Number(this.audioPlayer.playbackRate);
+    if (!Number.isFinite(actual) || Math.abs(actual - requested) > 0.001) {
+      this.requestedPlaybackRate = this.allowedPlaybackRates.includes(actual) ? actual : 1;
+      this.updatePlaybackRateControl(actual);
+      this.setStatus("このブラウザでは選択した再生速度を適用できません。");
+      this.updateMediaPosition();
+      return false;
+    }
+
+    this.updatePlaybackRateControl(actual);
+    this.updateMediaPosition();
+    return true;
+  }
+
+  onPlaybackRateChange() {
+    const actual = Number(this.audioPlayer.playbackRate);
+    if (!Number.isFinite(actual)) return;
+    this.updatePlaybackRateControl(actual);
+    this.updateMediaPosition();
+  }
+
+  updatePlaybackRateControl(rate) {
+    if (!this.playbackRateSelect) return;
+    const actual = Number(rate);
+    const matchingRate = this.allowedPlaybackRates.find((candidate) => Math.abs(candidate - actual) < 0.001);
+    this.playbackRateSelect.value = matchingRate === undefined ? "" : String(matchingRate);
+  }
+
+  getQueueSummary() {
+    const label = typeof this.musicQueue.label === "string" && this.musicQueue.label !== ""
+      ? `${this.musicQueue.label} · `
+      : "";
+    const recursive = this.musicQueue.source === "directory" && this.musicQueue.recursive;
+    return `${label}${this.musicFiles.length}曲${recursive ? " · サブフォルダを含む" : ""}`;
   }
 
   updateTrackInfo(track) {
@@ -1398,7 +1476,7 @@ class MusicPlayer {
     const showLyrics = tabName === "lyrics";
     this.showingPlaylist = !showLyrics;
     this.showingLyrics = showLyrics;
-    this.queueTitle.textContent = showLyrics ? "歌詞" : "再生リスト";
+    this.queueTitle.textContent = showLyrics ? "歌詞" : (this.musicPlayerLabels.queue || "再生キュー");
     this.playlistView.hidden = showLyrics;
     this.lyricsView.hidden = !showLyrics;
     this.playlistTab.setAttribute("aria-selected", String(!showLyrics));
@@ -1490,6 +1568,7 @@ class MusicPlayer {
   }
 
   onMetadataLoaded() {
+    this.applyPlaybackRate();
     this.totalTime.textContent = this.formatTime(this.audioPlayer.duration);
     this.progressBar.disabled = !Number.isFinite(this.audioPlayer.duration) || this.audioPlayer.duration <= 0;
     this.updateProgress();
@@ -1579,11 +1658,20 @@ class MusicPlayer {
       const name = document.createElement("span");
       name.className = "track-name";
       name.textContent = track.name;
+      const nameGroup = document.createElement("span");
+      nameGroup.className = "track-name-group";
+      nameGroup.appendChild(name);
+      if (track.relativeDirectory) {
+        const directory = document.createElement("span");
+        directory.className = "track-directory";
+        directory.textContent = track.relativeDirectory;
+        nameGroup.appendChild(directory);
+      }
       const format = document.createElement("span");
       format.className = "track-format";
       format.textContent = track.name.includes(".") ? track.name.split(".").pop().toUpperCase() : "";
       format.setAttribute("aria-hidden", "true");
-      item.append(number, name, format);
+      item.append(number, nameGroup, format);
       item.addEventListener("click", () => {
         const shouldPlay = this.isPlaying;
         this.currentIndex = index;
@@ -1750,7 +1838,7 @@ class MusicPlayer {
 
   handleKeyPress(event) {
     // 入力欄・ボタン・ダイアログの標準操作を優先するルン。
-    if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || this.playlistDialog.open) return;
+    if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || this.playlistDialog?.open) return;
     if (event.target.closest("input, textarea, select, button, a, [contenteditable]:not([contenteditable='false'])")) return;
     // キーボードショートカット
     switch (event.code) {

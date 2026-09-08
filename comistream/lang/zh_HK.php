@@ -222,4 +222,8 @@ return [
     'tooltip_clock' => '在左上角顯示時間',
     'tooltip_inspector' => '在左下角顯示詳細資訊',
     'tooltip_language' => '切換顯示語言',
+    'music_folder_actions' => '資料夾操作',
+    'music_folder_play' => '播放此資料夾及子資料夾中的音樂',
+    'music_queue' => '播放佇列',
+    'music_playback_speed' => '播放速度',
 ]; 

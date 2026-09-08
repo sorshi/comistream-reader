@@ -14,6 +14,7 @@
  */
 
 require_once __DIR__ . '/comistream_lib.php';
+require_once __DIR__ . '/lib/music_queue.php';
 
 // Script configuration
 ini_set('zlib.output_compression', '8');
@@ -392,6 +393,21 @@ if ($canonical_path === false) {
 
 // 以降、$is_404_mode が true の場合は空ディレクトリとして表示を継続
 
+// 表示中の実ディレクトリが共有領域へ安全に対応するときだけ音楽操作を表示するルン。
+$music_directory_relative = null;
+$music_directory_href = null;
+if (!$is_404_mode && isset($conf['sharePath'])) {
+    $music_directory_relative = musicQueueMapPublicDirectoryToShareRelative(
+        (string)$document_root,
+        (string)$request_path,
+        (string)$conf['sharePath']
+    );
+    if ($music_directory_relative !== null) {
+        $music_directory_href = '/cgi-bin/music_player.php?mode=open_directory&directory='
+            . rawurlencode($music_directory_relative);
+    }
+}
+
 // セッション開始
 session_start();
 
@@ -447,6 +463,16 @@ $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
     ? '/theme/style_cover.css?2026082601'
     : '/theme/style.css?2026082601';
+$music_folder_actions_label = htmlspecialchars(
+    I18n::getInstance()->get('music_folder_actions', 'フォルダ操作'),
+    ENT_QUOTES | ENT_SUBSTITUTE,
+    'UTF-8'
+);
+$music_folder_play_label = htmlspecialchars(
+    I18n::getInstance()->get('music_folder_play', 'このフォルダ以下の音楽を再生'),
+    ENT_QUOTES | ENT_SUBSTITUTE,
+    'UTF-8'
+);
 
 header('Content-Type: text/html; charset=utf-8');
 
@@ -1099,7 +1125,17 @@ if ($is_404_mode) {
         <!-- we open the `wrapper` element here, but close it in the footer section -->
 
         <div>
-            <span class="breadcrumb" id="breadcrumb">/</span>
+            <div class="directory-heading">
+                <span class="breadcrumb" id="breadcrumb">/</span>
+                <?php if ($music_directory_href !== null): ?>
+                    <div class="folder-actions">
+                        <button type="button" class="folder-actions-button" id="folderActionsButton" aria-label="<?php echo $music_folder_actions_label; ?>" aria-expanded="false" aria-controls="folderActionsPanel">⋯</button>
+                        <div class="folder-actions-panel" id="folderActionsPanel" hidden>
+                            <a href="<?php echo htmlspecialchars($music_directory_href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); ?>"><?php echo $music_folder_play_label; ?></a>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </div>
             <div class="search-controls">
                 <div id="favbutton" class="favbutton" onclick="javascript:searchFavButton()"></div>
                 <form name="searchform" action="javascript:search()">

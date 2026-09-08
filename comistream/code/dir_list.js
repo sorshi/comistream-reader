@@ -2019,6 +2019,7 @@ function hideFileLoadingSpinner() {
 // 初期化関数
 function initializeDirectoryListing() {
 
+  initializeFolderActions();
 
   // Long press script loading
   loadLongPressScript();
@@ -2038,6 +2039,36 @@ function initializeDirectoryListing() {
 
     debugLog("Directory listing initialized");
   }, 100);
+}
+
+// 現在フォルダの操作メニューを初期化するルン。
+function initializeFolderActions() {
+  const button = document.getElementById("folderActionsButton");
+  const panel = document.getElementById("folderActionsPanel");
+  if (!button || !panel || button.dataset.initialized === "true") return;
+
+  const close = (restoreFocus = false) => {
+    panel.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+    if (restoreFocus) button.focus();
+  };
+
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const willOpen = panel.hidden;
+    panel.hidden = !willOpen;
+    button.setAttribute("aria-expanded", String(willOpen));
+    if (willOpen) panel.querySelector("a")?.focus();
+  });
+  panel.addEventListener("click", (event) => event.stopPropagation());
+  document.addEventListener("click", () => close());
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !panel.hidden) {
+      event.preventDefault();
+      close(true);
+    }
+  });
+  button.dataset.initialized = "true";
 }
 
 // DOMContentLoaded event listener

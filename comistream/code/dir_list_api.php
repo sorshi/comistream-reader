@@ -15,6 +15,7 @@
  */
 
 require_once __DIR__ . '/comistream_lib.php';
+require_once __DIR__ . '/lib/music_queue.php';
 
 // API専用設定
 ini_set('zlib.output_compression', '0'); // API では圧縮を無効化
@@ -231,6 +232,14 @@ try {
     // メタ情報設定
     $api_response['meta']['path'] = $request_path;
     $api_response['meta']['is_404_mode'] = $is_404_mode;
+    $share_relative_directory = null;
+    if (!$is_404_mode && isset($conf['sharePath'])) {
+        $share_relative_directory = musicQueueMapPublicDirectoryToShareRelative(
+            (string)$document_root,
+            (string)$request_path,
+            (string)$conf['sharePath']
+        );
+    }
 
     // ディレクトリ処理開始
     $perf_scandir_start = microtime(true);
@@ -288,6 +297,14 @@ try {
 
         $encoded_parent_path = encode_url_path($parent_path);
         $parent_icon_src = ($viewmode === 'cover') ? '/theme/icons/blank.png' : get_icon_map()['__parent'];
+        $parent_data_filepath = $encoded_parent_path;
+        if ($share_relative_directory !== null) {
+            $share_parent_path = dirname($share_relative_directory);
+            if ($share_parent_path === '/' || $share_parent_path === '\\' || $share_parent_path === '.') {
+                $share_parent_path = '';
+            }
+            $parent_data_filepath = encode_url_path($share_parent_path);
+        }
 
         $response_items[] = [
             'name' => 'Parent Directory',
@@ -299,7 +316,7 @@ try {
             'lastmod_formatted' => '',
             'icon' => $parent_icon_src,
             'href' => $encoded_parent_path,
-            'data_filepath' => $encoded_parent_path
+            'data_filepath' => $parent_data_filepath
         ];
     }
 
@@ -313,6 +330,16 @@ try {
         }
 
         $encoded_filepath = encode_url_path($raw_filepath);
+        $data_filepath = $encoded_filepath;
+        if ($share_relative_directory !== null) {
+            $share_item_path = $share_relative_directory === '.'
+                ? $item['name']
+                : $share_relative_directory . '/' . $item['name'];
+            if ($item['is_dir']) {
+                $share_item_path .= '/';
+            }
+            $data_filepath = encode_url_path($share_item_path);
+        }
 
         // カバービューでディレクトリの場合はblank.png
         $icon_img_src = ($viewmode === 'cover' && $item['is_dir']) ? '/theme/icons/blank.png' : $icon;
@@ -327,7 +354,7 @@ try {
             'lastmod_formatted' => date('Y-m-d H:i', $item['lastmod']),
             'icon' => $icon_img_src,
             'href' => $encoded_filepath,
-            'data_filepath' => $encoded_filepath
+            'data_filepath' => $data_filepath
         ];
 
         // ファイルの場合、プレビュー・カバー画像情報を追加
