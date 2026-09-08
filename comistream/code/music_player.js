@@ -643,15 +643,13 @@ class MusicPlayer {
 
   updateTrackInfo(track) {
     this.trackTitle.textContent = track.name;
+    this.trackArtist.textContent = "";
 
-    // ファイル名から推測してアーティスト情報を抽出
+    // ファイル名からタイトルだけを推測するルン。アーティストはメタデータの取得完了まで表示しないルン。
     const fileName = track.name;
     const artistMatch = fileName.match(/^(.+?)\s*[-–]\s*(.+?)\./);
     if (artistMatch) {
-      this.trackArtist.textContent = artistMatch[1];
       this.trackTitle.textContent = artistMatch[2];
-    } else {
-      this.trackArtist.textContent = "アーティスト不明";
     }
 
     // Media Session metadata を更新
@@ -670,9 +668,8 @@ class MusicPlayer {
   applyMetadataToUI(metadata) {
     if (!metadata) return;
     const { title, artist } = metadata;
-    if (artist && typeof artist === "string") {
-      this.trackArtist.textContent = artist;
-    }
+    const artistName = typeof artist === "string" ? artist.trim() : "";
+    this.trackArtist.textContent = artistName || "アーティスト不明";
     if (title && typeof title === "string") {
       this.trackTitle.textContent = title;
     }
@@ -1287,6 +1284,10 @@ class MusicPlayer {
     this.lyricsAttribution.textContent = "";
     this.lyricsReturnBtn.hidden = true;
 
+    if (this.lyrics.status === "idle") {
+      this.lyricsStatus.textContent = "歌詞タブを開くと読み込みます。";
+      return;
+    }
     if (this.lyrics.status === "loading") {
       this.lyricsStatus.textContent = "歌詞を読み込み中…";
       return;

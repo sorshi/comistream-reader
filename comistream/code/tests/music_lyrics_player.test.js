@@ -115,6 +115,57 @@ test("曲切替後に古い歌詞レスポンスを破棄する", async () => {
   }
 });
 
+test("再生リスト表示中の曲切替後も歌詞タブで取得を開始する", () => {
+  const track = { path: "music/test.m4a" };
+  const player = Object.create(MusicPlayer.prototype);
+  player.musicFiles = [track];
+  player.currentIndex = 0;
+  player.showingPlaylist = true;
+  player.showingLyrics = false;
+  player.lyricsAbortController = null;
+  player.lyricsRequestId = 0;
+  player.lyricsTrackPath = "";
+  player.lyricsReturnBtn = { hidden: false };
+  player.lyricsStatus = { textContent: "" };
+  player.lyricsContainer = { replaceChildren() {} };
+  player.lyricsAttribution = { hidden: false, textContent: "" };
+  player.queueTitle = { textContent: "" };
+  player.playlistView = { hidden: false };
+  player.lyricsView = { hidden: true };
+  player.playlistTab = { tabIndex: 0, setAttribute() {} };
+  player.lyricsTab = { tabIndex: -1, setAttribute() {} };
+  player.displayCurrentPlaylist = () => {};
+  player.updateLyricsPosition = () => {};
+
+  player.resetLyricsForTrack(track);
+  assert.equal(player.lyrics.status, "idle");
+  assert.equal(player.lyricsStatus.textContent, "歌詞タブを開くと読み込みます。");
+
+  let requestedTrack = null;
+  player.loadLyrics = (selectedTrack) => {
+    requestedTrack = selectedTrack;
+  };
+  player.selectQueueTab("lyrics");
+  assert.equal(requestedTrack, track);
+});
+
+test("アーティストはメタデータ取得完了まで空欄にし、未設定時だけ不明と表示する", () => {
+  const player = Object.create(MusicPlayer.prototype);
+  player.trackTitle = { textContent: "" };
+  player.trackArtist = { textContent: "" };
+
+  player.updateTrackInfo({ name: "Sample Artist - Sample Title.mp3" });
+  assert.equal(player.trackTitle.textContent, "Sample Title");
+  assert.equal(player.trackArtist.textContent, "");
+
+  player.applyMetadataToUI({ title: "", artist: "" });
+  assert.equal(player.trackArtist.textContent, "アーティスト不明");
+
+  player.applyMetadataToUI({ title: "Tagged Title", artist: " Tagged Artist " });
+  assert.equal(player.trackTitle.textContent, "Tagged Title");
+  assert.equal(player.trackArtist.textContent, "Tagged Artist");
+});
+
 test("MIMEを判定できない既存音声形式でも原本再生を試す", async () => {
   const originalFetch = global.fetch;
   global.fetch = async () => ({

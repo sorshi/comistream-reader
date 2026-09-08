@@ -222,6 +222,11 @@ function openMusicPlayer()
 
     // HTMLページ出力
     $safeBaseFile = htmlspecialchars($baseFile, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $libraryDirectory = dirname(str_replace('\\', '/', $escapedFile));
+    $libraryDirectoryHref = $libraryDirectory === '.' || $libraryDirectory === '/'
+        ? '/'
+        : '/' . urlEncodeFilePath(trim($libraryDirectory, '/')) . '/';
+    $libraryDirectoryHref = htmlspecialchars($libraryDirectoryHref, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $currentIndex = (int)$currentIndex;
     $userJson = json_encode(
         $user,
@@ -278,16 +283,13 @@ function openMusicPlayer()
             margin: auto;
             padding: max(20px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
         }
-        .app-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0 26px; }
-        .brand { display: flex; align-items: center; gap: 12px; }
-        .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #526b9d; border-radius: 14px; color: var(--accent); background: #1c2a48; }
-        .brand-name { font-size: 12px; font-weight: 700; letter-spacing: .16em; }
-        .brand-subtitle { margin-top: 3px; font-size: 12px; color: var(--muted); }
-        .header-note { font-size: 12px; color: var(--muted); }
         .player-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 24px; align-items: start; }
         .now-playing { min-width: 0; padding: 28px; border: 1px solid var(--line); border-radius: 28px; background: linear-gradient(160deg, #1a2942, #141d2d 65%); box-shadow: 0 24px 70px #0003; }
         .section-label { margin: 0; font-size: 11px; letter-spacing: .18em; color: var(--accent); font-weight: 700; }
         .stage-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .stage-heading .section-label { margin-right: auto; }
+        .library-return { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; margin: -10px 0 -10px -8px; padding: 0 8px; border-radius: 12px; color: var(--text); font-size: 12px; text-decoration: none; white-space: nowrap; }
+        .library-return .icon { width: 18px; height: 18px; color: var(--accent); }
         .track-position { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
         .album-art {
             position: relative;
@@ -388,13 +390,12 @@ function openMusicPlayer()
         @media (hover: hover) {
             .control-btn:hover { background: #ffffff12; }
             .play-pause-btn:hover { background: #9bb8f2; }
+            .library-return:hover { background: #ffffff12; }
             .playlist-item:hover, .playlist-btn:hover, .queue-toggle:hover, .queue-tab:hover, .lyrics-return:hover { border-color: #5f76a8; background: #263754; }
             .primary-btn:hover { background: #9bb8f2; color: #101a32; }
         }
         @media (max-width: 899px) {
             .music-player { padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
-            .app-header { padding: 4px 0 18px; }
-            .header-note { display: none; }
             .player-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; }
             .now-playing { padding: 20px; border-radius: 24px; }
             .album-art { width: min(64vw, 270px); margin: 20px auto; }
@@ -404,8 +405,6 @@ function openMusicPlayer()
         }
         @media (min-width: 600px) and (max-height: 540px) and (orientation: landscape) {
             .music-player { padding-top: max(8px, env(safe-area-inset-top)); }
-            .app-header { padding-bottom: 12px; }
-            .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
             .player-layout { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
             .now-playing { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px 14px; padding: 16px; border-radius: 20px; }
             .stage-heading, .progress-container, .controls, .secondary-controls { grid-column: 1 / -1; }
@@ -432,7 +431,7 @@ function openMusicPlayer()
 </head>
 <body>
     <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13M9 8l11-2"/><ellipse cx="6" cy="18" rx="3" ry="3"/><ellipse cx="17" cy="16" rx="3" ry="3"/></symbol>
+        <symbol id="i-library-return" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"/></symbol>
         <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z" fill="currentColor" stroke="none"/></symbol>
         <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" stroke-width="4"/></symbol>
         <symbol id="i-prev" viewBox="0 0 24 24"><path d="M5 5v14m14-14L8 12l11 7Z"/></symbol>
@@ -443,17 +442,13 @@ function openMusicPlayer()
         <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 15v5h16v-5"/></symbol>
     </svg>
     <main class="music-player">
-        <header class="app-header">
-            <div class="brand"><span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg></span><div><div class="brand-name">COMISTREAM</div><div class="brand-subtitle">Music Player</div></div></div>
-            <span class="header-note">あなたのライブラリを、心地よく。</span>
-        </header>
         <div class="player-layout">
             <section class="now-playing" aria-label="音楽プレイヤー">
-                <div class="stage-heading"><p class="section-label">NOW PLAYING</p><span class="track-position" id="trackPosition"></span></div>
+                <div class="stage-heading"><a class="library-return" href="$libraryDirectoryHref" aria-label="再生中の曲があるフォルダへ戻る"><svg class="icon" aria-hidden="true"><use href="#i-library-return"/></svg><span>ライブラリ</span></a><p class="section-label">NOW PLAYING</p><span class="track-position" id="trackPosition"></span></div>
                 <div class="album-art" role="img" aria-label="アルバムアート"></div>
                 <div class="track-info" aria-live="polite" aria-atomic="true">
                     <h1 class="track-title" id="trackTitle">$safeBaseFile</h1>
-                    <p class="track-artist" id="trackArtist">アーティスト不明</p>
+                    <p class="track-artist" id="trackArtist"></p>
                 </div>
                 <div class="progress-container">
                     <input type="range" class="range-slider" id="progressBar" min="0" max="1000" value="0" step="1" aria-label="再生位置" aria-valuetext="0:00" disabled>
