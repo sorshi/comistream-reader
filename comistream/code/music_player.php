@@ -332,9 +332,16 @@ function openMusicPlayer()
             transform: rotate(-20deg);
         }
         .album-art.has-cover::before, .album-art.has-cover::after { display: none; }
-        .track-info { min-width: 0; text-align: center; }
-        .track-title { margin: 0; font-size: clamp(21px, 2.5vw, 28px); line-height: 1.35; font-weight: 750; overflow-wrap: anywhere; }
-        .track-artist { margin: 9px 0 0; font-size: 14px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+        .track-info { min-width: 0; height: 68px; text-align: center; }
+        .track-title, .track-artist { overflow: hidden; white-space: nowrap; }
+        .track-title { height: 38px; margin: 0; font-size: clamp(21px, 2.5vw, 28px); line-height: 1.35; font-weight: 750; }
+        .track-artist { height: 21px; margin: 9px 0 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+        .track-text { display: inline-block; max-width: none; white-space: nowrap; }
+        .track-text.is-overflowing { display: block; width: max-content; text-align: left; will-change: transform; animation: track-marquee var(--marquee-duration, 10s) ease-in-out infinite alternate; }
+        @keyframes track-marquee {
+            0%, 18% { transform: translateX(0); }
+            82%, 100% { transform: translateX(var(--marquee-distance, 0)); }
+        }
         .progress-container { margin-top: 22px; }
         .range-slider { display: block; width: 100%; height: 44px; margin: 0; padding: 0; appearance: none; -webkit-appearance: none; background: transparent; cursor: pointer; }
         .range-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--accent) var(--progress, 0%), #425270 var(--progress, 0%)); }
@@ -415,6 +422,9 @@ function openMusicPlayer()
             .player-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; }
             .now-playing { padding: 20px; border-radius: 24px; }
             .album-art { width: min(64vw, 270px); margin: 20px auto; }
+            .track-info { height: auto; }
+            .track-title, .track-artist { height: auto; overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+            .track-text, .track-text.is-overflowing { display: inline; white-space: normal; animation: none; transform: none; }
             .queue-panel { border-radius: 24px; }
             .playlist-container { max-height: 380px; }
             .lyrics-container { max-height: 380px; }
@@ -443,6 +453,9 @@ function openMusicPlayer()
         @media (prefers-reduced-motion: no-preference) {
             button, a { transition: background-color .15s, border-color .15s; }
         }
+        @media (prefers-reduced-motion: reduce) and (min-width: 900px) {
+            .track-text.is-overflowing { max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; animation: none; }
+        }
     </style>
 </head>
 <body>
@@ -463,8 +476,8 @@ function openMusicPlayer()
                 <div class="stage-heading"><a class="library-return" href="$libraryDirectoryHref" aria-label="再生中の曲があるフォルダへ戻る"><svg class="icon" aria-hidden="true"><use href="#i-library-return"/></svg><span>ライブラリ</span></a><p class="section-label">NOW PLAYING</p><span class="track-position" id="trackPosition"></span></div>
                 <div class="album-art" role="img" aria-label="アルバムアート"></div>
                 <div class="track-info" aria-live="polite" aria-atomic="true">
-                    <h1 class="track-title" id="trackTitle">$safeBaseFile</h1>
-                    <p class="track-artist" id="trackArtist"></p>
+                    <h1 class="track-title"><span class="track-text" id="trackTitle">$safeBaseFile</span></h1>
+                    <p class="track-artist"><span class="track-text" id="trackArtist"></span></p>
                 </div>
                 <div class="progress-container">
                     <input type="range" class="range-slider" id="progressBar" min="0" max="1000" value="0" step="1" aria-label="再生位置" aria-valuetext="0:00" disabled>
@@ -558,6 +571,13 @@ function openMusicDirectoryPlayer(): void
     $returnHref = musicPlayerBuildPublicDirectoryHref((string)($conf['publicDir'] ?? ''), '.');
 
     try {
+        $scope = null;
+        if (array_key_exists('scope', $_POST)) {
+            if (!is_string($_POST['scope'])) {
+                throw new MusicQueueException('music queue filter is invalid', 400);
+            }
+            $scope = musicQueueParseRootScope($_POST['scope']);
+        }
         $resolvedDirectory = musicQueueResolveDirectory(
             (string)$conf['sharePath'],
             $requestedDirectory
@@ -566,11 +586,17 @@ function openMusicDirectoryPlayer(): void
             (string)($conf['publicDir'] ?? ''),
             (string)$resolvedDirectory['relativeDirectory']
         );
+        $queueOptions = [];
+        if ($scope !== null) {
+            $queueOptions['rootEntryFilter'] = static fn(string $entry, bool $_isDirectory): bool => isset($scope[$entry]);
+        }
         $queue = musicQueueCollectRecursiveTracks(
             (string)$conf['sharePath'],
             $requestedDirectory,
-            $directoryAudioFormats
+            $directoryAudioFormats,
+            $queueOptions
         );
+        $queue['filtered'] = $scope !== null;
         $returnHref = musicPlayerBuildPublicDirectoryHref(
             (string)($conf['publicDir'] ?? ''),
             (string)$queue['root']

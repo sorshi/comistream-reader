@@ -1487,6 +1487,25 @@ function applyDirectoryFilter() {
 
 }
 
+// 絞り込み中だけ、画面に残っている直下項目を音楽キューの起点として返すルン。
+function getDirectoryMusicFilterScope() {
+  const searchForm = document.searchform;
+  const favButton = document.getElementById("favbutton");
+  const query = searchForm && searchForm.textbox
+    ? searchForm.textbox.value.trim()
+    : "";
+  const favoriteOnly = Boolean(favButton && favButton.style.backgroundImage);
+  if (!query && !favoriteOnly) return null;
+
+  const tableBody = document.querySelector("#table-tbody");
+  if (!tableBody) return [];
+
+  return Array.from(tableBody.querySelectorAll("tr:not(.parent-dir-row)"))
+    .filter((row) => row.style.display !== "none")
+    .map((row) => row.querySelector(".indexcolname a")?.textContent || "")
+    .filter((name) => name !== "");
+}
+
 // 検索機能
 function search() {
   saveDirectoryFilterState();
@@ -2045,6 +2064,8 @@ function initializeDirectoryListing() {
 function initializeFolderActions() {
   const button = document.getElementById("folderActionsButton");
   const panel = document.getElementById("folderActionsPanel");
+  const musicForm = document.getElementById("folderMusicForm");
+  const musicScope = document.getElementById("folderMusicScope");
   if (!button || !panel || button.dataset.initialized === "true") return;
 
   const close = (restoreFocus = false) => {
@@ -2058,7 +2079,13 @@ function initializeFolderActions() {
     const willOpen = panel.hidden;
     panel.hidden = !willOpen;
     button.setAttribute("aria-expanded", String(willOpen));
-    if (willOpen) panel.querySelector("a")?.focus();
+    if (willOpen) panel.querySelector("a, button")?.focus();
+  });
+  musicForm?.addEventListener("submit", () => {
+    if (!musicScope) return;
+    const scope = getDirectoryMusicFilterScope();
+    musicScope.disabled = scope === null;
+    musicScope.value = scope === null ? "" : JSON.stringify(scope);
   });
   panel.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("click", () => close());

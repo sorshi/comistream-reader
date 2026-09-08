@@ -88,6 +88,48 @@ try {
     ], 'Recursive queue ordering or path preservation was incorrect.');
     musicQueueTestAssert($queue['tracks'][5]['relativeDirectory'] === 'Disc 1/Sub', 'Relative track directories were not preserved.');
 
+    $scope = musicQueueParseRootScope('["Disc 1","00-root.mp3","Disc 1"]');
+    musicQueueTestAssert(
+        array_keys($scope) === ['Disc 1', '00-root.mp3'],
+        'Filter scope should preserve valid unique root entry names.'
+    );
+    $scopedQueue = musicQueueCollectRecursiveTracks(
+        $shareRoot,
+        '.',
+        ['mp3'],
+        ['rootEntryFilter' => static fn(string $entry, bool $_isDirectory): bool => isset($scope[$entry])]
+    );
+    musicQueueTestAssert(
+        array_column($scopedQueue['tracks'], 'path') === [
+            '00-root.mp3',
+            'Disc 1/01.mp3',
+            'Disc 1/02.mp3',
+            'Disc 1/Sub/03.mp3',
+        ],
+        'Filtered queues should include only visible root files and descendants of visible root directories.'
+    );
+    $emptyScopedQueue = musicQueueCollectRecursiveTracks(
+        $shareRoot,
+        '.',
+        ['mp3'],
+        ['rootEntryFilter' => static fn(): bool => false]
+    );
+    musicQueueTestAssert($emptyScopedQueue['tracks'] === [], 'An empty filter scope should produce an empty queue.');
+    musicQueueTestExpectStatus(
+        static function (): void {
+            musicQueueParseRootScope('["../outside"]');
+        },
+        400,
+        'Filter scope traversal should be rejected'
+    );
+    musicQueueTestExpectStatus(
+        static function (): void {
+            musicQueueParseRootScope('{"entry":"Disc 1"}');
+        },
+        400,
+        'Filter scope objects should be rejected'
+    );
+
     $nestedQueue = musicQueueCollectRecursiveTracks($shareRoot, 'Disc 1', ['mp3']);
     musicQueueTestAssert(
         array_column($nestedQueue['tracks'], 'relativeDirectory') === ['', '', 'Sub'],

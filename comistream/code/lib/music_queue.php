@@ -38,6 +38,46 @@ if (!defined('MUSIC_QUEUE_MAX_ENTRIES')) {
 if (!defined('MUSIC_QUEUE_MAX_SECONDS')) {
     define('MUSIC_QUEUE_MAX_SECONDS', 10.0);
 }
+if (!defined('MUSIC_QUEUE_MAX_SCOPE_BYTES')) {
+    define('MUSIC_QUEUE_MAX_SCOPE_BYTES', 131072);
+}
+if (!defined('MUSIC_QUEUE_MAX_SCOPE_ENTRIES')) {
+    define('MUSIC_QUEUE_MAX_SCOPE_ENTRIES', 2000);
+}
+
+/**
+ * 一覧画面から受け取った直下項目名を検証して集合へ変換するルン。
+ */
+function musicQueueParseRootScope(string $json): array
+{
+    if (strlen($json) > MUSIC_QUEUE_MAX_SCOPE_BYTES) {
+        throw new MusicQueueException('music queue filter is too large', 422);
+    }
+
+    try {
+        $entries = json_decode($json, true, 32, JSON_THROW_ON_ERROR);
+    } catch (JsonException $exception) {
+        throw new MusicQueueException('music queue filter is invalid', 400);
+    }
+    if (!is_array($entries) || count($entries) > MUSIC_QUEUE_MAX_SCOPE_ENTRIES) {
+        throw new MusicQueueException('music queue filter is invalid', 400);
+    }
+
+    $scope = [];
+    $expectedIndex = 0;
+    foreach ($entries as $index => $entry) {
+        if ($index !== $expectedIndex++) {
+            throw new MusicQueueException('music queue filter is invalid', 400);
+        }
+        if (!is_string($entry) || $entry === '' || $entry === '.' || $entry === '..'
+            || strlen($entry) > 1024 || strpos($entry, "\0") !== false
+            || strpos($entry, '/') !== false || strpos($entry, '\\') !== false) {
+            throw new MusicQueueException('music queue filter entry is invalid', 400);
+        }
+        $scope[$entry] = true;
+    }
+    return $scope;
+}
 
 /**
  * 共有領域からの相対ディレクトリを一度だけ正規化するルン。
@@ -345,6 +385,9 @@ function musicQueueCollectRecursiveTracks(
         : static function (): float {
             return function_exists('hrtime') ? hrtime(true) / 1000000000 : microtime(true);
         };
+    $rootEntryFilter = isset($options['rootEntryFilter']) && is_callable($options['rootEntryFilter'])
+        ? $options['rootEntryFilter']
+        : null;
     $startedAt = $clock();
     $state = [
         'entries' => 0,
@@ -377,7 +420,8 @@ function musicQueueCollectRecursiveTracks(
         $resolved,
         $audioExtensions,
         $limits,
-        $checkLimits
+        $checkLimits,
+        $rootEntryFilter
     ): void {
         if ($depth > $limits['maxDepth']) {
             throw new MusicQueueException('music queue depth limit exceeded', 422);
@@ -404,6 +448,10 @@ function musicQueueCollectRecursiveTracks(
             $entryStat = @lstat($entryPath);
             if ($entryStat === false) {
                 throw new MusicQueueException('music directory entry could not be read', 503);
+            }
+            if ($depth === 0 && $rootEntryFilter !== null
+                && !$rootEntryFilter($entry, is_dir($entryPath))) {
+                continue;
             }
             if (is_file($entryPath)) {
                 $extension = strtolower(pathinfo($entry, PATHINFO_EXTENSION));

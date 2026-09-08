@@ -166,6 +166,53 @@ test("アーティストはメタデータ取得完了まで空欄にし、未�
   assert.equal(player.trackArtist.textContent, "Tagged Artist");
 });
 
+test("デスクトップで長い曲情報だけを横スクロール対象にする", () => {
+  const originalWindow = global.window;
+  const originalRequestAnimationFrame = global.requestAnimationFrame;
+  const classes = new Set();
+  const properties = new Map();
+  const parentElement = { clientWidth: 120 };
+  const element = {
+    parentElement,
+    scrollWidth: 200,
+    textContent: "Very Long Track Title",
+    title: "",
+    classList: {
+      add: (name) => classes.add(name),
+      remove: (name) => classes.delete(name),
+    },
+    style: {
+      setProperty: (name, value) => properties.set(name, value),
+      removeProperty: (name) => properties.delete(name),
+    },
+    set title(value) { this._title = value; },
+    get title() { return this._title || ""; },
+    removeAttribute(name) {
+      if (name === "title") this.title = "";
+    },
+  };
+  const player = Object.create(MusicPlayer.prototype);
+  player.trackTitle = element;
+  player.trackArtist = null;
+
+  global.window = { matchMedia: () => ({ matches: false }) };
+  global.requestAnimationFrame = (callback) => callback();
+  try {
+    player.refreshTrackTextOverflow();
+    assert.equal(classes.has("is-overflowing"), true);
+    assert.equal(properties.get("--marquee-distance"), "-80px");
+    assert.equal(element.title, "Very Long Track Title");
+
+    element.scrollWidth = 100;
+    player.refreshTrackTextOverflow();
+    assert.equal(classes.has("is-overflowing"), false);
+    assert.equal(element.title, "");
+  } finally {
+    global.window = originalWindow;
+    global.requestAnimationFrame = originalRequestAnimationFrame;
+  }
+});
+
 test("MIMEを判定できない既存音声形式でも原本再生を試す", async () => {
   const originalFetch = global.fetch;
   global.fetch = async () => ({

@@ -252,15 +252,25 @@ a:hover{
   background:#fff;
   box-shadow:0 5px 18px rgba(42,55,80,.2);
 }
-.folder-actions-panel a{
+.folder-actions-panel a,
+.folder-actions-panel button{
   display:block;
+  box-sizing:border-box;
+  width:100%;
   min-height:44px;
   padding:8px 12px;
+  border:0;
+  background:transparent;
   color:#61666c;
+  font:inherit;
   line-height:28px;
+  text-align:left;
+  cursor:pointer;
+  text-decoration:underline;
   white-space:nowrap;
 }
-.folder-actions-panel a:hover{
+.folder-actions-panel a:hover,
+.folder-actions-panel button:hover{
   background:#edf3fe;
 }
 
@@ -424,7 +434,8 @@ td.indexcolsize{
     left:auto;
     max-width:calc(100vw - 20px);
   }
-  .folder-actions-panel a{
+  .folder-actions-panel a,
+  .folder-actions-panel button{
     white-space:normal;
   }
 }

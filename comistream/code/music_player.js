@@ -234,6 +234,7 @@ class MusicPlayer {
     document.addEventListener("visibilitychange", () =>
       this.onVisibilityChange()
     );
+    window.addEventListener("resize", () => this.refreshTrackTextOverflow());
   }
 
   initMediaSession() {
@@ -716,7 +717,8 @@ class MusicPlayer {
       ? `${this.musicQueue.label} · `
       : "";
     const recursive = this.musicQueue.source === "directory" && this.musicQueue.recursive;
-    return `${label}${this.musicFiles.length}曲${recursive ? " · サブフォルダを含む" : ""}`;
+    const filtered = this.musicQueue.filtered === true;
+    return `${label}${this.musicFiles.length}曲${filtered ? " · 絞り込み" : ""}${recursive ? " · サブフォルダを含む" : ""}`;
   }
 
   updateTrackInfo(track) {
@@ -729,6 +731,7 @@ class MusicPlayer {
     if (artistMatch) {
       this.trackTitle.textContent = artistMatch[2];
     }
+    this.refreshTrackTextOverflow();
 
     // Media Session metadata を更新
     if ("mediaSession" in navigator) {
@@ -751,6 +754,7 @@ class MusicPlayer {
     if (title && typeof title === "string") {
       this.trackTitle.textContent = title;
     }
+    this.refreshTrackTextOverflow();
     if ("mediaSession" in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: this.trackTitle.textContent,
@@ -761,6 +765,35 @@ class MusicPlayer {
         ],
       });
     }
+  }
+
+  refreshTrackTextOverflow() {
+    const elements = [this.trackTitle, this.trackArtist].filter(
+      (element) => element && element.parentElement
+    );
+    if (elements.length === 0) return;
+
+    const schedule = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (callback) => setTimeout(callback, 0);
+    schedule(() => {
+      const compactLayout = window.matchMedia?.("(max-width: 899px)").matches;
+      elements.forEach((element) => {
+        element.classList.remove("is-overflowing");
+        element.style.removeProperty("--marquee-distance");
+        element.style.removeProperty("--marquee-duration");
+        element.removeAttribute("title");
+        if (compactLayout) return;
+
+        const overflow = Math.ceil(element.scrollWidth - element.parentElement.clientWidth);
+        if (overflow <= 1) return;
+        const duration = Math.max(8, Math.min(24, overflow / 24 + 6));
+        element.style.setProperty("--marquee-distance", `-${overflow}px`);
+        element.style.setProperty("--marquee-duration", `${duration}s`);
+        element.classList.add("is-overflowing");
+        element.title = element.textContent;
+      });
+    });
   }
 
   togglePlayPause() {

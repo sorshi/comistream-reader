@@ -10,6 +10,7 @@ const dirListSource = fs.readFileSync(
 );
 
 function createRow(name, { favorite = false, parent = false } = {}) {
+  const nameAnchor = { textContent: name };
   const nameCell = { textContent: name, innerText: name };
   const iconCell = {
     style: {
@@ -22,6 +23,7 @@ function createRow(name, { favorite = false, parent = false } = {}) {
     style: { display: "" },
     querySelector(selector) {
       if (selector === ".indexcolname") return nameCell;
+      if (selector === ".indexcolname a") return nameAnchor;
       if (selector === ".indexcolicon") return iconCell;
       return null;
     },
@@ -123,6 +125,10 @@ test("お気に入り絞り込みも履歴へ保存し、別パスには復元�
   );
   assert.equal(favorite.style.display, "");
   assert.equal(normal.style.display, "none");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(vm.runInContext("getDirectoryMusicFilterScope()", fixture.context))),
+    ["Favorite.cbz"]
+  );
 
   fixture.window.location.pathname = "/other/";
   fixture.favButton.style.backgroundImage = "";
@@ -131,4 +137,25 @@ test("お気に入り絞り込みも履歴へ保存し、別パスには復元�
     false
   );
   assert.equal(fixture.favButton.style.backgroundImage, "");
+});
+
+test("音楽フォルダ操作は絞り込み後に表示中の直下項目だけを渡す", () => {
+  const musicDirectory = createRow("Music Albums");
+  const matchingTrack = createRow("Music Theme.mp3");
+  const hiddenTrack = createRow("Voice Drama.m4a");
+  const fixture = createContext([musicDirectory, matchingTrack, hiddenTrack]);
+
+  assert.equal(
+    vm.runInContext("getDirectoryMusicFilterScope()", fixture.context),
+    null
+  );
+
+  fixture.document.searchform.textbox.value = "music";
+  vm.runInContext("search()", fixture.context);
+  const scope = vm.runInContext("getDirectoryMusicFilterScope()", fixture.context);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(scope)), [
+    "Music Albums",
+    "Music Theme.mp3",
+  ]);
 });

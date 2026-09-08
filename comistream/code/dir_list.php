@@ -1131,7 +1131,10 @@ if ($is_404_mode) {
                     <div class="folder-actions">
                         <button type="button" class="folder-actions-button" id="folderActionsButton" aria-label="<?php echo $music_folder_actions_label; ?>" aria-expanded="false" aria-controls="folderActionsPanel">⋯</button>
                         <div class="folder-actions-panel" id="folderActionsPanel" hidden>
-                            <a href="<?php echo htmlspecialchars($music_directory_href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); ?>"><?php echo $music_folder_play_label; ?></a>
+                            <form class="folder-music-form" id="folderMusicForm" method="post" action="<?php echo htmlspecialchars($music_directory_href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); ?>">
+                                <input type="hidden" id="folderMusicScope" name="scope" value="" disabled>
+                                <button type="submit"><?php echo $music_folder_play_label; ?></button>
+                            </form>
                         </div>
                     </div>
                 <?php endif; ?>
