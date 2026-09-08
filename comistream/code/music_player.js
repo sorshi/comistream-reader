@@ -883,7 +883,7 @@ class MusicPlayer {
     }
   }
 
-  nextTrack() {
+  nextTrack(shouldContinuePlayback = this.isPlaying) {
     console.log(
       "nextTrack() called, current index:",
       this.currentIndex,
@@ -903,24 +903,20 @@ class MusicPlayer {
         // repeat all
         this.currentIndex = 0;
       } else {
-        // デフォルト状態（repeatMode = 0）でも最初の曲に戻って連続再生
-        if (this.repeatMode === 0) {
-          this.currentIndex = 0;
-        } else if (this.repeatMode !== 2) {
-          // repeat oneでなければ停止
-          console.log("Stopping playback - no repeat mode");
-          this.pause();
-          return;
-        }
+        // 全曲リピートが無効なら、キューの末尾で再生を終えるルン。
+        console.log("Stopping playback at end of queue - repeat all is off");
+        this.pause();
+        this.setStatus("再生終了");
+        return false;
       }
     }
 
     console.log("Moving to track index:", this.currentIndex);
-    const shouldPlay = this.isPlaying;
     this.loadCurrentTrack();
-    if (shouldPlay) {
+    if (shouldContinuePlayback) {
       this.play();
     }
+    return true;
   }
 
   onTrackEnded() {
@@ -930,13 +926,13 @@ class MusicPlayer {
       this.audioPlayer.currentTime = 0;
       this.play();
     } else {
-      this.nextTrack();
-      // 楽曲終了からの自動進行時は必ず再生を開始する
-      console.log(
-        "Auto-advancing to next track, currentIndex:",
-        this.currentIndex
-      );
-      this.play();
+      // ended直後のpaused状態に左右されず、次曲がある場合だけ再生するルン。
+      if (this.nextTrack(true)) {
+        console.log(
+          "Auto-advancing to next track, currentIndex:",
+          this.currentIndex
+        );
+      }
     }
   }
 
@@ -1839,7 +1835,7 @@ class MusicPlayer {
   handleKeyPress(event) {
     // 入力欄・ボタン・ダイアログの標準操作を優先するルン。
     if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || this.playlistDialog?.open) return;
-    if (event.target.closest("input, textarea, select, button, a, [contenteditable]:not([contenteditable='false'])")) return;
+    if (event.target.closest("input, textarea, select, button, summary, a, [contenteditable]:not([contenteditable='false'])")) return;
     // キーボードショートカット
     switch (event.code) {
       case "Space":

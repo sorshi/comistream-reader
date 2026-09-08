@@ -461,8 +461,8 @@ $global_debug_flag = isset($global_debug_flag) ? $global_debug_flag : false;
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
-    ? '/theme/style_cover.css?2026082601'
-    : '/theme/style.css?2026082601';
+    ? '/theme/style_cover.css?2026090801'
+    : '/theme/style.css?2026090801';
 $music_folder_actions_label = htmlspecialchars(
     I18n::getInstance()->get('music_folder_actions', 'フォルダ操作'),
     ENT_QUOTES | ENT_SUBSTITUTE,

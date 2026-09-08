@@ -355,8 +355,14 @@ function openMusicPlayer()
         .secondary-controls.volume-unavailable { justify-content: flex-end; }
         .volume-container { display: flex; align-items: center; gap: 12px; flex: 1 1 180px; min-width: min(100%, 180px); color: var(--muted); }
         .volume-slider { --progress: 70%; }
-        .speed-container { display: flex; align-items: center; gap: 8px; min-height: 44px; color: var(--muted); font-size: 12px; }
-        .speed-select { min-height: 44px; min-width: 118px; padding: 8px 30px 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); font-size: 16px; }
+        .player-options { position: relative; flex-shrink: 0; }
+        .player-options summary { list-style: none; cursor: pointer; }
+        .player-options summary::-webkit-details-marker { display: none; }
+        .player-options-toggle { width: 40px; height: 40px; color: var(--muted); font-size: 20px; letter-spacing: .08em; }
+        .player-options[open] .player-options-toggle { background: #ffffff12; color: var(--text); }
+        .player-options-panel { position: absolute; z-index: 10; right: 0; bottom: calc(100% + 8px); width: max-content; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 12px 30px #0006; }
+        .speed-container { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+        .speed-select { min-height: 36px; min-width: 92px; padding: 6px 26px 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 14px; }
         .queue-panel { min-width: 0; border: 1px solid var(--line); border-radius: 28px; background: #111a2a; overflow: hidden; }
         .queue-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 24px 22px 16px; }
         .queue-heading h2 { font-size: 20px; margin: 7px 0 0; }
@@ -473,18 +479,23 @@ function openMusicPlayer()
                 </div>
                 <div class="secondary-controls">
                     <div class="volume-container" id="volumeContainer"><svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg><input type="range" class="range-slider volume-slider" id="volumeSlider" min="0" max="100" value="70" aria-label="音量"></div>
-                    <div class="speed-container">
-                        <label for="playbackRate">$speedLabel</label>
-                        <select class="speed-select" id="playbackRate" aria-label="$speedLabel">
-                            <option value="0.5">0.5×</option>
-                            <option value="0.75">0.75×</option>
-                            <option value="1" selected>1.0×（標準）</option>
-                            <option value="1.25">1.25×</option>
-                            <option value="1.5">1.5×</option>
-                            <option value="1.75">1.75×</option>
-                            <option value="2">2.0×</option>
-                        </select>
-                    </div>
+                    <details class="player-options">
+                        <summary class="control-btn player-options-toggle" title="$speedLabel" aria-label="$speedLabel"><span aria-hidden="true">⋯</span></summary>
+                        <div class="player-options-panel">
+                            <div class="speed-container">
+                                <label for="playbackRate">$speedLabel</label>
+                                <select class="speed-select" id="playbackRate" aria-label="$speedLabel">
+                                    <option value="0.5">0.5×</option>
+                                    <option value="0.75">0.75×</option>
+                                    <option value="1" selected>1.0×</option>
+                                    <option value="1.25">1.25×</option>
+                                    <option value="1.5">1.5×</option>
+                                    <option value="1.75">1.75×</option>
+                                    <option value="2">2.0×</option>
+                                </select>
+                            </div>
+                        </div>
+                    </details>
                     <a class="control-btn" id="downloadBtn" title="ダウンロード" aria-label="現在の曲をダウンロード" href="#" download><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg></a>
                 </div>
             </section>

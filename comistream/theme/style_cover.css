@@ -217,17 +217,23 @@ input[type="search"]::-webkit-search-cancel-button {
   flex: 0 0 auto;
 }
 .folder-actions-button {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
+  position: relative;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
   padding: 0;
   border: 1px solid #d4ddec;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
   color: #61666c;
-  font-size: 1.5em;
+  font-size: 1.15em;
   line-height: 1;
   cursor: pointer;
+}
+.folder-actions-button::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
 }
 .folder-actions-button:hover,
 .folder-actions-button[aria-expanded="true"] {
@@ -237,7 +243,7 @@ input[type="search"]::-webkit-search-cancel-button {
 .folder-actions-panel {
   position: absolute;
   z-index: 10;
-  top: 48px;
+  top: 36px;
   right: 0;
   width: max-content;
   max-width: min(80vw, 360px);
