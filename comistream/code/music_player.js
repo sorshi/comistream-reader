@@ -12,6 +12,110 @@
  * @version     2.0.0
  */
 
+const MUSIC_LIBRARY_RETURN_HISTORY_KEY = "comistreamMusicLibraryReturn";
+
+function normalizeMusicLibraryPathname(pathname) {
+  if (typeof pathname !== "string" || !pathname.startsWith("/")) {
+    return null;
+  }
+
+  if (pathname === "/") {
+    return "/";
+  }
+
+  return `${pathname.replace(/\/+$/, "")}/`;
+}
+
+function getMusicLibraryReturnPath(libraryHref, origin) {
+  if (typeof libraryHref !== "string" || typeof origin !== "string") {
+    return null;
+  }
+
+  try {
+    const libraryUrl = new URL(libraryHref, origin);
+    if (libraryUrl.origin !== origin) {
+      return null;
+    }
+    return normalizeMusicLibraryPathname(libraryUrl.pathname);
+  } catch (error) {
+    return null;
+  }
+}
+
+function referrerMatchesMusicLibrary(libraryHref, browserWindow) {
+  const origin = browserWindow?.location?.origin;
+  const referrer = browserWindow?.document?.referrer;
+  const libraryPath = getMusicLibraryReturnPath(libraryHref, origin);
+  if (!libraryPath || typeof referrer !== "string" || referrer === "") {
+    return false;
+  }
+
+  try {
+    const referrerUrl = new URL(referrer, origin);
+    return referrerUrl.origin === origin
+      && normalizeMusicLibraryPathname(referrerUrl.pathname) === libraryPath;
+  } catch (error) {
+    return false;
+  }
+}
+
+function hasMusicLibraryReturnMarker(historyState, libraryHref, origin) {
+  const libraryPath = getMusicLibraryReturnPath(libraryHref, origin);
+  const marker = historyState?.[MUSIC_LIBRARY_RETURN_HISTORY_KEY];
+  return libraryPath !== null
+    && marker?.version === 1
+    && marker.libraryPath === libraryPath;
+}
+
+// 直開きでは通常リンクへフォールバックし、一覧から来たプレイヤーだけ履歴へ戻すルン。
+function initializeMusicLibraryReturnNavigation(link, browserWindow) {
+  if (!link || !browserWindow?.history || !browserWindow?.location) {
+    return;
+  }
+
+  const { history, location } = browserWindow;
+  const libraryPath = getMusicLibraryReturnPath(link.href, location.origin);
+  if (!libraryPath) {
+    return;
+  }
+
+  if (
+    !hasMusicLibraryReturnMarker(history.state, link.href, location.origin)
+    && referrerMatchesMusicLibrary(link.href, browserWindow)
+  ) {
+    const currentState = history.state && typeof history.state === "object"
+      ? history.state
+      : {};
+    history.replaceState(
+      {
+        ...currentState,
+        [MUSIC_LIBRARY_RETURN_HISTORY_KEY]: {
+          version: 1,
+          libraryPath,
+        },
+      },
+      ""
+    );
+  }
+
+  link.addEventListener("click", (event) => {
+    const hasModifier = event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+    const isPrimaryClick = event.button === undefined || event.button === 0;
+    if (
+      event.defaultPrevented
+      || hasModifier
+      || !isPrimaryClick
+      || history.length <= 1
+      || !hasMusicLibraryReturnMarker(history.state, link.href, location.origin)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    history.back();
+  });
+}
+
 class MusicPlayer {
   constructor() {
     this.audioPlayer = document.getElementById("audioPlayer");
@@ -134,11 +238,14 @@ class MusicPlayer {
     this.lyricsContainer = document.getElementById("lyricsContainer");
     this.lyricsReturnBtn = document.getElementById("lyricsReturnBtn");
     this.lyricsAttribution = document.getElementById("lyricsAttribution");
+    this.libraryReturnLink = document.querySelector(".library-return");
     // ダウンロード
     this.downloadBtn = document.getElementById("downloadBtn");
   }
 
   initEventListeners() {
+    initializeMusicLibraryReturnNavigation(this.libraryReturnLink, window);
+
     // プレイヤーコントロール
     this.playPauseBtn.addEventListener("click", () => this.togglePlayPause());
     this.prevBtn.addEventListener("click", () => this.previousTrack());
@@ -1930,5 +2037,10 @@ if (typeof document !== "undefined") {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { MusicPlayer };
+  module.exports = {
+    MusicPlayer,
+    hasMusicLibraryReturnMarker,
+    initializeMusicLibraryReturnNavigation,
+    referrerMatchesMusicLibrary,
+  };
 }
