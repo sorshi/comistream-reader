@@ -19,6 +19,8 @@ return [
     'compressed' => '壓縮',
     'single_page' => '單頁',
     'spread_page' => '雙頁',
+    'auto_page' => '自動',
+    'tooltip_auto_page' => '顯示區域橫向時使用雙頁，否則使用單頁。橫向圖片單獨顯示。按下可切換為固定單頁',
     'spread_fix' => '雙頁修正',
     'direction' => '閱讀方向',
     'direction_right' => '右翻',

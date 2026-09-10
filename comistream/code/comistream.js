@@ -221,7 +221,19 @@ class PreCache {
 var preCaches = new PreCache(global_preload_pages);
 var nextimage1 = new Image();
 var nextimage2 = new Image();
+// pageは回転で変えない読書位置、displayedStart/Endは実際の表示範囲ルン
 var mode = 1;
+var pageModePreference = "single";
+var readerReady = false;
+var readerLayoutPending = false;
+var readerRenderId = 0;
+var displayedStart = 1;
+var displayedEnd = 1;
+var readerRenderPending = false;
+var spreadLayoutPaired = false;
+var quickSpreadTimer = null;
+var quickSpreadGeneration = 0;
+const pageShapeCache = new Map();
 var indexName = ""; // 未使用?? コードには$indexが代入されてたけど見当たらない。削除漏れ?
 var tapFlag = false;
 var timer;
@@ -304,7 +316,7 @@ function scheduleReaderViewportRelayout(reason) {
   viewportRelayoutTimer = setTimeout(function () {
     viewportRelayoutTimer = null;
     logViewportSnapshot(reason);
-    void refreshAutoLightSplitLayout(reason, requestId);
+    void updateReaderViewport(reason, requestId);
   }, VIEWPORT_RELAYOUT_DEBOUNCE_MS);
 }
 
@@ -336,11 +348,21 @@ if (
   window.visualViewport &&
   typeof window.visualViewport.addEventListener === "function"
 ) {
-  // visual viewportはピンチやキーボードでも変わるため、診断だけに使うルン
+  // visual viewportの寸法は判定せず、診断とズーム保留解除に使うルン
   window.visualViewport.addEventListener("resize", function () {
     scheduleViewportDiagnostics("visualViewport.resize");
+    if (readerLayoutPending && !isZoomed()) {
+      scheduleReaderViewportRelayout("zoom.end");
+    }
   });
 }
+
+document.addEventListener("focusout", function () {
+  if (readerLayoutPending) scheduleReaderViewportRelayout("focusout");
+});
+window.addEventListener("touchend", function () {
+  if (readerLayoutPending) scheduleReaderViewportRelayout("touchend");
+});
 
 // 全画面モードの変更を監視するイベントリスナー ルン！
 // ESCキーでの解除にも対応できるルン！
@@ -662,14 +684,15 @@ window.onclick = function (event) {
     ) {
       return;
     }
-    modal.style.display = "none";
-    overlay.style.display = "none";
+    closeQuickSpread();
   }
 };
 
 // 端末の回転を検知して横位置ならクイック見開きモードにする
 window.addEventListener("orientationchange", () => {
   scheduleReaderViewportRelayout("window.orientationchange");
+
+  if (!readerReady || pageModePreference === "auto") return;
 
   // 端末の傾きを絶対値で取得する
   var direction = Math.abs(window.orientation);
@@ -704,6 +727,7 @@ function resetZoom() {
     // 元の viewport 設定に戻す（短い遅延を入れてレイアウトを安定させる）
     setTimeout(() => {
       viewport.setAttribute("content", originalViewportContent);
+      if (readerLayoutPending) scheduleReaderViewportRelayout("resetZoom");
     }, 50);
   }
 }
@@ -716,10 +740,8 @@ function saveCurrentPage() {
     savePageTimer = null;
   }
 
-  let localPage = page;
-  if (mode == 2) {
-    localPage = page + 1;
-  }
+  if (!readerReady) return;
+  const localPage = page;
   if (page >= maxPage) {
     document.cookie = "lastCloseFile=" + baseFile + "; path=/;";
   } else {
@@ -943,6 +965,7 @@ function hideSuggestPanel() {
 }
 
 function next() {
+  if (readerRenderPending) return;
   const imageElement = document.getElementById("image");
   if (
     window.ComistreamViewport.shouldPanAutoLightSplit({
@@ -955,8 +978,8 @@ function next() {
     imageElement.style.backgroundPosition = "left";
     autoLightSplitModeViewPosition = "left";
   } else {
-    if (page + mode <= maxPage) {
-      page = page + mode;
+    if (displayedEnd < maxPage) {
+      page = displayedEnd + 1;
       // 別デバイスでページを読み進んでいたら移動する
       let now = Math.floor(new Date().getTime() / 1000);
       if (now - unixtime > 60) {
@@ -1012,6 +1035,7 @@ function next() {
 }
 
 function back() {
+  if (readerRenderPending) return;
   const imageElement = document.getElementById("image");
   if (
     window.ComistreamViewport.shouldPanAutoLightSplit({
@@ -1024,8 +1048,8 @@ function back() {
     imageElement.style.backgroundPosition = "right";
     autoLightSplitModeViewPosition = "right";
   } else {
-    if (page > 1) {
-      page = page - mode;
+    if (displayedStart > 1) {
+      page = displayedStart - 1;
       loadPage(-1);
       if (autoLightSplitMode == true) {
         document.getElementById("image").style.backgroundPosition = "left";
@@ -1048,12 +1072,13 @@ function back() {
 }
 
 function nextIndex() {
+  if (readerRenderPending) return false;
   const jumpStops = getChapterJumpStops();
   const pageStopFinder = window.ComistreamReaderMarkers?.findAdjacentPageStop;
   const targetPage =
     typeof pageStopFinder === "function"
-      ? pageStopFinder(jumpStops, page, mode, false)
-      : jumpStops.find((stop) => page + mode - 1 < stop);
+      ? pageStopFinder(jumpStops, displayedStart, displayedEnd - displayedStart + 1, false)
+      : jumpStops.find((stop) => displayedEnd < stop);
   if (targetPage !== null && typeof targetPage !== "undefined") {
     page = targetPage;
     loadPage(1);
@@ -1079,15 +1104,16 @@ function nextIndex() {
 }
 
 function backIndex() {
+  if (readerRenderPending) return false;
   const jumpStops = getChapterJumpStops();
   const pageStopFinder = window.ComistreamReaderMarkers?.findAdjacentPageStop;
   const targetPage =
     typeof pageStopFinder === "function"
-      ? pageStopFinder(jumpStops, page, mode, true)
+      ? pageStopFinder(jumpStops, displayedStart, displayedEnd - displayedStart + 1, true)
       : jumpStops
           .slice()
           .reverse()
-          .find((stop) => page > stop);
+          .find((stop) => displayedStart > stop);
   if (targetPage !== null && typeof targetPage !== "undefined") {
     page = targetPage;
     loadPage(1);
@@ -1158,6 +1184,9 @@ async function devicePageSync() {
 }
 
 function loadPage(dir) {
+  closeQuickSpread();
+  page = Math.max(1, Math.min(maxPage, parseInt(page, 10) || 1));
+  autoLightSplitModeViewPosition = dir < 0 ? "left" : "right";
   debugLog("current page:" + page + " max page:" + maxPage);
   if (page == 1 || mode == 2) {
     // 表紙と見開きでは自動分割を引き継がないルン
@@ -1198,127 +1227,143 @@ function loadPage(dir) {
     savePageTimer = null;
     debugLog("saveCurrentPage() executed by timer (stayed 5sec)");
   }, 5000);
-  if (mode == 2) {
-    if (page % 2 == 1) page--;
-    page = page + fixPage;
-  } else if (mode == 1 && page <= 0) {
-    page = 1;
+  writeReaderStorage(file, String(page));
+  preCaches.recordPageTurn();
+  if (Math.abs(prevPage - page) > 3) {
+    const preloadPage = page;
+    setTimeout(() => preLoadInitialImages(preloadPage), global_preload_delay_ms);
   }
-  window.localStorage.setItem(file, String(page));
-  window.localStorage.setItem("pagemode", String(mode));
+  prevPage = page;
+  void renderReaderPage("navigation");
+}
 
-  if (document.getElementById("contents").style.display == "block") setSlider();
+function readReaderStorage(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch (error) {
+    return null;
+  }
+}
 
-  document.getElementById("progress").style.width =
-    (page / maxPage) * 100 + "%";
+function writeReaderStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch (error) {
+    debugLog("Reader settings could not be saved");
+  }
+}
 
-  if (page > 0) {
-    // トリミング実行（重いため未使用）
-    //var image = new Image();
-    //image.src = "comistream.php?file={$file}&size={$size}&page="+page+"$view_query";
-    //image.onload = function() {
-    //  var trimmedImageUrl = trimImage(image);
-    //  document.getElementById("image").style.backgroundImage = 'url(' + trimmedImageUrl + ')';
-    //};
+function resolveReaderMode() {
+  const viewport = window.ComistreamViewport.getLayoutViewportSize(
+    window, document.documentElement
+  );
+  return window.ComistreamViewport.resolvePageMode(pageModePreference, viewport, mode);
+}
 
-    debugLog("loadPage() autoLightSplitMode:" + autoLightSplitMode);
-    if (autoLightSplitMode) {
-      als = "&als=1";
-    } else {
-      als = "";
-    }
-    // ページめくり速度計測
-    preCaches.recordPageTurn();
+function updatePageModeButton() {
+  const button = document.getElementById("pageMode");
+  button.className = "button button-mode " + (mode === 2 ? "spread" : "single");
+  const showSpread = pageModePreference === "auto" ? spreadLayoutPaired : mode === 2;
+  const actual = showSpread ? window.i18n.toc_button_spread : window.i18n.toc_button_single;
+  button.textContent = pageModePreference === "auto"
+    ? window.i18n.toc_button_auto + " · " + actual : actual;
+  const tooltip = pageModePreference === "auto"
+    ? window.i18n.tooltip_auto_page
+    : button.getAttribute(mode === 2 ? "data-tooltip-spread" : "data-tooltip-single");
+  button.setAttribute("data-tooltip", tooltip);
+  button.setAttribute("aria-label", button.textContent + ": " + tooltip);
+}
 
-    document.getElementById("image").style.backgroundImage =
-      "url('" +
-      pageGenerator +
-      "?file=" +
-      file +
-      "&size=" +
-      size +
-      "&page=" +
-      page +
-      view_query +
-      als +
-      "')";
-    globalDivImageUrl = getFullImageUrl(page);
-    debugLog("loadPage() globalDivImageUrl:" + globalDivImageUrl);
+function readerInteractionBlocksLayout() {
+  const active = document.activeElement;
+  const textInput = active && active.tagName === "INPUT" &&
+    /^(text|search|email|number|tel|url|password)$/.test(active.type);
+  return isPinching || isZoomed() || (active &&
+    (active.isContentEditable || active.tagName === "TEXTAREA" || textInput));
+}
 
-    // ページ移動とviewport変更を同じ経路で再計算するルン
-    void refreshAutoLightSplitLayout("loadPage");
+async function updateReaderViewport(reason, requestId) {
+  if (!readerReady || readerInteractionBlocksLayout()) {
+    readerLayoutPending = true;
+    return;
+  }
+  readerLayoutPending = false;
+  const resolved = resolveReaderMode();
+  if (resolved !== mode) {
+    closeQuickSpread();
+    mode = resolved;
+    await renderReaderPage(reason);
   } else {
-    document.getElementById("image").style.backgroundImage = "none";
+    await refreshAutoLightSplitLayout(reason, requestId);
   }
+}
 
-  if (mode == 2) {
-    if (page < maxPage) {
-      document.getElementById("nextimage").style.backgroundImage =
-        "url('" +
-        pageGenerator +
-        "?file=" +
-        file +
-        "&size=" +
-        size +
-        "&page=" +
-        (1 + parseInt(page)) +
-        view_query +
-        als +
-        "')";
-    } else {
-      document.getElementById("nextimage").style.backgroundImage = "none";
+async function isWideReaderPage(number) {
+  if (number < 1 || number > maxPage) return false;
+  const url = getFullImageUrl(number, false);
+  if (pageShapeCache.has(url)) return pageShapeCache.get(url);
+  const image = await load_image(url);
+  if (!image) return null;
+  const wide = image.width >= image.height;
+  // 画像本体を保持せず、寸法判定だけを上限付きで保存するルン
+  pageShapeCache.set(url, wide);
+  if (pageShapeCache.size > 256) pageShapeCache.delete(pageShapeCache.keys().next().value);
+  return wide;
+}
+
+async function renderReaderPage(reason) {
+  const renderId = ++readerRenderId;
+  ++autoLightSplitLayoutRequestId;
+  readerRenderPending = true;
+  const target = page;
+  const targetMode = mode;
+  autoLightSplitMode = false;
+  als = "";
+  let layout = { start: target, end: target, paired: false };
+  try {
+    if (targetMode === 2) {
+      const start = window.ComistreamViewport.spreadStart(target, fixPage);
+      const shapes = await Promise.all([isWideReaderPage(start), isWideReaderPage(start + 1)]);
+      layout = window.ComistreamViewport.resolveSpreadLayout(target, fixPage, shapes);
+    }
+    if (renderId !== readerRenderId || target !== page || targetMode !== mode) return;
+    displayedStart = Math.max(1, layout.start);
+    displayedEnd = Math.min(maxPage, layout.end);
+    spreadLayoutPaired = layout.paired;
+    autoLightSplitMode = false;
+    als = "";
+    const first = document.getElementById("image");
+    const second = document.getElementById("nextimage");
+    first.style.width = layout.paired ? "50%" : "100%";
+    first.style.backgroundPosition = layout.paired ? direction : "center";
+    first.style.float = layout.paired ? position : "none";
+    first.style.marginLeft = "0px";
+    first.style.height = "100%";
+    first.style.backgroundSize = "contain";
+    second.style.display = layout.paired ? "block" : "none";
+    second.style.backgroundPosition = position;
+    second.style.float = direction;
+    first.style.backgroundImage = layout.start > 0
+      ? "url('" + getFullImageUrl(layout.start) + "')" : "none";
+    second.style.backgroundImage = layout.paired && layout.end <= maxPage
+      ? "url('" + getFullImageUrl(layout.end) + "')" : "none";
+    globalDivImageUrl = getFullImageUrl(target);
+    updatePageModeButton();
+    if (document.getElementById("contents").style.display === "block") setSlider();
+    document.getElementById("progress").style.width = (page / maxPage) * 100 + "%";
+    await refreshAutoLightSplitLayout(reason);
+    if (renderId !== readerRenderId) return;
+    if (reason === "navigation") {
+      preLoadImages(displayedEnd + 1);
+      preLoadImages(displayedEnd + 2);
+      preLoadImages(displayedEnd + preCaches.getSize());
+    }
+  } finally {
+    if (renderId === readerRenderId) {
+      readerRenderPending = false;
+      document.getElementById("loading").style.display = "none";
     }
   }
-
-  nextpage = dir * mode + page;
-  if (nextpage > 0 && nextpage <= maxPage) {
-    nextimage1.src =
-      pageGenerator +
-      "?file=" +
-      file +
-      "&size=" +
-      size +
-      "&page=" +
-      nextpage +
-      view_query +
-      als;
-    // if( document.getElementById("splitFile").classList.contains('normal') ){
-    // 非分割モード時の先読み処理
-    // モード関係なく常に先読みキャッシュ有効に
-    // }else{
-    // 分割モード時の先読み処理
-    if (Math.abs(prevPage - page) > 3) {
-      // 3ページ以上離れていたら再先読みを実行
-      setTimeout(() => {
-        preLoadInitialImages(nextpage);
-      }, global_preload_delay_ms);
-    } else {
-      if (nextpage + preCaches.getSize() <= maxPage) {
-        // なんか初期ロード時に23ページとか関係ないところ読むバグ対策（場当たり的）
-        if (preCaches.getSize() - nextpage > 15) {
-          debugLog("preLoadImages() SKIP:" + preCaches.getSize());
-        } else {
-          preLoadImages(nextpage + preCaches.getSize());
-        }
-      }
-    }
-    prevPage = page;
-    // }
-    if (mode == 2)
-      nextimage2.src =
-        pageGenerator +
-        "?file=" +
-        file +
-        "&size=" +
-        size +
-        "&page=" +
-        (1 + parseInt(nextpage)) +
-        view_query +
-        als;
-  } else {
-    // console.log("nextpage else");
-  }
-  document.getElementById("loading").style.display = "none";
 }
 
 // 分割モード時の先読み処理
@@ -1397,32 +1442,15 @@ async function restorePage() {
   }
 
   if (page == 1) {
-    page = parseInt(window.localStorage.getItem(file) || page);
+    page = parseInt(readReaderStorage(file) || page, 10);
   }
-  mode = parseInt(window.localStorage.getItem("pagemode") || mode);
-
-  // ページモードボタンの表示を現在のモードに合わせて設定 ルン！
-  if (mode == 2) {
-    // 見開モードの場合
-    document.getElementById("pageMode").className = "button spread button-mode";
-    document.getElementById("pageMode").textContent =
-      window.i18n.toc_button_spread;
-    document.getElementById("image").style.width = "50%";
-    document.getElementById("image").style.backgroundPosition = direction;
-    document.getElementById("image").style.float = position;
-    document.getElementById("nextimage").style.display = "block";
-    document.getElementById("nextimage").style.backgroundPosition = position;
-    document.getElementById("nextimage").style.float = direction;
-  } else {
-    // 単頁モードの場合（デフォルト）
-    document.getElementById("pageMode").className = "button single button-mode";
-    document.getElementById("pageMode").textContent =
-      window.i18n.toc_button_single;
-    document.getElementById("image").style.width = "100%";
-    document.getElementById("image").style.backgroundPosition = "center";
-    document.getElementById("image").style.float = "none";
-    document.getElementById("nextimage").style.display = "none";
-  }
+  pageModePreference = window.ComistreamViewport.restorePageModePreference(
+    readReaderStorage("readerPageModePreference"), readReaderStorage("pagemode")
+  );
+  mode = resolveReaderMode();
+  writeReaderStorage("readerPageModePreference", pageModePreference);
+  readerReady = true;
+  readerLayoutPending = false;
   loadPage(1);
   if (indexName != "") {
     Array.prototype.forEach.call(
@@ -1554,67 +1582,26 @@ function valueChange() {
     document.getElementById("slider").value;
 }
 
-// 単頁/見開モードのトグル切り替え ルン！現在のモードを表示するルン！
-function togglePageMode() {
-  if (mode === 1) {
-    // 単頁 → 見開に切り替え
-    mode = 2;
-    document.getElementById("pageMode").className = "button spread button-mode";
-    document.getElementById("pageMode").textContent =
-      window.i18n.toc_button_spread;
-    document.getElementById("image").style.width = "50%";
-    document.getElementById("image").style.backgroundPosition = direction;
-    document.getElementById("image").style.float = position;
-    document.getElementById("nextimage").style.display = "block";
-    document.getElementById("nextimage").style.backgroundPosition = position;
-    document.getElementById("nextimage").style.float = direction;
-  } else {
-    // 見開 → 単頁に切り替え
-    mode = 1;
-    document.getElementById("pageMode").className = "button single button-mode";
-    document.getElementById("pageMode").textContent =
-      window.i18n.toc_button_single;
-    document.getElementById("image").style.width = "100%";
-    document.getElementById("image").style.backgroundPosition = "center";
-    document.getElementById("image").style.float = "none";
-    document.getElementById("nextimage").style.display = "none";
-  }
-  // ツールチップを更新するルン！
-  updateModeTooltips();
-  loadPage(1);
+function selectPageMode(preference) {
+  pageModePreference = preference;
+  mode = resolveReaderMode();
+  writeReaderStorage("readerPageModePreference", preference);
+  writeReaderStorage("pagemode", String(mode));
+  closeQuickSpread();
+  void renderReaderPage("preference");
 }
 
-// 旧関数は互換性のため残しておくルン（fixSpreadPageなどから呼ばれる可能性）
+function togglePageMode() {
+  const choices = ["single", "spread", "auto"];
+  selectPageMode(choices[(choices.indexOf(pageModePreference) + 1) % choices.length]);
+}
+
 function single() {
-  if (mode === 1) return; // 既に単頁モードなら何もしない
-  mode = 1;
-  document.getElementById("pageMode").className = "button single button-mode";
-  document.getElementById("pageMode").textContent =
-    window.i18n.toc_button_single;
-  document.getElementById("image").style.width = "100%";
-  document.getElementById("image").style.backgroundPosition = "center";
-  document.getElementById("image").style.float = "none";
-  document.getElementById("nextimage").style.display = "none";
-  // ツールチップを更新するルン！
-  updateModeTooltips();
-  loadPage(1);
+  selectPageMode("single");
 }
 
 function spread() {
-  if (mode === 2) return; // 既に見開モードなら何もしない
-  mode = 2;
-  document.getElementById("pageMode").className = "button spread button-mode";
-  document.getElementById("pageMode").textContent =
-    window.i18n.toc_button_spread;
-  document.getElementById("image").style.width = "50%";
-  document.getElementById("image").style.backgroundPosition = direction;
-  document.getElementById("image").style.float = position;
-  document.getElementById("nextimage").style.display = "block";
-  document.getElementById("nextimage").style.backgroundPosition = position;
-  document.getElementById("nextimage").style.float = direction;
-  // ツールチップを更新するルン！
-  updateModeTooltips();
-  loadPage(1);
+  selectPageMode("spread");
 }
 
 function backListPage() {
@@ -1646,7 +1633,7 @@ function backListPage() {
 
 function fixSpreadPage() {
   fixPage = 1 - fixPage;
-  loadPage(1);
+  void renderReaderPage("spreadCorrection");
 }
 
 // 全画面表示の状態をボタンに反映する関数ルン！
@@ -1726,7 +1713,7 @@ function toggleDirection() {
     document.getElementById("direction").textContent =
       window.i18n.toc_button_direction_right;
   }
-  if (mode == 2) spread();
+  void renderReaderPage("direction");
   readerMarkerManager?.renderRail();
 }
 
@@ -1761,29 +1748,7 @@ function funcKey(evt) {
     // インスペクター表示
     showInspector();
   } else {
-    // モーダル表示中は閉じる
-    if (document.getElementById("modal").style.display == "block") {
-      document.getElementById("modal").style.opacity = "0";
-      document.getElementById("overlay").style.opacity = "0";
-
-      // タッチデバイス対応改善のため処理を一元化
-      setTimeout(function () {
-        document.getElementById("modal").style.display = "none";
-        document.getElementById("overlay").style.display = "none";
-
-        // タッチイベントを確実に有効化
-        document.body.style.pointerEvents = "auto";
-
-        // iOS/Androidでの長押し対策
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        if (isMobile) {
-          setTimeout(function () {
-            // 再度確認
-            document.body.style.pointerEvents = "auto";
-          }, 50);
-        }
-      }, 50);
-    }
+    closeQuickSpread();
 
     // インスペクター表示中は閉じる
     document.getElementById("inspector").style.display = "none";
@@ -2214,10 +2179,18 @@ async function load_image(path) {
   //画像読み込み関数（読み込み完了を待つために使用）
   const t_img = new Image();
   return new Promise((resolve) => {
+    // 通信停止時もページ操作の保留を必ず解除するルン
+    const timer = setTimeout(() => {
+      t_img.onload = null;
+      t_img.onerror = null;
+      resolve(null);
+    }, 15000);
     t_img.onload = () => {
+      clearTimeout(timer);
       resolve(t_img);
     };
     t_img.onerror = () => {
+      clearTimeout(timer);
       resolve(null);
     };
     t_img.src = path;
@@ -2322,111 +2295,59 @@ function trimImage(image) {
   return trimmedCanvas.toDataURL();
 }
 
-function quickSpredView() {
-  // スペースキーを押すとクイック見開きモード
-  if (mode == 1) {
-    // 単ページモードしか動作させないように
-    let overlay = document.getElementById("overlay");
-    let modal = document.getElementById("modal");
-    let image1 = document.getElementById("image1");
-    let image2 = document.getElementById("image2");
-
-    if (modal.style.display == "block") {
-      // モーダル表示中はスペースキーでモーダルを閉じる
-      modal.style.opacity = "0";
-      overlay.style.opacity = "0";
-
-      // タッチデバイス対応改善のため、遅延を短くする
-      setTimeout(function () {
-        modal.style.display = "none";
-        overlay.style.display = "none";
-
-        // モーダルを閉じた直後にタッチイベントを解放する
-        document.body.style.pointerEvents = "none";
-        setTimeout(function () {
-          document.body.style.pointerEvents = "auto";
-        }, 10);
-      }, 50); // 0.15秒→0.05秒に短縮
-    } else {
-      if (autoLightSplitMode) {
-        als = "&als=1";
-        image1.src =
-          pageGenerator +
-          "?file=" +
-          file +
-          "&size=" +
-          size +
-          "&page=" +
-          page +
-          view_query +
-          als;
-        image2.src = "";
-        image1.style.width = "100%";
-      } else {
-        // 縦長単ページモード
-        als = "";
-        let quickWideLeftPageNo = 0;
-        let quickWideRightPageNo = 0;
-        if (page > 1) {
-          if (direction == "left") {
-            // 右綴じ 左方向めくり
-            quickWideLeftPageNo = page;
-            quickWideRightPageNo = page - 1;
-          } else {
-            quickWideLeftPageNo = page - 1;
-            quickWideRightPageNo = page;
-          }
-        } else {
-          quickWideLeftPageNo = 1;
-          quickWideRightPageNo = 1;
-          image1.style.width = "100%";
-        }
-        // 見開き左側表示
-        image1.style.width = "50%";
-        image1.src =
-          pageGenerator +
-          "?file=" +
-          file +
-          "&size=" +
-          size +
-          "&page=" +
-          quickWideLeftPageNo +
-          view_query +
-          als;
-        // 見開き右側表示
-        image2.style.width = "50%";
-        image2.src =
-          pageGenerator +
-          "?file=" +
-          file +
-          "&size=" +
-          size +
-          "&page=" +
-          quickWideRightPageNo +
-          view_query +
-          als;
-        debugLog(
-          "keydown space LeftPage:" +
-            quickWideLeftPageNo +
-            " RightPage:" +
-            quickWideRightPageNo +
-            " direction:" +
-            direction
-        );
-      }
-      // 表示
-      overlay.style.opacity = "0";
-      modal.style.opacity = "0";
-      overlay.style.display = "block";
-      modal.style.display = "block";
-      setTimeout(function () {
-        overlay.style.opacity = "1";
-        modal.style.opacity = "1";
-      }, 50); // 少し遅延させてから実行
-    }
-  } else {
-    debugLog("spred view mode mode:" + mode);
+function closeQuickSpread() {
+  ++quickSpreadGeneration;
+  clearTimeout(quickSpreadTimer);
+  const modal = document.getElementById("modal");
+  if (modal.style.display !== "block") return;
+  modal.style.display = "none";
+  modal.style.opacity = "0";
+  const overlay = document.getElementById("overlay");
+  const suggest = document.getElementById("suggest");
+  if (!suggest || (!suggest.classList.contains("suggest-active") &&
+      !suggest.classList.contains("suggest-animating"))) {
+    overlay.style.display = "none";
+    overlay.style.opacity = "0";
   }
+}
+
+async function quickSpredView() {
+  if (!readerReady || readerRenderPending || mode !== 1) return;
+  const suggest = document.getElementById("suggest");
+  if (suggest && (suggest.classList.contains("suggest-active") ||
+      suggest.classList.contains("suggest-animating"))) return;
+  const modal = document.getElementById("modal");
+  if (modal.style.display === "block") {
+    closeQuickSpread();
+    return;
+  }
+  const generation = ++quickSpreadGeneration;
+  const target = page;
+  const shapes = await Promise.all([
+    isWideReaderPage(target), isWideReaderPage(target - 1)
+  ]);
+  if (generation !== quickSpreadGeneration || target !== page || mode !== 1) return;
+  const paired = target > 1 && shapes.every((shape) => shape === false);
+  const left = direction === "left" ? target : target - 1;
+  const right = direction === "left" ? target - 1 : target;
+  const image1 = document.getElementById("image1");
+  const image2 = document.getElementById("image2");
+  image1.style.width = paired ? "50%" : "100%";
+  image1.src = getFullImageUrl(paired ? left : target, false);
+  image2.style.width = "50%";
+  image2.style.display = paired ? "block" : "none";
+  if (paired) image2.src = getFullImageUrl(right, false);
+  else image2.removeAttribute("src");
+  const overlay = document.getElementById("overlay");
+  overlay.style.opacity = "0";
+  modal.style.opacity = "0";
+  overlay.style.display = "block";
+  modal.style.display = "block";
+  quickSpreadTimer = setTimeout(function () {
+    if (generation !== quickSpreadGeneration) return;
+    overlay.style.opacity = "1";
+    modal.style.opacity = "1";
+  }, 50);
 }
 
 function showInspector() {
@@ -2515,7 +2436,7 @@ function showInspector() {
   }
 }
 
-function getFullImageUrl(page) {
+function getFullImageUrl(page, includeSplit = true) {
   // 現在のURLからベースURLを取得
   const baseUrl = window.location.origin; // https://www.example.com
   const path = window.location.pathname; // /cgi-bin/comistream.php
@@ -2532,7 +2453,7 @@ function getFullImageUrl(page) {
     url.searchParams.append("view", viewQuery.replace("&view=", "")); // '&view='を取り除く
   }
 
-  if (autoLightSplitMode) {
+  if (includeSplit && autoLightSplitMode) {
     url.searchParams.append("als", "1");
   }
 
@@ -2667,19 +2588,7 @@ function updateModeTooltips() {
     }
   }
 
-  // pageModeボタンのツールチップを更新 ルン！
-  const pageMode = document.getElementById("pageMode");
-  if (pageMode) {
-    if (pageMode.classList.contains("single")) {
-      // 現在単頁モードなので、単頁モードの説明をツールチップに表示するルン
-      const tooltip = pageMode.getAttribute("data-tooltip-single");
-      if (tooltip) pageMode.setAttribute("data-tooltip", tooltip);
-    } else {
-      // 現在見開(spread)モードなので、見開モードの説明をツールチップに表示するルン
-      const tooltip = pageMode.getAttribute("data-tooltip-spread");
-      if (tooltip) pageMode.setAttribute("data-tooltip", tooltip);
-    }
-  }
+  updatePageModeButton();
 
   // splitFileボタンのツールチップを更新 ルン！
   const splitFile = document.getElementById("splitFile");

@@ -19,6 +19,8 @@ return [
     'compressed' => '節約',
     'single_page' => '単頁',
     'spread_page' => '見開',
+    'auto_page' => '自動',
+    'tooltip_auto_page' => '表示領域が横長なら見開き、それ以外は単頁に切り替えます。横長画像は1枚で表示します。押すと単頁固定に戻ります',
     'spread_fix' => '見開補正',
     'direction' => '綴方向',
     'direction_right' => '右綴',

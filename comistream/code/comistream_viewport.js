@@ -198,7 +198,35 @@
     };
   }
 
+  function restorePageModePreference(preference, legacy) {
+    return ["single", "spread", "auto"].includes(preference)
+      ? preference : legacy === "2" ? "spread" : "single";
+  }
+
+  function resolvePageMode(preference, viewport, previous = 1) {
+    if (preference !== "auto") return preference === "spread" ? 2 : 1;
+    if (!(viewport.width > 0 && viewport.height > 0)) return previous;
+    return viewport.width > viewport.height ? 2 : 1;
+  }
+
+  function spreadStart(anchor, correction) {
+    return anchor - ((anchor - correction + 2) % 2);
+  }
+
+  function resolveSpreadLayout(anchor, correction, shapes) {
+    const start = spreadStart(anchor, correction);
+    // 横長画像と読込失敗は単独表示し、同じ組の相方も飛ばさないルン
+    if (shapes.some((wide) => wide !== false)) {
+      return { start: anchor, end: anchor, paired: false };
+    }
+    return { start, end: start + 1, paired: true };
+  }
+
   return Object.freeze({
+    restorePageModePreference,
+    resolvePageMode,
+    spreadStart,
+    resolveSpreadLayout,
     getLayoutViewportSize,
     shouldUseAutoLightSplit,
     calculateAutoLightSplitMetrics,

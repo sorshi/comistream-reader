@@ -207,6 +207,8 @@ function generateHTML()
         'toc_button_normal' => $i18n->get('trimmingmode_normal'),
         'toc_button_single' => $i18n->get('single_page'),
         'toc_button_spread' => $i18n->get('spread_page'),
+        'toc_button_auto' => $i18n->get('auto_page'),
+        'tooltip_auto_page' => $i18n->get('tooltip_auto_page'),
         'toc_button_direction_right' => $i18n->get('direction_right'),
         'toc_button_direction_left' => $i18n->get('direction_left'),
         'toc_button_fullscreen' => $i18n->get('fullscreen'),

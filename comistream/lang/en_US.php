@@ -19,6 +19,8 @@ return [
     'compressed' => 'Compressed',
     'single_page' => 'Single',
     'spread_page' => 'Spread',
+    'auto_page' => 'Auto',
+    'tooltip_auto_page' => 'Use spreads in a landscape window and single pages otherwise. Wide images appear alone. Press to select single-page mode',
     'spread_fix' => 'Fix Spread',
     'direction' => 'Direction',
     'direction_right' => 'Right-to-Left',
