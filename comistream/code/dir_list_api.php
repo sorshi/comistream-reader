@@ -363,11 +363,10 @@ try {
             $encoded_preview_path = encode_url_path($preview_path);
             $response_item['preview_image'] = '/theme/preview' . $encoded_preview_path;
 
-            if ($viewmode === 'cover') {
-                $cover_path = preg_replace('/\.[^.]+$/', '.jpg', $raw_filepath);
-                $encoded_cover_path = encode_url_path($cover_path);
-                $response_item['cover_image'] = '/theme/covers' . $encoded_cover_path;
-            }
+            // リスト表示でも、カバーへ切り替えるためのURLを返すルン。
+            $cover_path = preg_replace('/\.[^.]+$/', '.jpg', $raw_filepath);
+            $encoded_cover_path = encode_url_path($cover_path);
+            $response_item['cover_image'] = '/theme/covers' . $encoded_cover_path;
         }
 
         $response_items[] = $response_item;

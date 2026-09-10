@@ -1397,6 +1397,7 @@ if ($is_404_mode) {
                     // 名前カラム
                     let nameContent = '';
                     let dataImageAttr = '';
+                    let dataCoverImageAttr = '';
                     let tdIdAttr = '';
                     let onclickAttr = '';
                     let tdOnclickAttr = '';
@@ -1409,6 +1410,11 @@ if ($is_404_mode) {
                         }
                         // ID属性（ブックマーク用）
                         tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
+
+                        // 切り替え後もAPIの表紙URLを使えるよう保持するルン。
+                        if (item.cover_image) {
+                            dataCoverImageAttr = ' data-cover-image="' + escapeHtml(item.cover_image) + '"';
+                        }
 
                         // カバービューでファイルの場合、表紙画像を追加
                         const viewmode = getCookie('viewmode') || 'list';
@@ -1442,7 +1448,7 @@ if ($is_404_mode) {
                         }
                     }
 
-                    htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + tdOnclickAttr + '>';
+                    htmlContent += '<td class="indexcolname"' + dataImageAttr + dataCoverImageAttr + tdIdAttr + tdOnclickAttr + '>';
                     htmlContent += nameContent;
                     htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
                     if (!item.is_dir && !item.is_parent) {
@@ -1550,6 +1556,7 @@ if ($is_404_mode) {
                     // 名前カラム
                     let nameContent = '';
                     let dataImageAttr = '';
+                    let dataCoverImageAttr = '';
                     let tdIdAttr = '';
                     let onclickAttr = '';
                     let tdOnclickAttr = '';
@@ -1562,6 +1569,11 @@ if ($is_404_mode) {
                         }
                         // ID属性（ブックマーク用）
                         tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
+
+                        // 切り替え後もAPIの表紙URLを使えるよう保持するルン。
+                        if (item.cover_image) {
+                            dataCoverImageAttr = ' data-cover-image="' + escapeHtml(item.cover_image) + '"';
+                        }
 
                         // カバービューでファイルの場合、表紙画像を追加
                         const viewmode = getCookie('viewmode') || 'list';
@@ -1595,7 +1607,7 @@ if ($is_404_mode) {
                         }
                     }
 
-                    htmlContent += '<td class="indexcolname"' + dataImageAttr + tdIdAttr + tdOnclickAttr + '>';
+                    htmlContent += '<td class="indexcolname"' + dataImageAttr + dataCoverImageAttr + tdIdAttr + tdOnclickAttr + '>';
                     htmlContent += nameContent;
                     htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
                     if (!item.is_dir && !item.is_parent) {

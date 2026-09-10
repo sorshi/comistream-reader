@@ -1573,8 +1573,8 @@ function addCoverImages() {
       return;
     }
 
-    // 表紙画像パスを生成
-    const coverImagePath = generateCoverImagePath(dataFilepath);
+    // 共有相対パスから組み直さず、初回表示と同じ表紙URLを使うルン。
+    const coverImagePath = nameCell.getAttribute("data-cover-image");
     if (!coverImagePath) return;
 
     // img要素を作成
@@ -1612,23 +1612,6 @@ function removeCoverImages() {
   });
 
 
-}
-
-// 表紙画像パスを生成する関数（PHP側の処理と同等）
-function generateCoverImagePath(rawFilepath) {
-  if (!rawFilepath) return null;
-
-  // data-filepath から拡張子を.jpgに変更
-  const coverPath = rawFilepath.replace(/\.[^.]+$/, '.jpg');
-
-  // 問題文字をエスケープ
-  const escapedCoverPath = escapeProblematicChars(coverPath);
-
-  // 表紙画像URLを生成
-  const coverImageUrl = '/theme/covers' + escapedCoverPath;
-
-
-  return coverImageUrl;
 }
 
 // デバッグ関数：アイコンの状態を確認
