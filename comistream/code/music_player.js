@@ -181,19 +181,122 @@ class MusicPlayer {
       this.setVolume(this.volume);
     }
 
-    // 初期楽曲をロード
-    const initialLoad = this.loadCurrentTrack();
-    if (this.musicQueue.source === "directory") {
-      Promise.resolve(initialLoad).then((loaded) => {
-        if (loaded) this.play();
-      });
-    }
+    // 保存状態を初期ロードより先に適用するルン。
+    this.initializePersistentState();
+    this.loadCurrentTrack(this.playbackIntent);
 
     console.log(
       "Music Player initialized with",
       this.musicFiles.length,
       "tracks"
     );
+  }
+
+  initializePersistentState() {
+    this.stateReady = false;
+    this.stateStorageKey = "comistream:music-player:v1:" + JSON.stringify([
+      this.user, this.baseDir, window.location.pathname, window.location.search,
+    ]);
+    this.playbackIntent = this.musicQueue.source === "directory";
+    this.resumePosition = 0;
+    try {
+      const state = JSON.parse(window.localStorage.getItem(this.stateStorageKey));
+      if (state?.version === 1) {
+        const index = this.musicFiles.findIndex((track) => track.path === state.trackPath);
+        if (index >= 0) {
+          this.currentIndex = index;
+          this.resumePosition = Number.isFinite(state.position) ? Math.max(0, state.position) : 0;
+          this.playbackIntent = state.playing === true;
+          this.queueViewport = state.viewport;
+          this.restoreQueueViewport = true;
+        }
+        if (state.shuffle === true) this.toggleShuffle();
+        if ([1, 2].includes(state.repeat)) {
+          for (let i = 0; i < state.repeat; i++) this.toggleRepeat();
+        }
+        if (this.allowedPlaybackRates.includes(state.rate)) this.setPlaybackRate(state.rate);
+        if (Number.isFinite(state.volume)) this.setVolume(state.volume);
+        if (state.expanded === false) this.togglePlaylistView();
+        if (state.tab === "lyrics") this.selectQueueTab("lyrics");
+      }
+    } catch (error) {
+      console.warn("Music player state could not be restored:", error);
+    }
+    this.stateReady = true;
+    this.playlistContainer.addEventListener("scroll", () => {
+      this.captureQueueViewport();
+      clearTimeout(this.stateScrollTimer);
+      this.stateScrollTimer = setTimeout(() => this.savePlayerState(), 200);
+    }, { passive: true });
+    window.addEventListener("pagehide", () => this.savePlayerState());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.savePlayerState();
+    });
+    this.audioPlayer.addEventListener("seeked", () => this.savePlayerState());
+  }
+
+  captureQueueViewport() {
+    const container = this.playlistContainer;
+    if (!container || !container.clientHeight || this.restoreQueueViewport) return;
+    const top = container.getBoundingClientRect().top + container.clientTop;
+    const index = Array.from(container.children).findIndex((row) => row.getBoundingClientRect().bottom > top);
+    if (index >= 0) {
+      this.queueViewport = {
+        path: this.musicFiles[index].path,
+        offset: top - container.children[index].getBoundingClientRect().top,
+      };
+    }
+  }
+
+  savePlayerState() {
+    if (!this.stateReady) return;
+    this.captureQueueViewport();
+    const position = this.loadingTrack ? this.resumePosition : this.audioPlayer.currentTime;
+    const state = {
+      version: 1,
+      trackPath: this.musicFiles[this.currentIndex]?.path,
+      position: Number.isFinite(position) ? Math.max(0, position) : 0,
+      playing: this.playbackIntent === true,
+      viewport: this.queueViewport,
+      shuffle: this.isShuffled,
+      repeat: this.repeatMode,
+      rate: this.requestedPlaybackRate,
+      volume: this.volume,
+      expanded: this.queueExpanded,
+      tab: this.showingLyrics ? "lyrics" : "playlist",
+    };
+    try {
+      window.localStorage.setItem(this.stateStorageKey, JSON.stringify(state));
+    } catch (error) {
+      // 保存できなくても通常の再生は続けるルン。
+      console.warn("Music player state could not be saved:", error);
+    }
+    this.lastStateSave = Date.now();
+  }
+
+  syncQueueViewport(followCurrent = true) {
+    const container = this.playlistContainer;
+    if (!container || !container.clientHeight) return;
+    if (this.restoreQueueViewport) {
+      const viewport = this.queueViewport;
+      const index = this.musicFiles.findIndex((track) => track.path === viewport?.path);
+      if (index >= 0 && Number.isFinite(viewport.offset)) {
+        const top = container.getBoundingClientRect().top + container.clientTop;
+        container.scrollTop += container.children[index].getBoundingClientRect().top - top + viewport.offset;
+      } else {
+        followCurrent = true;
+      }
+      this.restoreQueueViewport = false;
+    }
+    const row = container.children[this.currentIndex];
+    if (followCurrent && row) {
+      const bounds = row.getBoundingClientRect();
+      const top = container.getBoundingClientRect().top + container.clientTop;
+      const bottom = top + container.clientHeight;
+      if (bounds.top < top) container.scrollTop += bounds.top - top;
+      else if (bounds.bottom > bottom) container.scrollTop += Math.min(bounds.bottom - bottom, bounds.top - top);
+    }
+    this.captureQueueViewport();
   }
 
   initDOMElements() {
@@ -441,6 +544,7 @@ class MusicPlayer {
           this.volumeSlider.value = newVolume * 100;
           this.volumeSlider.style.setProperty("--progress", `${newVolume * 100}%`);
           this.volume = newVolume;
+          this.savePlayerState();
           console.log("Volume changed:", newVolume);
         }
       });
@@ -449,12 +553,17 @@ class MusicPlayer {
     }
   }
 
-  loadCurrentTrack() {
+  loadCurrentTrack(shouldPlay = this.isPlaying) {
     if (this.musicFiles.length === 0) return Promise.resolve(false);
 
     const currentTrack = this.musicFiles[this.currentIndex];
     if (!currentTrack) return Promise.resolve(false);
 
+    this.playbackIntent = shouldPlay === true;
+    this.loadingTrack = true;
+    this.pendingPlay = this.playbackIntent;
+    // 復元秒数は初回だけ使い、曲変更時は先頭から始めるルン。
+    if (this.audioLoadId > 0) this.resumePosition = 0;
     const loadId = ++this.audioLoadId;
     this.audioAbortController?.abort();
     this.audioAbortController = new AbortController();
@@ -498,6 +607,8 @@ class MusicPlayer {
 
     // プレイリスト表示を更新
     this.updatePlaylistDisplay();
+    this.syncQueueViewport(!this.restoreQueueViewport);
+    this.savePlayerState();
 
     console.log("Loaded track:", currentTrack.name);
     return this.selectPlaybackSource(currentTrack, loadId);
@@ -734,7 +845,7 @@ class MusicPlayer {
     if (sourceType === "converted" && assetId) this.startAudioLease(assetId);
     if (sourceType === "converted") this.setStatus("互換音声を読み込み中…");
     else this.setStatus("");
-    if (this.pendingPlay) {
+    if (this.pendingPlay && !this.resumePosition) {
       this.pendingPlay = false;
       this.play();
     }
@@ -769,7 +880,9 @@ class MusicPlayer {
     }
 
     this.requestedPlaybackRate = requested;
-    return this.applyPlaybackRate();
+    const applied = this.applyPlaybackRate();
+    this.savePlayerState();
+    return applied;
   }
 
   applyPlaybackRate() {
@@ -904,7 +1017,7 @@ class MusicPlayer {
   }
 
   togglePlayPause() {
-    if (this.isPlaying) {
+    if (this.isPlaying || this.pendingPlay) {
       this.pause();
     } else {
       this.play();
@@ -912,6 +1025,12 @@ class MusicPlayer {
   }
 
   play() {
+    this.playbackIntent = true;
+    this.savePlayerState();
+    if (this.loadingTrack && this.resumePosition > 0) {
+      this.pendingPlay = true;
+      return;
+    }
     if (this.audioSourcePending || !this.activeAudioSource) {
       if (this.audioSourcePending) {
         this.pendingPlay = true;
@@ -921,6 +1040,7 @@ class MusicPlayer {
       }
       return;
     }
+    const playLoadId = this.audioLoadId;
     const playPromise = this.audioPlayer.play();
 
     if (playPromise !== undefined) {
@@ -929,9 +1049,12 @@ class MusicPlayer {
           console.log("Playback started successfully");
         })
         .catch((error) => {
+          if (playLoadId !== this.audioLoadId) return;
           console.error("Playback failed:", error);
           // iOS Safari でのユーザージェスチャー要求エラーの処理
           if (error.name === "NotAllowedError") {
+            this.playbackIntent = false;
+            this.savePlayerState();
             this.setStatus("再生ボタンをタップして再生してください。");
           } else if (error.name !== "AbortError") {
             this.setStatus("再生できませんでした。ファイル形式や通信状態を確認してください。");
@@ -941,11 +1064,17 @@ class MusicPlayer {
   }
 
   pause() {
+    this.pendingPlay = false;
+    this.playbackIntent = false;
     this.audioPlayer.pause();
+    this.savePlayerState();
   }
 
   onPlay() {
     this.isPlaying = true;
+    this.playbackIntent = true;
+    this.syncQueueViewport();
+    this.savePlayerState();
     this.playPauseBtn.className = "control-btn play-pause-btn icon-pause";
     this.playPauseBtn.title = "一時停止";
     this.playPauseBtn.dataset.tooltip = "一時停止";
@@ -965,6 +1094,10 @@ class MusicPlayer {
 
   onPause() {
     this.isPlaying = false;
+    if (!this.loadingTrack && !this.audioPlayer.ended && this.audioPlayer.paused) {
+      this.playbackIntent = false;
+      this.savePlayerState();
+    }
     this.playPauseBtn.className = "control-btn play-pause-btn icon-play";
     this.playPauseBtn.title = "再生";
     this.playPauseBtn.dataset.tooltip = "再生";
@@ -1016,14 +1149,14 @@ class MusicPlayer {
       return; // 最初の曲でリピートなしの場合は何もしない
     }
 
-    const shouldPlay = this.isPlaying;
-    this.loadCurrentTrack();
+    const shouldPlay = this.playbackIntent ?? this.isPlaying;
+    this.loadCurrentTrack(shouldPlay);
     if (shouldPlay) {
       this.play();
     }
   }
 
-  nextTrack(shouldContinuePlayback = this.isPlaying) {
+  nextTrack(shouldContinuePlayback = this.playbackIntent ?? this.isPlaying) {
     console.log(
       "nextTrack() called, current index:",
       this.currentIndex,
@@ -1052,7 +1185,7 @@ class MusicPlayer {
     }
 
     console.log("Moving to track index:", this.currentIndex);
-    this.loadCurrentTrack();
+    this.loadCurrentTrack(shouldContinuePlayback);
     if (shouldContinuePlayback) {
       this.play();
     }
@@ -1089,6 +1222,7 @@ class MusicPlayer {
     }
     this.shuffleBtn.setAttribute("aria-pressed", String(this.isShuffled));
     this.shuffleBtn.setAttribute("aria-label", this.shuffleBtn.title);
+    this.savePlayerState();
     console.log("Shuffle mode:", this.isShuffled);
   }
 
@@ -1122,6 +1256,7 @@ class MusicPlayer {
 
     this.repeatBtn.setAttribute("aria-pressed", String(this.repeatMode !== 0));
     this.repeatBtn.setAttribute("aria-label", this.repeatBtn.title);
+    this.savePlayerState();
     console.log("Repeat mode:", this.repeatMode);
   }
 
@@ -1609,7 +1744,9 @@ class MusicPlayer {
   }
 
   selectQueueTab(tabName) {
+    this.captureQueueViewport();
     const showLyrics = tabName === "lyrics";
+    if (showLyrics) this.restoreQueueViewport = true;
     this.showingPlaylist = !showLyrics;
     this.showingLyrics = showLyrics;
     this.queueTitle.textContent = showLyrics ? "歌詞" : (this.musicPlayerLabels.queue || "再生キュー");
@@ -1628,7 +1765,9 @@ class MusicPlayer {
       }
     } else {
       this.displayCurrentPlaylist();
+      this.syncQueueViewport();
     }
+    this.savePlayerState();
   }
 
   handleQueueTabKey(event) {
@@ -1686,6 +1825,7 @@ class MusicPlayer {
     this.volume = this.audioPlayer.volume;
     this.volumeSlider.value = this.volume * 100;
     this.volumeSlider.style.setProperty("--progress", `${this.volume * 100}%`);
+    this.savePlayerState();
   }
 
   isIOSDevice() {
@@ -1704,6 +1844,19 @@ class MusicPlayer {
   }
 
   onMetadataLoaded() {
+    if (this.loadingTrack) {
+      if (!this.activeAudioSource || this.activeAudioSource.loadId !== this.audioLoadId || this.audioPlayer.readyState < 1) return;
+      const duration = this.audioPlayer.duration;
+      if (this.resumePosition > 0 && Number.isFinite(duration) && duration > 0) {
+        this.audioPlayer.currentTime = Math.min(this.resumePosition, duration);
+      }
+      this.resumePosition = 0;
+      this.loadingTrack = false;
+      if (this.pendingPlay) {
+        this.pendingPlay = false;
+        this.play();
+      }
+    }
     this.applyPlaybackRate();
     this.totalTime.textContent = this.formatTime(this.audioPlayer.duration);
     this.progressBar.disabled = !Number.isFinite(this.audioPlayer.duration) || this.audioPlayer.duration <= 0;
@@ -1711,6 +1864,7 @@ class MusicPlayer {
   }
 
   updateProgress() {
+    if (this.stateReady && Date.now() - (this.lastStateSave || 0) >= 3000) this.savePlayerState();
     this.updateLyricsPosition();
     const duration = this.audioPlayer.duration;
     if (!Number.isFinite(duration) || duration <= 0) return;
@@ -1781,6 +1935,16 @@ class MusicPlayer {
   }
 
   displayCurrentPlaylist() {
+    if (this.renderedMusicFiles === this.musicFiles) {
+      const previous = this.playlistContainer.children[this.renderedCurrentIndex];
+      previous?.classList.remove("active");
+      previous?.removeAttribute("aria-current");
+      const current = this.playlistContainer.children[this.currentIndex];
+      current?.classList.add("active");
+      current?.setAttribute("aria-current", "true");
+      this.renderedCurrentIndex = this.currentIndex;
+      return;
+    }
     // ファイル名はHTMLとして解釈せず、そのまま表示するルン。
     const fragment = document.createDocumentFragment();
     this.musicFiles.forEach((track, index) => {
@@ -1809,24 +1973,30 @@ class MusicPlayer {
       format.setAttribute("aria-hidden", "true");
       item.append(number, nameGroup, format);
       item.addEventListener("click", () => {
-        const shouldPlay = this.isPlaying;
         this.currentIndex = index;
-        this.loadCurrentTrack();
-        if (shouldPlay) this.play();
+        this.loadCurrentTrack(true);
         // 描画後も選択した曲にキーボードフォーカスを残すルン。
         this.playlistContainer.children[index]?.focus({ preventScroll: true });
       });
       fragment.appendChild(item);
     });
     this.playlistContainer.replaceChildren(fragment);
+    this.renderedMusicFiles = this.musicFiles;
+    this.renderedCurrentIndex = this.currentIndex;
   }
 
   togglePlaylistView() {
+    this.captureQueueViewport();
     this.queueExpanded = !this.queueExpanded;
+    if (!this.queueExpanded) this.restoreQueueViewport = true;
     this.queueContent.hidden = !this.queueExpanded;
     this.showPlaylistBtn.setAttribute("aria-expanded", String(this.queueExpanded));
     this.showPlaylistBtn.textContent = this.queueExpanded ? "折りたたむ" : "表示";
-    if (this.queueExpanded && this.showingPlaylist) this.displayCurrentPlaylist();
+    if (this.queueExpanded && this.showingPlaylist) {
+      this.displayCurrentPlaylist();
+      this.syncQueueViewport();
+    }
+    this.savePlayerState();
   }
 
   setStatus(message) {
