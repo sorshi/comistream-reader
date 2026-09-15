@@ -1361,6 +1361,123 @@ function applyTheme(themeName, { persist = true, refreshRenderer = true } = {}) 
     }
 }
 
+// 小さい解析結果だけを保持して、原画像やCanvasはキャッシュしないルン。
+const paperImageCache = new Map();
+const paperImageStates = new WeakMap();
+const paperImageDocuments = new WeakSet();
+
+function isWhitePaperMonochrome({ data, width, height }) {
+    let opaque = 0;
+    let colored = 0;
+    let ink = 0;
+    let white = 0;
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4;
+            // 透過済み画像は元の透明度を尊重するルン。
+            if (data[i + 3] < 250) continue;
+            opaque++;
+            const low = Math.min(data[i], data[i + 1], data[i + 2]);
+            const high = Math.max(data[i], data[i + 1], data[i + 2]);
+            if (high - low > 12) colored++;
+            if (high < 200) ink++;
+            if (low >= 242 && high - low <= 12) white++;
+        }
+    }
+    // 端まで絵がある挿絵も対象にし、少量のハイライトだけの画像は除くルン。
+    return opaque >= width * height * 0.98 && opaque > 0
+        && colored / opaque <= 0.001
+        && ink / opaque >= 0.005
+        && white / opaque >= 0.1;
+}
+
+function getPaperImageSource(target) {
+    if (target.localName === 'img') return target.currentSrc || target.src;
+    const images = target.querySelectorAll('image');
+    // ベクターや文字と混在するSVGは全体の色を変えないルン。
+    if (images.length !== 1 || target.querySelector('path, rect, circle, ellipse, polygon, polyline, line, text, use, foreignObject')) {
+        return '';
+    }
+    const href = images[0].getAttribute('href')
+        || images[0].getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+    try {
+        return href ? new URL(href, target.ownerDocument.baseURI).href : '';
+    } catch {
+        return '';
+    }
+}
+
+function schedulePaperImage(target) {
+    if (!target || getEffectiveThemeName() !== 'paper' || !target.isConnected) return;
+    const source = getPaperImageSource(target);
+    if (!source) return;
+    const previous = paperImageStates.get(target);
+    if (previous?.source === source) return;
+    target.removeAttribute('data-comistream-paper-image');
+    const state = { source };
+    paperImageStates.set(target, state);
+    const run = async () => {
+        if (getEffectiveThemeName() !== 'paper' || !target.isConnected) {
+            if (paperImageStates.get(target) === state) paperImageStates.delete(target);
+            return;
+        }
+        try {
+            let mono = paperImageCache.get(source);
+            if (mono === undefined) {
+                let image = target;
+                if (target.localName !== 'img') {
+                    image = new Image();
+                    image.src = source;
+                }
+                await image.decode();
+                if (getPaperImageSource(target) !== source || getEffectiveThemeName() !== 'paper' || !target.isConnected) {
+                    if (paperImageStates.get(target) === state) paperImageStates.delete(target);
+                    return;
+                }
+                if (!image.naturalWidth || !image.naturalHeight) throw new Error('Empty image');
+                const scale = Math.min(1, 192 / Math.max(image.naturalWidth, image.naturalHeight));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+                canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+                const context = canvas.getContext('2d', { willReadFrequently: true });
+                if (!context) throw new Error('Canvas unavailable');
+                context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                mono = isWhitePaperMonochrome(context.getImageData(0, 0, canvas.width, canvas.height));
+                if (paperImageCache.size >= 256) paperImageCache.delete(paperImageCache.keys().next().value);
+                paperImageCache.set(source, mono);
+            }
+            if (paperImageStates.get(target) === state && getPaperImageSource(target) === source) {
+                target.toggleAttribute('data-comistream-paper-image', mono);
+            }
+        } catch {
+            // CORSやデコード失敗時は元画像をそのまま表示するルン。
+            if (paperImageStates.get(target) === state) paperImageStates.delete(target);
+        }
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(run, { timeout: 1000 });
+    } else {
+        window.setTimeout(run, 0);
+    }
+}
+
+function preparePaperImages(doc) {
+    if (!doc?.body) return;
+    if (!paperImageDocuments.has(doc)) {
+        paperImageDocuments.add(doc);
+        // 後から読み込まれた画像やsrcsetの切り替えも拾うルン。
+        doc.addEventListener('load', (event) => {
+            const target = event.target;
+            if (target?.localName === 'img') schedulePaperImage(target);
+            if (target?.localName === 'image') schedulePaperImage(target.closest('svg'));
+        }, true);
+    }
+    if (getEffectiveThemeName() !== 'paper') return;
+    for (const target of doc.body.querySelectorAll('img, svg')) {
+        schedulePaperImage(target);
+    }
+}
+
 function buildReaderCSS(fontScale) {
     const effectiveLayout = resolveEffectiveReadingMode();
     const theme = getEffectiveTheme();
@@ -1413,6 +1530,11 @@ body {
     word-spacing: normal !important;
 ${bodyOverrideCss}
 }
+${getEffectiveThemeName() === 'paper' ? `
+[data-comistream-paper-image] {
+    mix-blend-mode: multiply !important;
+}
+` : ''}
 img, svg {
     max-inline-size: none !important;
     max-width: 100% !important;
@@ -2970,6 +3092,9 @@ function applyRendererPrefs() {
         });
     }
     view.renderer.setStyles?.(css);
+    for (const content of getRendererContents()) {
+        preparePaperImages(content?.doc ?? content?.document);
+    }
     view.renderer.setAttribute('flow', currentFlowMode);
     updateToolbarState();
 }
@@ -4452,6 +4577,7 @@ function bindViewLifecycleEvents() {
     view.addEventListener('load', (event) => {
         navigationEventSeq++;
         const doc = event.detail?.doc;
+        preparePaperImages(doc);
         markMediaPageLayout(doc);
         setupTapNavigation(doc);
         bindKeyboardShortcuts(doc);
