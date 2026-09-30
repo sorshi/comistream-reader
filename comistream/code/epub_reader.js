@@ -3455,9 +3455,16 @@ function restoreClockPreference() {
     }
 }
 
-function parseTapZone(clientX) {
+function parseTapZone(clientX, sourceDocument = document) {
     const width = window.innerWidth || document.documentElement.clientWidth || 1;
-    const ratio = clientX / width;
+    const frame = sourceDocument?.defaultView?.frameElement;
+    const frameWidth = sourceDocument?.defaultView?.innerWidth || sourceDocument?.documentElement?.clientWidth;
+    const frameRect = frame?.getBoundingClientRect();
+    // EPUB の iframe 内座標を画面座標に直してから左右と中央を判定するルン。
+    const viewportX = frameRect?.width > 0 && frameWidth > 0
+        ? frameRect.left + clientX * frameRect.width / frameWidth
+        : clientX;
+    const ratio = viewportX / width;
     if (ratio < (1 / 3)) {
         return 'left';
     }
@@ -3560,7 +3567,7 @@ function setupTapNavigation(doc) {
             return;
         }
 
-        const zone = parseTapZone(event.clientX);
+        const zone = parseTapZone(event.clientX, doc);
         if (zone === 'left') {
             void navigate(() => goPhysicalLeft());
         } else if (zone === 'right') {
@@ -3581,7 +3588,7 @@ function setupTapNavigation(doc) {
         }
 
         const touch = event.changedTouches[0];
-        if (!touch || parseTapZone(touch.clientX) !== 'center') {
+        if (!touch || parseTapZone(touch.clientX, doc) !== 'center') {
             scrolledTouchState = null;
             return;
         }
@@ -3644,7 +3651,7 @@ function setupTapNavigation(doc) {
             || wasCancelled
             || distance > SCROLLED_CENTER_TAP_MAX_DISTANCE_PX
             || duration > SCROLLED_CENTER_TAP_MAX_DURATION_MS
-            || parseTapZone(touch.clientX) !== 'center'
+            || parseTapZone(touch.clientX, doc) !== 'center'
         ) {
             return;
         }
@@ -3672,7 +3679,7 @@ function setupViewerFallbackTapNavigation(viewer) {
             pointerState = null;
             return;
         }
-        if (isNavigationReady() || !isTapEligibleTarget(event.target)) {
+        if ((isNavigationReady() && !isFixedLayoutBook()) || !isTapEligibleTarget(event.target)) {
             pointerState = null;
             return;
         }
