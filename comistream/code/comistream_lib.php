@@ -40,6 +40,7 @@ require_once(__DIR__ . '/lib/lib_book_open.php');
 require_once(__DIR__ . '/lib/lib_bookmark.php');
 require_once(__DIR__ . '/lib/lib_reader_marker.php');
 require_once(__DIR__ . '/lib/lib_image.php');
+require_once(__DIR__ . '/lib/lib_image_quality.php');
 require_once(__DIR__ . '/lib/lib_view.php');
 
 
@@ -1059,6 +1060,8 @@ function outputPage($isFileout = false)
 {
     global $view, $convert, $cacheDir, $file, $page, $size, $quality, $width, $als, $tempDir,
         $cpdf, $unzip, $p7zip, $unrar, $fullsize_png_compress, $isPageSave, $position_int, $crop_split_view_parts, $conf, $dbh;
+
+    $quality = normalizeImageQuality($quality);
 
     $crop_half_cmd = '';
     $crop_half_cmd_left = '';
