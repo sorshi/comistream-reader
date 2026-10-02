@@ -291,9 +291,9 @@ if (strcasecmp($ext, 'epub') == 0) {
         writelog("DEBUG [EPUB-COVER] 出力先: $coverFile", $writelog_process_name);
 
         // container.xmlファイルを探す
-        $containerXmlPath = "$epubTempDir/META-INF/container.xml";
-        writelog("DEBUG [EPUB-COVER] container.xml読み込み: $containerXmlPath", $writelog_process_name);
-        $containerXml = file_get_contents($containerXmlPath);
+        $containerXmlPath = resolveEpubFileWithinExtractionRoot($epubTempDir, '.', 'META-INF/container.xml');
+        writelog("DEBUG [EPUB-COVER] container.xml読み込み: " . ($containerXmlPath ?: 'rejected path'), $writelog_process_name);
+        $containerXml = $containerXmlPath !== false ? @file_get_contents($containerXmlPath) : false;
         if ($containerXml === false) {
             writelog("ERROR [EPUB-COVER] container.xml not found in EPUB file: $file", $writelog_process_name);
             deleteDirectory($epubTempDir);
@@ -304,19 +304,25 @@ if (strcasecmp($ext, 'epub') == 0) {
 
         // content.opfファイルのパスを取得
         $xml = new SimpleXMLElement($containerXml);
-        $contentOpfPath = $xml->rootfiles->rootfile['full-path'];
+        $contentOpfPath = (string)$xml->rootfiles->rootfile['full-path'];
         writelog("DEBUG [EPUB-COVER] content.opfパス: $contentOpfPath", $writelog_process_name);
 
         // content.opfファイルの内容を取得
-        $contentOpfFullPath = "$epubTempDir/$contentOpfPath";
-        writelog("DEBUG [EPUB-COVER] content.opf読み込み: $contentOpfFullPath", $writelog_process_name);
-        if (!file_exists($contentOpfFullPath)) {
+        $contentOpfFullPath = resolveEpubFileWithinExtractionRoot($epubTempDir, '.', $contentOpfPath);
+        writelog("DEBUG [EPUB-COVER] content.opf読み込み: " . ($contentOpfFullPath ?: 'rejected path'), $writelog_process_name);
+        if ($contentOpfFullPath === false) {
             writelog("ERROR [EPUB-COVER] content.opfファイルが存在しません: $contentOpfFullPath", $writelog_process_name);
             deleteDirectory($epubTempDir);
             clean_shm_dir();
             exit(1);
         }
-        $contentOpf = file_get_contents($contentOpfFullPath);
+        $contentOpf = @file_get_contents($contentOpfFullPath);
+        if ($contentOpf === false) {
+            writelog("ERROR [EPUB-COVER] content.opfファイルを読み込めません: $contentOpfPath", $writelog_process_name);
+            deleteDirectory($epubTempDir);
+            clean_shm_dir();
+            exit(1);
+        }
         $contentXml = new SimpleXMLElement($contentOpf);
         writelog("DEBUG [EPUB-COVER] content.opf読み込み成功 (サイズ: " . strlen($contentOpf) . " bytes)", $writelog_process_name);
 
@@ -346,11 +352,11 @@ if (strcasecmp($ext, 'epub') == 0) {
         writelog("DEBUG [EPUB-COVER] manifestアイテム総数: $manifestItemCount", $writelog_process_name);
 
         // 表紙画像が見つからない場合、または.xhtmlファイルだった場合の処理
-        if ($coverFileName === null || pathinfo($coverFileName, PATHINFO_EXTENSION) === 'xhtml') {
+        if ($coverFileName === null || pathinfo((string)(parse_url($coverFileName, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION) === 'xhtml') {
             writelog("DEBUG [EPUB-COVER] 表紙が未発見またはxhtml。manifestから画像を直接探索...", $writelog_process_name);
             foreach ($contentXml->manifest->item as $item) {
                 $itemHref = (string)$item['href'];
-                $itemExt = pathinfo($itemHref, PATHINFO_EXTENSION);
+                $itemExt = pathinfo((string)(parse_url($itemHref, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION);
                 if (in_array($itemExt, ['jpg', 'jpeg', 'png', 'gif'])) {
                     $coverFileName = $itemHref;
                     writelog("DEBUG [EPUB-COVER] >>> manifest内の最初の画像を表紙として採用: $coverFileName", $writelog_process_name);
@@ -359,10 +365,10 @@ if (strcasecmp($ext, 'epub') == 0) {
             }
 
             // .xhtmlファイルの場合、中身を解析して画像ファイルを探す
-            if ($coverFileName !== null && pathinfo($coverFileName, PATHINFO_EXTENSION) === 'xhtml') {
+            if ($coverFileName !== null && pathinfo((string)(parse_url($coverFileName, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION) === 'xhtml') {
                 writelog("DEBUG [EPUB-COVER] xhtmlファイルを解析中: $coverFileName", $writelog_process_name);
-                $xhtmlFullPath = "$epubTempDir/$contentOpfDir/$coverFileName";
-                if (file_exists($xhtmlFullPath)) {
+                $xhtmlFullPath = resolveEpubFileWithinExtractionRoot($epubTempDir, $contentOpfDir, $coverFileName);
+                if ($xhtmlFullPath !== false) {
                     $xhtmlContent = file_get_contents($xhtmlFullPath);
                     $xhtmlXml = new SimpleXMLElement($xhtmlContent);
                     $xhtmlXml->registerXPathNamespace('xlink', 'http://www.w3.org/1999/xlink');
@@ -382,13 +388,13 @@ if (strcasecmp($ext, 'epub') == 0) {
         writelog("DEBUG [EPUB-COVER] 表紙ファイル名（SVG解析前）: " . ($coverFileName ?? "null"), $writelog_process_name);
 
         // SVGファイルの場合、SVG内の画像参照を解析するルン
-        if ($coverFileName !== null && strtolower(pathinfo($coverFileName, PATHINFO_EXTENSION)) === 'svg') {
+        if ($coverFileName !== null && strtolower(pathinfo((string)(parse_url($coverFileName, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION)) === 'svg') {
             writelog("DEBUG [EPUB-COVER] SVGファイルを検出: $coverFileName", $writelog_process_name);
-            $svgFilePath = "$epubTempDir/$contentOpfDir/$coverFileName";
-            writelog("DEBUG [EPUB-COVER] SVGファイルパス: $svgFilePath", $writelog_process_name);
-            writelog("DEBUG [EPUB-COVER] SVGファイル存在確認: " . (file_exists($svgFilePath) ? "存在する" : "存在しない"), $writelog_process_name);
+            $svgFilePath = resolveEpubFileWithinExtractionRoot($epubTempDir, $contentOpfDir, $coverFileName);
+            writelog("DEBUG [EPUB-COVER] SVGファイルパス: " . ($svgFilePath ?: 'rejected path'), $writelog_process_name);
+            writelog("DEBUG [EPUB-COVER] SVGファイル存在確認: " . ($svgFilePath !== false ? "存在する" : "存在しない"), $writelog_process_name);
 
-            if (file_exists($svgFilePath)) {
+            if ($svgFilePath !== false) {
                 $svgContent = file_get_contents($svgFilePath);
                 writelog("DEBUG [EPUB-COVER] SVGコンテンツ (先頭500文字): " . substr($svgContent, 0, 500), $writelog_process_name);
                 $svgDir = dirname($coverFileName);
@@ -446,21 +452,11 @@ if (strcasecmp($ext, 'epub') == 0) {
         }
 
         // 最終的なパスを構築して確認
-        $coverFilePathRaw = "$epubTempDir/$contentOpfDir/$coverFileName";
-        writelog("DEBUG [EPUB-COVER] 表紙画像パス（realpath前）: $coverFilePathRaw", $writelog_process_name);
-        writelog("DEBUG [EPUB-COVER] ファイル存在確認（realpath前）: " . (file_exists($coverFilePathRaw) ? "存在する" : "存在しない"), $writelog_process_name);
+        $coverFilePath = resolveEpubFileWithinExtractionRoot($epubTempDir, $contentOpfDir, $coverFileName);
+        writelog("DEBUG [EPUB-COVER] 表紙画像の解決結果: " . ($coverFilePath ?: "rejected path"), $writelog_process_name);
 
-        $coverFilePath = realpath($coverFilePathRaw);
-        writelog("DEBUG [EPUB-COVER] 表紙画像パス（realpath後）: " . ($coverFilePath ?: "false"), $writelog_process_name);
-
-        if ($coverFilePath === false || !file_exists($coverFilePath)) {
-            writelog("ERROR [EPUB-COVER] Cover image file not found: $coverFilePath", $writelog_process_name);
-            // ディレクトリ内のファイル一覧を出力
-            $dirToList = dirname($coverFilePathRaw);
-            if (is_dir($dirToList)) {
-                $filesInDir = scandir($dirToList);
-                writelog("DEBUG [EPUB-COVER] ディレクトリ '$dirToList' 内のファイル: " . implode(", ", $filesInDir), $writelog_process_name);
-            }
+        if ($coverFilePath === false) {
+            writelog("ERROR [EPUB-COVER] Cover image path is missing or outside the EPUB extraction directory", $writelog_process_name);
             deleteDirectory($epubTempDir);
             clean_shm_dir();
             exit(1);
@@ -597,7 +593,8 @@ if (strcasecmp($ext, 'epub') == 0) {
         writelog("DEBUG type preview", $writelog_process_name);
 
         // container.xmlファイルを探してopfのパスを取得するルン
-        $containerXml = file_get_contents("$epubTempDir/META-INF/container.xml");
+        $containerXmlPath = resolveEpubFileWithinExtractionRoot($epubTempDir, '.', 'META-INF/container.xml');
+        $containerXml = $containerXmlPath !== false ? @file_get_contents($containerXmlPath) : false;
         if ($containerXml === false) {
             writelog("ERROR: container.xml not found in EPUB file: $file", $writelog_process_name);
             deleteDirectory($epubTempDir);
@@ -611,7 +608,20 @@ if (strcasecmp($ext, 'epub') == 0) {
         $contentOpfDir = dirname($contentOpfPath);
 
         // content.opfファイルの内容を取得してspineを解析するルン
-        $contentOpf = file_get_contents("$epubTempDir/$contentOpfPath");
+        $contentOpfFullPath = resolveEpubFileWithinExtractionRoot($epubTempDir, '.', $contentOpfPath);
+        if ($contentOpfFullPath === false) {
+            writelog("ERROR: content.opf path escaped the EPUB extraction directory: $contentOpfPath", $writelog_process_name);
+            deleteDirectory($epubTempDir);
+            clean_shm_dir();
+            exit(1);
+        }
+        $contentOpf = @file_get_contents($contentOpfFullPath);
+        if ($contentOpf === false) {
+            writelog("ERROR: content.opf could not be read: $contentOpfPath", $writelog_process_name);
+            deleteDirectory($epubTempDir);
+            clean_shm_dir();
+            exit(1);
+        }
         $contentXml = new SimpleXMLElement($contentOpf);
 
         // manifestからidでhrefを引けるマップを作成
@@ -626,25 +636,23 @@ if (strcasecmp($ext, 'epub') == 0) {
             $idref = (string)$itemref['idref'];
             if (isset($manifestMap[$idref])) {
                 $href = $manifestMap[$idref];
-                $fullPath = "$epubTempDir/$contentOpfDir/$href";
+                $fullPath = resolveEpubFileWithinExtractionRoot($epubTempDir, $contentOpfDir, $href);
 
                 // SVGファイルの場合、中の画像参照を解析するルン
-                if (strtolower(pathinfo($href, PATHINFO_EXTENSION)) === 'svg' && file_exists($fullPath)) {
+                if (strtolower(pathinfo((string)(parse_url($href, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION)) === 'svg' && $fullPath !== false) {
                     $svgContent = file_get_contents($fullPath);
                     $extractedImage = extractImageFromSvg($svgContent, dirname($href));
                     if ($extractedImage !== null) {
-                        $imagePath = realpath("$epubTempDir/$contentOpfDir/$extractedImage");
-                        if ($imagePath !== false && file_exists($imagePath)) {
+                        $imagePath = resolveEpubFileWithinExtractionRoot($epubTempDir, $contentOpfDir, $extractedImage);
+                        if ($imagePath !== false) {
                             $imageFiles[] = $imagePath;
                             writelog("DEBUG preview image from SVG: $imagePath", $writelog_process_name);
                         }
                     }
                 }
                 // 直接画像ファイルの場合
-                elseif (in_array(strtolower(pathinfo($href, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
-                    if (file_exists($fullPath)) {
-                        $imageFiles[] = $fullPath;
-                    }
+                elseif (in_array(strtolower(pathinfo((string)(parse_url($href, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'gif', 'webp']) && $fullPath !== false) {
+                    $imageFiles[] = $fullPath;
                 }
             }
 
@@ -679,6 +687,13 @@ if (strcasecmp($ext, 'epub') == 0) {
                 }
             }
         }
+
+        $realEpubRoot = realpath($epubTempDir);
+        $imageFiles = array_values(array_filter($imageFiles, static function ($imagePath) use ($realEpubRoot) {
+            $resolvedImagePath = is_string($imagePath) ? realpath($imagePath) : false;
+            return $realEpubRoot !== false && $resolvedImagePath !== false && is_file($resolvedImagePath)
+                && str_starts_with($resolvedImagePath, $realEpubRoot . DIRECTORY_SEPARATOR);
+        }));
 
         // 画像が12枚未満の場合、警告を出す
         if (count($imageFiles) < 12) {

@@ -121,3 +121,42 @@ function resolveGeneratedImageDeletionPath(string $root, $relativePath, string $
     // 親ディレクトリだけを実体確認し、末尾の symlink は unlink 対象として残すルン。
     return $parent . DIRECTORY_SEPARATOR . basename($candidate);
 }
+
+function resolveEpubFileWithinExtractionRoot(string $root, string $baseRelativePath, string $href): string|false
+{
+    if ($href === '' || strlen($href) > 4096 || strlen($baseRelativePath) > 4096) {
+        return false;
+    }
+    $urlParts = parse_url($href);
+    if ($urlParts === false || isset($urlParts['scheme']) || isset($urlParts['host'])
+        || isset($urlParts['user']) || isset($urlParts['pass']) || !isset($urlParts['path'])) {
+        return false;
+    }
+
+    $relativeHref = rawurldecode($urlParts['path']);
+    $relativeBase = rawurldecode($baseRelativePath);
+    if ($relativeHref === '' || preg_match('/[\x00-\x1f\x7f\\\\]/', $relativeHref) === 1
+        || preg_match('/[\x00-\x1f\x7f\\\\]/', $relativeBase) === 1
+        || $relativeHref[0] === '/' || preg_match('/\A[A-Za-z]:/', $relativeHref) === 1
+        || $relativeBase !== '.' && ($relativeBase[0] === '/' || preg_match('/\A[A-Za-z]:/', $relativeBase) === 1)) {
+        return false;
+    }
+
+    $realRoot = realpath($root);
+    if ($realRoot === false || !is_dir($realRoot)) {
+        return false;
+    }
+    $baseCandidate = $relativeBase === '.' || $relativeBase === ''
+        ? $realRoot
+        : $realRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeBase);
+    $realBase = realpath($baseCandidate);
+    if ($realBase === false || !is_dir($realBase)
+        || ($realBase !== $realRoot && !str_starts_with($realBase, $realRoot . DIRECTORY_SEPARATOR))) {
+        return false;
+    }
+
+    $candidate = $realBase . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeHref);
+    $resolved = realpath($candidate);
+    return $resolved !== false && is_file($resolved)
+        && str_starts_with($resolved, $realRoot . DIRECTORY_SEPARATOR) ? $resolved : false;
+}
