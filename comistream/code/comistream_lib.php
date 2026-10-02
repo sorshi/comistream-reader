@@ -780,6 +780,31 @@ function getBookmarkList()
 
 
 ##### 最近開いたファイル取得 ##############################################################
+function renderHistoryLink($href, $name): string
+{
+    $href = is_string($href) && str_starts_with($href, '/') && !str_starts_with($href, '//')
+        && preg_match('/[\\\\\x00-\x20\x7f]/', $href) !== 1 ? $href : '#';
+    return '<a class="history_book" href="' . htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+        . '">' . htmlspecialchars((string)$name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</a>';
+}
+
+function renderLegacyHistory(string $html): string
+{
+    $document = new DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    try {
+        $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        $result = '';
+        foreach ($document->getElementsByTagName('a') as $anchor) {
+            $result .= renderHistoryLink($anchor->getAttribute('href'), $anchor->textContent);
+        }
+        return $result;
+    } finally {
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+    }
+}
+
 function getHistory()
 {
     global $user, $global_use_db_flag, $bookmarkDir, $dbh;
@@ -796,11 +821,11 @@ function getHistory()
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($row) {
-                echo "<a class=\"history_book\" href=\"{$row['request_uri']}\"><!-- {$row['path_hash']} -->{$row['base_file']}</a>";
+                echo renderHistoryLink($row['request_uri'], $row['base_file']);
                 writelog("DEBUG getHistory() {$row['request_uri']}:{$row['path_hash']}:{$row['base_file']} with DB");
             }
         } else {
-            echo file_get_contents("$bookmarkDir/$user/history");
+            echo renderLegacyHistory((string)file_get_contents("$bookmarkDir/$user/history"));
         }
     }
     exit(0);

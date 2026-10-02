@@ -579,13 +579,7 @@ function linkhook(e) {
     // 音楽プレイヤーを開く
     var musicPlayerHref =
       "/cgi-bin/music_player.php?file=" + fileLink + "&mode=open";
-    document.getElementById("history").innerHTML =
-      '<a class="history_music" href=' +
-      location.origin +
-      musicPlayerHref +
-      ">" +
-      targetElement.innerText +
-      "</a>";
+    renderHistoryEntry(musicPlayerHref, targetElement.innerText, "history_music");
     location.href = musicPlayerHref;
     return false;
   }
@@ -611,13 +605,7 @@ function linkhook(e) {
       } else {
         debugLog("LOGINED loginuser:" + loginuser);
         var openHref = hlsCgiPath + "?file=" + fileLink + "&mode=open";
-        document.getElementById("history").innerHTML =
-          '<a class="history_movie" href=' +
-          location.origin +
-          openHref +
-          ">" +
-          targetElement.innerText +
-          "</a>";
+        renderHistoryEntry(openHref, targetElement.innerText, "history_movie");
         location.href = openHref;
       }
     }
@@ -632,13 +620,7 @@ function linkhook(e) {
       // 圧縮モードrawの場合
       // openHref = openHref + "&size=FULL";
     }
-    document.getElementById("history").innerHTML =
-      '<a class="history_book" href=' +
-      location.origin +
-      openHref +
-      ">" +
-      targetElement.innerText +
-      "</a>";
+    renderHistoryEntry(openHref, targetElement.innerText, "history_book");
     location.href = openHref;
   } else if (targetElement.href && targetElement.href.match(/\.epub$/i)) {
     // ★スピナーを表示するルン！（ePubを開く前のフィードバック）
@@ -647,13 +629,7 @@ function linkhook(e) {
     targetElement.parentNode.parentNode.firstChild.firstChild.firstChild.src =
       iconPath + "open.png";
     var openHref = cgiPath + "?mode=open&file=" + fileLink;
-    document.getElementById("history").innerHTML =
-      '<a class="history_book" href=' +
-      location.origin +
-      openHref +
-      ">" +
-      targetElement.innerText +
-      "</a>";
+    renderHistoryEntry(openHref, targetElement.innerText, "history_book");
     location.href = openHref;
   } else {
     // ★スピナーを表示するルン！（その他のファイルを開く前のフィードバック）
@@ -1407,6 +1383,37 @@ function restoreDirectoryFilterState() {
   }
 }
 
+// 履歴はタグを移植せず、リンクと表示文字列だけを組み立てるルン。
+function createHistoryAnchor(href, name, className = "history_book") {
+  let url;
+  try { url = new URL(href, location.href); } catch (_) { return null; }
+  if (url.origin !== location.origin || !["http:", "https:"].includes(url.protocol)) return null;
+  const anchor = document.createElement("a");
+  anchor.className = className;
+  anchor.href = url.href;
+  anchor.textContent = name;
+  return anchor;
+}
+
+function renderHistoryEntry(href, name, className = "history_book") {
+  const element = document.getElementById("history");
+  const anchor = createHistoryAnchor(href, name, className);
+  if (element && anchor) element.replaceChildren(anchor);
+}
+
+function renderHistoryResponse(html) {
+  const element = document.getElementById("history");
+  if (!element) return;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const anchors = [];
+  for (const source of template.content.querySelectorAll("a")) {
+    const anchor = createHistoryAnchor(source.getAttribute("href"), source.textContent);
+    if (anchor) anchors.push(anchor);
+  }
+  element.replaceChildren(...anchors);
+}
+
 // 最後に開いたファイルの取得
 function getHistory() {
   var pathName = comistreamConfig.currentPath;
@@ -1429,7 +1436,7 @@ function getHistory() {
     // 履歴要素を更新
     const historyElement = document.getElementById("history");
     if (historyElement) {
-      historyElement.innerHTML = xmlHttp.responseText;
+      renderHistoryResponse(xmlHttp.responseText);
     }
   }
 }

@@ -1,6 +1,38 @@
 </div><!--/.wrapper-->
 
 <script>
+// 履歴はタグを移植せず、リンクと表示文字列だけを組み立てるルン。
+function createHistoryAnchor(href, name, className = "history_book") {
+  let url;
+  try { url = new URL(href, location.href); } catch (_) { return null; }
+  if (url.origin !== location.origin || !["http:", "https:"].includes(url.protocol)) return null;
+  const anchor = document.createElement("a");
+  anchor.className = className;
+  anchor.href = url.href;
+  anchor.textContent = name;
+  return anchor;
+}
+
+function renderHistoryEntry(href, name, className = "history_book") {
+  const element = document.getElementById("history");
+  const anchor = createHistoryAnchor(href, name, className);
+  if (element && anchor) element.replaceChildren(anchor);
+}
+
+function renderHistoryResponse(html) {
+  const element = document.getElementById("history");
+  if (!element) return;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const anchors = [];
+  for (const source of template.content.querySelectorAll("a")) {
+    const anchor = createHistoryAnchor(source.getAttribute("href"), source.textContent);
+    if (anchor) anchors.push(anchor);
+  }
+  element.replaceChildren(...anchors);
+}
+
+
 // const cgiPath, hlsCgiPath, bibiPath, publicDir, themeDir are now defined in the main html from dir_list.php
 
 const iconPath = "/theme/icons/"; // themeDir is empty, so we can hardcode this.
@@ -104,7 +136,7 @@ function linkhook(e) {
     e.preventDefault();
     // 音楽プレイヤーを開く
     var musicPlayerHref = "/cgi-bin/music_player.php?file=" + fileLink + "&mode=open";
-    document.getElementById("history").innerHTML = "<a class=\"history_music\" href="+location.origin+musicPlayerHref+">"+e.target.innerText+"</a>"
+    renderHistoryEntry(musicPlayerHref, e.target.innerText, "history_music");
     location.href = musicPlayerHref;
     return false;
   }
@@ -126,7 +158,7 @@ function linkhook(e) {
       }else{
         debugLog("LOGINED loginuser:"+loginuser);
         var openHref = hlsCgiPath + "?file=" + fileLink + "&mode=open";
-        document.getElementById("history").innerHTML = "<a class=\"history_movie\" href="+location.origin+openHref+">"+e.target.innerText+"</a>"
+        renderHistoryEntry(openHref, e.target.innerText, "history_movie");
         location.href = openHref;
       }
     }
@@ -138,13 +170,13 @@ function linkhook(e) {
       // 圧縮モードrawの場合
       // openHref = openHref + "&size=FULL";
     }
-    document.getElementById("history").innerHTML = "<a class=\"history_book\" href="+location.origin+openHref+">"+e.target.innerText+"</a>"
+    renderHistoryEntry(openHref, e.target.innerText, "history_book");
     location.href = openHref;
   }else if( e.target.href.match(/\.epub$/i ) ){
     // ePubの場合（comistream.php経由で処理）
     e.target.parentNode.parentNode.firstChild.firstChild.firstChild.src = iconPath+"open.png";
     var openHref = cgiPath + "?mode=open&file=" + fileLink;
-    document.getElementById("history").innerHTML = "<a class=\"history_book\" href="+location.origin+openHref+">"+e.target.innerText+"</a>"
+    renderHistoryEntry(openHref, e.target.innerText, "history_book");
     location.href = openHref;
   }else{
     // それ以外はそのまま
@@ -459,7 +491,8 @@ function getHistory(){
   }
   
   if (historyElement) {
-    historyElement.innerHTML = bookName;
+    if (bookName === "-") historyElement.textContent = bookName;
+    else renderHistoryResponse(bookName);
     debugLog('DEBUG getHistory updated history element with:', bookName);
   } else {
     debugLog('DEBUG getHistory: history element not found');
