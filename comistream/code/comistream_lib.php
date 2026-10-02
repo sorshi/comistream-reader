@@ -6066,6 +6066,26 @@ HTML;
 
 ##### Foliate EPUB処理 ##############################################################
 /**
+ * 保存済みのEPUB位置とUTC基準の更新時刻を取得するルン。
+ */
+function getSavedEpubReadingPosition(PDO $database, string $user, string $baseFile): array
+{
+    // SQLiteのUTC日時をそのままUnix時刻へ変換し、PHPのタイムゾーンを介さないルン。
+    $statement = $database->prepare(
+        "SELECT epub_cfi, CAST(strftime('%s', COALESCE(updated_at, created_at)) AS INTEGER) * 1000 AS saved_updated_at "
+        . 'FROM book_history WHERE user = ? AND base_file = ? '
+        . 'ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1'
+    );
+    $statement->execute([$user, $baseFile]);
+    $row = $statement->fetch(PDO::FETCH_ASSOC);
+    $statement->closeCursor();
+    return [
+        'cfi' => (string)($row['epub_cfi'] ?? ''),
+        'updatedAt' => (int)($row['saved_updated_at'] ?? 0),
+    ];
+}
+
+/**
  * EPUBをローカルキャッシュへ展開し、Foliate-jsで表示するルン。
  */
 function handleFoliateEpubOpen()
@@ -6145,14 +6165,9 @@ function handleFoliateEpubOpen()
             . 'request_uri = excluded.request_uri, path_hash = excluded.path_hash, relative_path = excluded.relative_path'
         );
         $stmt->execute([$user, $requestUri, $fileHash, $relativePath, $baseFile, basefilename2hash($baseFile)]);
-        $stmt = $dbh->prepare('SELECT epub_cfi, updated_at, created_at FROM book_history WHERE user = ? AND base_file = ? ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1');
-        $stmt->execute([$user, $baseFile]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (is_array($row)) {
-            $savedCfi = (string)($row['epub_cfi'] ?? '');
-            $savedTime = strtotime((string)($row['updated_at'] ?? $row['created_at'] ?? ''));
-            $savedUpdatedAt = $savedTime !== false ? $savedTime * 1000 : 0;
-        }
+        $savedPosition = getSavedEpubReadingPosition($dbh, (string)$user, (string)$baseFile);
+        $savedCfi = $savedPosition['cfi'];
+        $savedUpdatedAt = $savedPosition['updatedAt'];
     }
 
     $publicFilePath = rtrim((string)$publicDir, '/') . '/' . ltrim($remotePath, '/');

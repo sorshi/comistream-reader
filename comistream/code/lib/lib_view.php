@@ -620,6 +620,9 @@ JS;
         'epub_writing_mode' => $i18n->get('epub_writing_mode'),
         'epub_writing_horizontal' => $i18n->get('epub_writing_horizontal'),
         'epub_writing_vertical' => $i18n->get('epub_writing_vertical'),
+        'epub_page_position_readout' => $i18n->get('epub_page_position_readout'),
+        'epub_page_position_loading' => $i18n->get('epub_page_position_loading'),
+        'epub_page_position_unavailable' => $i18n->get('epub_page_position_unavailable'),
         'epub_status_loading' => $i18n->get('epub_status_loading'),
         'epub_loading_opening' => $i18n->get('epub_loading_opening'),
         'epub_loading_fetching' => $i18n->get('epub_loading_fetching'),
@@ -682,6 +685,10 @@ JS;
     $writingAutoLabel = htmlspecialchars($i18n->get('epub_auto'), ENT_QUOTES, 'UTF-8');
     $writingHorizontalLabel = htmlspecialchars($i18n->get('epub_writing_horizontal'), ENT_QUOTES, 'UTF-8');
     $writingVerticalLabel = htmlspecialchars($i18n->get('epub_writing_vertical'), ENT_QUOTES, 'UTF-8');
+    $pagePositionLabel = htmlspecialchars($i18n->get('epub_page_position'), ENT_QUOTES, 'UTF-8');
+    $pagePositionToggleLabel = htmlspecialchars($i18n->get('epub_page_position_toggle'), ENT_QUOTES, 'UTF-8');
+    $pagePositionHelp = htmlspecialchars($i18n->get('epub_page_position_help'), ENT_QUOTES, 'UTF-8');
+    $pagePositionLoading = htmlspecialchars($i18n->get('epub_page_position_loading'), ENT_QUOTES, 'UTF-8');
     $fullscreenLabel = htmlspecialchars($i18n->get('windowed'), ENT_QUOTES, 'UTF-8');
     $backLabel = htmlspecialchars($i18n->get('back'), ENT_QUOTES, 'UTF-8');
     $statusLoadingLabel = htmlspecialchars($i18n->get('epub_status_loading'), ENT_QUOTES, 'UTF-8');
@@ -757,6 +764,36 @@ JS;
         .epub-nav-zone-right {
             right: 0;
         }
+        #epub-page-position {
+            position: absolute;
+            z-index: 25;
+            max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 8px);
+            padding: 0 4px;
+            color: var(--epub-page-position-color, #fff);
+            font-family: system-ui, sans-serif;
+            font-size: 12px;
+            line-height: 16px;
+            font-variant-numeric: tabular-nums;
+            direction: ltr;
+            writing-mode: horizontal-tb;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            opacity: 0.68;
+            pointer-events: none;
+            user-select: none;
+            --epub-safe-left: env(safe-area-inset-left, 0px);
+            --epub-safe-right: env(safe-area-inset-right, 0px);
+            --epub-safe-bottom: env(safe-area-inset-bottom, 0px);
+            transform: translate(-50%, -50%);
+        }
+        #epub-page-position[hidden],
+        #epub-page-position-status[hidden],
+        #epub-page-position-help[hidden],
+        #epub-page-position-setting[hidden] {
+            display: none;
+        }
         body.epub-fixed-layout .epub-nav-zone {
             display: block;
             pointer-events: auto;
@@ -792,6 +829,16 @@ JS;
             min-height: 1.45em;
             white-space: pre-line;
             overflow-wrap: anywhere;
+        }
+        .epub-page-position-menu {
+            margin-top: 4px;
+            color: #d0d0d0;
+            font-size: 0.82em;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+        .epub-page-position-help {
+            color: #c0c0c0;
         }
         .epub-panel-section {
             margin-bottom: 12px;
@@ -996,6 +1043,7 @@ JS;
         <button id="epub-nav-left" class="epub-nav-zone epub-nav-zone-left" type="button" aria-label="{$prevPageLabel}"></button>
         <div id="epub-viewer" tabindex="0"></div>
         <button id="epub-nav-right" class="epub-nav-zone epub-nav-zone-right" type="button" aria-label="{$nextPageLabel}"></button>
+        <div id="epub-page-position" aria-hidden="true" hidden></div>
     </div>
     <div id="epub-loading-overlay" role="status" aria-live="polite" aria-hidden="false">
         <div class="epub-loading-box">
@@ -1021,6 +1069,8 @@ JS;
             <div class="epub-panel-section">
                 <div class="bookName epub-book-heading" id="epub-book-heading">{$bookName}</div>
                 <div id="epub-status">{$statusLoadingLabel}</div>
+                <div id="epub-page-position-status" class="epub-page-position-menu" role="status" aria-live="off">{$pagePositionLoading}</div>
+                <div id="epub-page-position-help" class="epub-page-position-menu epub-page-position-help">{$pagePositionHelp}</div>
                 <div class="epub-slider-row">
                     <label for="epub-slider">{$progressLabel}</label>
                     <span class="reader-marker-slider">
@@ -1048,6 +1098,10 @@ JS;
                     <div class="epub-setting-row">
                         <span class="epub-setting-label">{$flowLabel}</span>
                         <span class="epub-setting-value" id="epub-flow-value">-</span>
+                    </div>
+                    <div class="epub-setting-row" id="epub-page-position-setting" hidden>
+                        <span class="epub-setting-label">{$pagePositionLabel}</span>
+                        <button class="button button-mode epub-setting-value" id="epub-page-position-toggle" type="button" aria-label="{$pagePositionToggleLabel}" aria-pressed="true">{$pagePositionToggleLabel}</button>
                     </div>
                     <div class="epub-setting-row">
                         <span class="epub-setting-label">{$directionLabel}</span>
@@ -1139,7 +1193,8 @@ function printEpubViewerHTML(): void
     $html = generateEpubHTML();
     if (!headers_sent()) {
         header('Content-Type: text/html; charset=utf-8');
-        header('Cache-Control: private, max-age=300');
+        // HTMLにはユーザーごとの最新読書位置が含まれるので、再利用しないルン。
+        header('Cache-Control: private, no-store');
     }
     echo function_exists('compressResponse') ? compressResponse($html) : $html;
 }

@@ -15,6 +15,7 @@ const FONT_SCALE_KEY = 'comistream_epub_font_scale';
 const FONT_SCALE_SOURCE_KEY = 'comistream_epub_font_scale_source';
 const FONT_SCALE_VERSION_KEY = 'comistream_epub_font_scale_version';
 const FLOW_MODE_KEY = 'comistream_epub_flow_mode';
+const PAGE_POSITION_VISIBLE_KEY = 'comistream_epub_position_visible';
 const THEME_KEY = 'comistream_epub_theme';
 const DIRECTION_OVERRIDE_KEY = 'comistream_epub_direction_override';
 const WRITING_MODE_OVERRIDE_KEY = 'comistream_epub_writing_mode_override';
@@ -27,6 +28,8 @@ const FONT_STEP = 0.1;
 const SLIDER_MAX = 1000;
 const NAVIGATION_READY_TIMEOUT_MS = 1600;
 const LAYOUT_RESIZE_DEBOUNCE_MS = 250;
+const PAGE_POSITION_SETTLE_DELAY_MS = 140;
+const PAGE_POSITION_INTEGER_TOLERANCE = 0.001;
 const BASE_FONT_SIZE_PX = 16;
 const TARGET_CHARS_PER_LINE = 40;
 const MIN_CHARS_PER_LINE = 25;
@@ -62,6 +65,10 @@ let readerMarkerManager = null;
 let menuVisible = false;
 let currentFontScale = DEFAULT_FONT_SCALE;
 let currentFlowMode = 'paginated';
+let pagePositionVisible = true;
+let currentPagePosition = null;
+let latestRendererPageLocation = null;
+let pagePositionTimer = null;
 let currentTheme = 'paper';
 let currentDirectionOverride = 'auto';
 let currentWritingModeOverride = 'auto';
@@ -92,6 +99,7 @@ let rendererRecoveryScheduledSeq = 0;
 let relocateSideEffectsFrame = null;
 let relocateSideEffectsImmediateSave = false;
 let progressSaveTimer = null;
+let progressSaveReady = false;
 let progressSaveInFlight = false;
 let progressSavePending = false;
 let lastProgressSaveKey = '';
@@ -494,7 +502,9 @@ function localStateKey() {
 function getStoredLocation() {
     const localState = getStoredState();
     const localUpdatedAt = Number(localState?.updatedAt) || 0;
-    if (savedCfi && savedUpdatedAt > localUpdatedAt) {
+    // DBの秒精度にそろえ、同じ秒ならサーバーで確定した位置を優先するルン。
+    if (savedCfi && savedUpdatedAt > 0
+        && Math.floor(savedUpdatedAt / 1000) >= Math.floor(localUpdatedAt / 1000)) {
         return savedCfi;
     }
     if (localState?.cfi) {
@@ -525,20 +535,25 @@ function getStoredState() {
 }
 
 function persistCurrentLocation() {
-    if (!currentLocation?.cfi) {
+    if (!progressSaveReady || !currentLocation?.cfi) {
         return;
     }
     localStorage.setItem(localCfiKey(), currentLocation.cfi);
+    const storedState = getStoredState();
+    // 画面を閉じただけで古い位置を「最新」にしないルン。
+    const updatedAt = storedState?.cfi === currentLocation.cfi && Number(storedState.updatedAt) > 0
+        ? Number(storedState.updatedAt)
+        : Date.now();
     localStorage.setItem(localStateKey(), JSON.stringify({
         cfi: currentLocation.cfi,
         fraction: currentLocation.fraction ?? 0,
         section: currentLocation.section?.current ?? 0,
-        updatedAt: Date.now()
+        updatedAt
     }));
 }
 
 function getProgressSaveSnapshot() {
-    if (!escapedFile || !currentLocation) {
+    if (!progressSaveReady || !escapedFile || !currentLocation) {
         return null;
     }
 
@@ -577,6 +592,17 @@ function getProgressSaveKey(snapshot) {
         String(snapshot.maxPage),
         snapshot.cfi
     ].join('\n');
+}
+
+function rememberRestoredServerPosition(location) {
+    // サーバーから復元できた位置は保存済みルン。未同期のローカル復元は再送するルン。
+    if (!savedCfi || location !== savedCfi || currentLocation?.cfi !== savedCfi) {
+        return;
+    }
+    const snapshot = getProgressSaveSnapshot();
+    if (snapshot) {
+        lastProgressSaveKey = getProgressSaveKey(snapshot);
+    }
 }
 
 async function flushProgressSave() {
@@ -1347,6 +1373,7 @@ function applyShellTheme() {
     const theme = getEffectiveTheme();
     document.body.style.background = theme.shellBg;
     document.documentElement.style.background = theme.shellBg;
+    document.documentElement.style.setProperty('--epub-page-position-color', theme.color);
 
     const themeColorMeta = document.querySelector('meta[name="theme-color"]');
     if (themeColorMeta) {
@@ -1660,6 +1687,7 @@ function restoreViewerPrefs() {
     if (storedFlow === 'paginated' || storedFlow === 'scrolled') {
         currentFlowMode = storedFlow;
     }
+    pagePositionVisible = localStorage.getItem(PAGE_POSITION_VISIBLE_KEY) !== '0';
     const storedTheme = localStorage.getItem(THEME_KEY);
     if (storedTheme && isValidThemeName(storedTheme)) {
         currentTheme = storedTheme;
@@ -1679,6 +1707,7 @@ function saveViewerPrefs() {
     localStorage.setItem(FONT_SCALE_SOURCE_KEY, currentFontScaleSource);
     localStorage.setItem(FONT_SCALE_VERSION_KEY, FONT_SCALE_ALGORITHM_VERSION);
     localStorage.setItem(FLOW_MODE_KEY, currentFlowMode);
+    localStorage.setItem(PAGE_POSITION_VISIBLE_KEY, pagePositionVisible ? '1' : '0');
     localStorage.setItem(THEME_KEY, currentTheme);
     localStorage.setItem(DIRECTION_OVERRIDE_KEY, currentDirectionOverride);
     localStorage.setItem(WRITING_MODE_OVERRIDE_KEY, currentWritingModeOverride);
@@ -2803,6 +2832,190 @@ function getLocationProgressMetrics(location = currentLocation) {
     };
 }
 
+function calculateSectionPagePosition(location) {
+    const sectionIndex = Number(location?.index);
+    const fraction = Number(location?.fraction);
+    const size = Number(location?.size);
+    if (
+        !Number.isInteger(sectionIndex)
+        || sectionIndex < 0
+        || !Number.isFinite(fraction)
+        || fraction < 0
+        || fraction > 1
+        || !Number.isFinite(size)
+        || size <= 0
+        || size > 2
+    ) {
+        return null;
+    }
+
+    const pageOffset = fraction / size;
+    const nearestPageOffset = Math.round(pageOffset);
+    if (Math.abs(pageOffset - nearestPageOffset) > PAGE_POSITION_INTEGER_TOLERANCE) {
+        return null;
+    }
+    const totalPages = Math.max(1, Math.ceil((1 / size) - PAGE_POSITION_INTEGER_TOLERANCE));
+    const page = nearestPageOffset + 1;
+    if (page < 1 || page > totalPages) {
+        return null;
+    }
+
+    return {
+        section: sectionIndex + 1,
+        page,
+        totalPages,
+        label: `${sectionIndex + 1}–${page}`
+    };
+}
+
+function getPagePositionReadout(position) {
+    return t('epub_page_position_readout', 'Book section %s, screen %s')
+        .replace('%s', String(position.section))
+        .replace('%s', String(position.page));
+}
+
+function hidePagePosition(statusText = null) {
+    const footer = $('epub-page-position');
+    const menuStatus = $('epub-page-position-status');
+    if (footer) {
+        footer.hidden = true;
+        footer.textContent = '';
+    }
+    if (menuStatus && statusText) {
+        menuStatus.textContent = statusText;
+    }
+}
+
+function updatePagePositionDisplay() {
+    pagePositionTimer = null;
+    const renderer = view?.renderer;
+    const menuStatus = $('epub-page-position-status');
+    if (
+        !pagePositionVisible
+        || !viewInitialized
+        || view?.isFixedLayout
+        || currentFlowMode !== 'paginated'
+        || menuVisible
+        || !$('epub-page-position')
+    ) {
+        hidePagePosition();
+        return;
+    }
+
+    const rendererLocation = latestRendererPageLocation;
+    const locationSection = Number(currentLocation?.section?.current ?? currentLocation?.index);
+    const position = calculateSectionPagePosition(rendererLocation);
+    if (
+        !renderer
+        || !position
+        || rendererLocation.index !== locationSection
+    ) {
+        hidePagePosition(t('epub_page_position_loading', 'Checking reading position'));
+        return;
+    }
+
+    const feet = Array.isArray(renderer.feet) ? renderer.feet : [];
+    const footRects = feet
+        .map((foot) => foot?.parentElement?.getBoundingClientRect?.())
+        .filter((rect) => rect && rect.width > 0 && rect.height > 0);
+    const footer = $('epub-page-position');
+    if (footRects.length === 0) {
+        hidePagePosition(t('epub_page_position_unavailable', 'Position unavailable'));
+        currentPagePosition = null;
+        return;
+    }
+
+    const top = Math.min(...footRects.map((rect) => rect.top));
+    const bottom = Math.max(...footRects.map((rect) => rect.bottom));
+    const left = Math.min(...footRects.map((rect) => rect.left));
+    const right = Math.max(...footRects.map((rect) => rect.right));
+    const centers = footRects.map((rect) => rect.top + (rect.height / 2));
+    if (Math.max(...centers) - Math.min(...centers) > 2) {
+        hidePagePosition(t('epub_page_position_unavailable', 'Position unavailable'));
+        currentPagePosition = null;
+        return;
+    }
+
+    footer.textContent = position.label;
+    footer.hidden = false;
+    footer.style.left = `${left + ((right - left) / 2)}px`;
+    footer.style.top = `${top + ((bottom - top) / 2)}px`;
+    const footerRect = footer.getBoundingClientRect();
+    const safeInsets = getComputedStyle(footer);
+    const safeLeft = parseFloat(safeInsets.getPropertyValue('--epub-safe-left')) || 0;
+    const safeRight = parseFloat(safeInsets.getPropertyValue('--epub-safe-right')) || 0;
+    const safeBottom = parseFloat(safeInsets.getPropertyValue('--epub-safe-bottom')) || 0;
+    if (
+        footerRect.left < safeLeft + 4
+        || footerRect.right > window.innerWidth - safeRight - 4
+        || footerRect.bottom > window.innerHeight - safeBottom - 2
+        || footerRect.top < 2
+    ) {
+        hidePagePosition(t('epub_page_position_unavailable', 'Position unavailable'));
+        currentPagePosition = null;
+        return;
+    }
+
+    currentPagePosition = position;
+    if (menuStatus) {
+        menuStatus.textContent = `${t('epub_page_position', 'Page position')} ${position.label} · ${getPagePositionReadout(position)}`;
+    }
+}
+
+function schedulePagePositionUpdate(location = latestRendererPageLocation) {
+    latestRendererPageLocation = location;
+    currentPagePosition = null;
+    const footer = $('epub-page-position');
+    const menuStatus = $('epub-page-position-status');
+    if (footer) {
+        footer.hidden = true;
+    }
+    if (menuStatus) {
+        menuStatus.textContent = t('epub_page_position_loading', 'Checking reading position');
+    }
+    if (pagePositionTimer !== null) {
+        window.clearTimeout(pagePositionTimer);
+    }
+    pagePositionTimer = window.setTimeout(
+        updatePagePositionDisplay,
+        PAGE_POSITION_SETTLE_DELAY_MS
+    );
+}
+
+function updatePagePositionSetting() {
+    const isSupported = Boolean(view && !view.isFixedLayout && currentFlowMode === 'paginated');
+    const row = $('epub-page-position-setting');
+    const button = $('epub-page-position-toggle');
+    const help = $('epub-page-position-help');
+    const menuStatus = $('epub-page-position-status');
+    if (row) {
+        row.hidden = !isSupported;
+    }
+    if (button) {
+        button.setAttribute('aria-pressed', pagePositionVisible ? 'true' : 'false');
+    }
+    if (help) {
+        help.hidden = !isSupported;
+    }
+    if (menuStatus) {
+        menuStatus.hidden = !isSupported;
+    }
+    if (menuStatus && !currentPagePosition && isSupported) {
+        menuStatus.textContent = t('epub_page_position_loading', 'Checking reading position');
+    }
+    if (!isSupported || !pagePositionVisible || menuVisible) {
+        hidePagePosition();
+    } else {
+        schedulePagePositionUpdate();
+    }
+}
+
+function setPagePositionVisible(visible) {
+    pagePositionVisible = Boolean(visible);
+    localStorage.setItem(PAGE_POSITION_VISIBLE_KEY, pagePositionVisible ? '1' : '0');
+    updatePagePositionSetting();
+}
+
 function updateProgressUI(location = currentLocation) {
     const metrics = getLocationProgressMetrics(location);
     const progress = $('progress');
@@ -3035,6 +3248,12 @@ function updateToolbarState() {
         systemThemeButton.setAttribute('aria-pressed', currentTheme === THEME_OPTION_SYSTEM ? 'true' : 'false');
     }
 
+    const positionButton = $('epub-page-position-toggle');
+    if (positionButton) {
+        positionButton.classList.toggle('pressed', pagePositionVisible);
+        positionButton.setAttribute('aria-pressed', pagePositionVisible ? 'true' : 'false');
+    }
+    updatePagePositionSetting();
     updateDirectionState();
 }
 
@@ -3166,6 +3385,9 @@ function toggleMenu(forceVisible = null) {
 
     if (!menuVisible) {
         focusReader();
+        schedulePagePositionUpdate();
+    } else {
+        hidePagePosition();
     }
 }
 
@@ -4210,7 +4432,7 @@ function bindKeyboardShortcuts(target) {
 
 function sendProgressBeacon() {
     const snapshot = getProgressSaveSnapshot();
-    if (!snapshot) {
+    if (!snapshot || getProgressSaveKey(snapshot) === lastProgressSaveKey) {
         return;
     }
     navigator.sendBeacon('comistream.php', buildProgressFormData(snapshot));
@@ -4254,6 +4476,9 @@ function wireToolbar() {
         focusReader();
     });
     $('epub-menu-close')?.addEventListener('click', () => closeMenu());
+    $('epub-page-position-toggle')?.addEventListener('click', () => {
+        setPagePositionVisible(!pagePositionVisible);
+    });
     $('epub-back-button')?.addEventListener('click', () => backListPage());
     $('epub-prev-page')?.addEventListener('click', () => {
         void navigate(() => goPreviousPage());
@@ -4689,6 +4914,20 @@ function bindViewLifecycleEvents() {
     });
 }
 
+function bindRendererPagePositionEvents() {
+    const renderer = view?.renderer;
+    if (!renderer?.addEventListener) {
+        return false;
+    }
+    renderer.addEventListener('relocate', (event) => {
+        schedulePagePositionUpdate(event.detail);
+    });
+    renderer.addEventListener('stabilized', () => {
+        schedulePagePositionUpdate();
+    });
+    return true;
+}
+
 async function init() {
     debugLog('init() start');
     const perf = createPerfTimer('init()');
@@ -4720,6 +4959,7 @@ async function init() {
     } else {
         await view.open(epubUrl);
     }
+    bindRendererPagePositionEvents();
     perf('view.open completed', {
         fixedLayout: Boolean(view?.isFixedLayout),
         sections: Array.isArray(view?.book?.sections) ? view.book.sections.length : 0
@@ -4826,11 +5066,16 @@ async function init() {
             await waitForNavigationReady();
             await reconcileCurrentLocationProgressFromCfi('initial-restore', location);
         }
+        // 初期復元中のrelocateでは保存せず、復元結果が確定してから許可するルン。
+        progressSaveReady = true;
+        rememberRestoredServerPosition(location);
         updateProgressUI(currentLocation);
         updateDirectionState();
         initializeEpubReaderMarkers();
         scheduleRelocateSideEffects({ immediateSave: true });
+        schedulePagePositionUpdate();
     } else {
+        progressSaveReady = true;
         setStatusText(t('epub_status_loading', 'Loading...'));
     }
     perf('initial relocate side effects scheduled');
@@ -4874,6 +5119,7 @@ async function init() {
     });
     window.addEventListener('resize', debounce(() => {
         applyRendererPrefs();
+        schedulePagePositionUpdate();
     }, LAYOUT_RESIZE_DEBOUNCE_MS));
     if (systemDarkModeMedia) {
         const handleSystemThemeChange = () => {
