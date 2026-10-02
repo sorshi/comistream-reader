@@ -1742,7 +1742,7 @@ if ($is_404_mode) {
                 if (text == null) return '';
                 const div = document.createElement('div');
                 div.textContent = text;
-                return div.innerHTML;
+                return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
             }
 
             // 404モード用の空ディレクトリ表示関数
