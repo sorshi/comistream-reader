@@ -13,6 +13,7 @@ function fixture({ savedCfi = 'server-cfi', savedUpdatedAt = 1790950980000, loca
     if (legacy) storage.set('cfi:book.epub', legacy);
     const posts = [];
     const beacons = [];
+    const requests = [];
     const context = vm.createContext({
         console, FormData, Date: { now: () => 1790950990000 },
         baseFile: 'book.epub', escapedFile: 'book.epub', csrfToken: 'fixture',
@@ -20,15 +21,23 @@ function fixture({ savedCfi = 'server-cfi', savedUpdatedAt = 1790950980000, loca
         PROGRESS_SAVE_DEBOUNCE_MS: 5000,
         savedCfi, savedUpdatedAt, currentLocation: { cfi: savedCfi, section: { current: 14 }, fraction: 0.7 },
         progressSaveReady: true, progressSaveTimer: null, progressSaveInFlight: false, progressSavePending: false, lastProgressSaveKey: '',
+        epubCompletionPending: false,
         localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
         window: { clearTimeout() {}, setTimeout: () => 1 },
         getLocationProgressMetrics: () => ({ currentPage: 15, totalPages: 20 }),
         debugLog() {},
-        fetch: async (_url, options) => { posts.push(options.body.get('epub_cfi')); return { ok: true }; },
+        fetch: async (_url, options) => {
+            posts.push(options.body.get('epub_cfi'));
+            requests.push({
+                cfi: options.body.get('epub_cfi'),
+                completed: options.body.get('epub_completed')
+            });
+            return { ok: true };
+        },
         navigator: { sendBeacon: (_url, data) => { beacons.push(data.get('epub_cfi')); return true; } }
     });
     vm.runInContext(progressCode + beaconCode, context);
-    return { context, storage, posts, beacons };
+    return { context, storage, posts, beacons, requests };
 }
 
 test('newer server position wins over the position from a previously used device', () => {
@@ -97,4 +106,35 @@ test('local restore and a failed server restore are not treated as acknowledged 
     local.context.rememberRestoredServerPosition('unsynced-cfi');
     local.context.sendProgressBeacon();
     assert.deepEqual(local.beacons, ['unsynced-cfi']);
+});
+
+test('completion changes the save key and is sent even when the CFI stays the same', async () => {
+    const f = fixture();
+    f.context.rememberRestoredServerPosition('server-cfi');
+    f.context.epubCompletionPending = true;
+    await f.context.flushProgressSave();
+    assert.deepEqual(f.requests, [{ cfi: 'server-cfi', completed: '1' }]);
+});
+
+test('a failed completion save stays pending and is retried', async () => {
+    const f = fixture();
+    f.context.epubCompletionPending = true;
+    let attempts = 0;
+    f.context.fetch = async (_url, options) => {
+        attempts++;
+        f.requests.push({
+            cfi: options.body.get('epub_cfi'),
+            completed: options.body.get('epub_completed')
+        });
+        return { ok: attempts > 1 };
+    };
+
+    await f.context.flushProgressSave();
+    assert.equal(f.context.progressSavePending, true);
+    await f.context.flushProgressSave();
+    assert.deepEqual(f.requests, [
+        { cfi: 'server-cfi', completed: '1' },
+        { cfi: 'server-cfi', completed: '1' }
+    ]);
+    assert.equal(f.context.lastProgressSaveKey.endsWith('server-cfi'), true);
 });

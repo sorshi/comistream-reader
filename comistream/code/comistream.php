@@ -140,7 +140,9 @@ writelog("DEBUG QUERY_STRING:" . print_r($param, true) . " method:" . $_SERVER["
 
 $width = array_key_exists("width", $param) ? $param["width"] : $width;
 $page = array_key_exists("page", $param) ? $param["page"] : "";
+$max_page = array_key_exists("max_page", $param) ? $param["max_page"] : null;
 $epub_cfi = array_key_exists("epub_cfi", $param) ? $param["epub_cfi"] : "";
+$epub_completed = array_key_exists("epub_completed", $param) ? $param["epub_completed"] : "";
 $quality = array_key_exists("quality", $param) ? $param["quality"] : $quality;
 $file = array_key_exists("file", $param) ? $param["file"] : "";
 $base_file_hash = array_key_exists("base_file_hash", $param) ? $param["base_file_hash"] : "";

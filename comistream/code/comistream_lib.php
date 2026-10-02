@@ -974,10 +974,78 @@ function resolveFileWithinBaseDirectory($baseDirectory, $relativePath)
 }
 
 
+/**
+ * 読書位置を保存し、必要なら既読状態を更新するルン。
+ */
+function persistBookReadingProgress(
+    PDO $database,
+    string $user,
+    string $baseFile,
+    int $page,
+    ?int $submittedMaxPage,
+    string $epubCfi,
+    bool $isEpub,
+    bool $epubCompleted
+): array {
+    if ($isEpub) {
+        $maxPageValue = $submittedMaxPage ?? 0;
+        $completedValue = $epubCompleted ? 1 : 0;
+        $query = "UPDATE book_history SET current_page = ?, "
+            . "max_page = CASE WHEN has_read = 1 OR ? = '1' THEN 0 "
+            . "WHEN CAST(? AS INTEGER) > 0 THEN ? ELSE max_page END, "
+            . "has_read = CASE WHEN has_read = 1 OR ? = '1' THEN 1 ELSE has_read END, "
+            . "epub_cfi = ? WHERE user = ? AND base_file = ?";
+        $statement = $database->prepare($query);
+        $statement->execute([
+            $page,
+            $completedValue,
+            $maxPageValue,
+            $maxPageValue,
+            $completedValue,
+            $epubCfi !== '' ? $epubCfi : null,
+            $user,
+            $baseFile,
+        ]);
+        return [$epubCompleted ? 0 : $maxPageValue, $completedValue];
+    }
+
+    $query = "SELECT max_page, has_read FROM book_history "
+        . "WHERE user = ? AND base_file = ? ORDER BY updated_at DESC LIMIT 1";
+    $statement = $database->prepare($query);
+    $statement->execute([$user, $baseFile]);
+    $row = $statement->fetch(PDO::FETCH_NUM);
+    $statement->closeCursor();
+
+    $maxPage = $row[0] ?? 0;
+    $hasRead = $row[1] ?? 0;
+    if ($page >= $maxPage) {
+        $maxPage = 0;
+        $hasRead = 1;
+    } elseif ($hasRead == 1) {
+        // 既に既読の場合はいじらないルン。
+    } else {
+        $hasRead = 0;
+    }
+
+    $query = "UPDATE book_history SET current_page = ?, max_page = ?, has_read = ?, "
+        . "epub_cfi = ? WHERE user = ? AND base_file = ?";
+    $statement = $database->prepare($query);
+    $statement->execute([
+        $page,
+        $maxPage,
+        $hasRead,
+        $epubCfi !== '' ? $epubCfi : null,
+        $user,
+        $baseFile,
+    ]);
+    return [$maxPage, $hasRead];
+}
+
 ##### ファイルクローズ時にページ位置を保存 ##################################################
 function saveBookmark()
 {
-    global $bookmarkDir, $user, $global_use_db_flag, $dbh, $file, $page, $maxPage, $epub_cfi;
+    global $bookmarkDir, $user, $global_use_db_flag, $dbh, $file, $page, $maxPage, $max_page;
+    global $epub_cfi, $epub_completed;
 
     // beaconリクエストはbest-effortなので、タイムアウトを短く設定
     set_time_limit(5);
@@ -1024,41 +1092,29 @@ function saveBookmark()
             ensureBookHistoryEpubCfiColumn($beacon_dbh);
 
             $baseFileUtf = $baseFile;
-            $query = "SELECT max_page, has_read FROM book_history WHERE user = ? AND base_file = ? ORDER BY updated_at DESC LIMIT 1";
-            $stmt = $beacon_dbh->prepare($query);
-            $stmt->execute([$user, $baseFileUtf]);
-            $row = $stmt->fetch(PDO::FETCH_NUM);
-            $maxPage = $row[0];
-            $has_read = $row[1];
-            // SELECTのカーソルを閉じてREADロックを解放
-            $stmt->closeCursor();
-            $stmt = null;
+            $submittedMaxPage = parseReaderInteger($max_page, 1, 2147483647);
+            $isEpub = preg_match('/\.epub$/i', $baseFileUtf) === 1;
+            $markEpubCompleted = $isEpub && $epub_completed === '1';
 
             writelog("DEBUG saveBookmark() $baseFileUtf");
 
-            // 最後まで読んだファイルはページ数を0にする
-            if ($page >= $maxPage) {
-                $maxPage = 0;
-                $has_read = 1;
-            } elseif ($has_read == 1) {
-                // 既に既読の場合はいじらない
-            } else {
-                $has_read = 0;
-            }
-
-            // favはここではいじらない
-            $baseFileHash = basefilename2hash($baseFileUtf);
-            $query = "UPDATE book_history SET current_page = ?, max_page = ?, has_read = ?, epub_cfi = ? WHERE user = ? AND base_file = ?";
-
             // UPDATEをtry-catchでラップし、タイムアウト時は諦める（beaconはbest-effort）
             try {
-                $stmt = $beacon_dbh->prepare($query);
-                $stmt->execute([$page, $maxPage, $has_read, ($epub_cfi !== '' ? $epub_cfi : null), $user, $baseFileUtf]);
+                [$maxPage, $hasRead] = persistBookReadingProgress(
+                    $beacon_dbh,
+                    (string)$user,
+                    $baseFileUtf,
+                    $page,
+                    $submittedMaxPage,
+                    is_string($epub_cfi) ? $epub_cfi : '',
+                    $isEpub,
+                    $markEpubCompleted
+                );
 
                 if ($beacon_dbh->errorInfo()[2]) {
-                    writelog("ERROR saveBookmark() SQL error: " . $beacon_dbh->errorInfo()[2] . " query: $query");
+                    writelog("ERROR saveBookmark() SQL error: " . $beacon_dbh->errorInfo()[2]);
                 }
-                writelog("DEBUG saveBookmark() $page, $maxPage, $has_read, $user, $baseFileHash, $baseFileUtf with DB");
+                writelog("DEBUG saveBookmark() $page, $maxPage, $hasRead, $user, $baseFileUtf with DB");
             } catch (PDOException $e) {
                 writelog("WARNING saveBookmark() UPDATE failed (timeout or lock): " . $e->getMessage());
             } finally {

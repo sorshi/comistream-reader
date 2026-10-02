@@ -103,6 +103,11 @@ let progressSaveReady = false;
 let progressSaveInFlight = false;
 let progressSavePending = false;
 let lastProgressSaveKey = '';
+let epubCompletionPending = false;
+let forwardNavigationSeq = 0;
+let endNavigationSeq = 0;
+let userScrollIntentUntil = 0;
+let completionCheckTimer = null;
 let hasStoredFontScale = false;
 let hasAdjustedInitialFontScale = false;
 let lastRendererPrefsSignature = '';
@@ -562,6 +567,7 @@ function getProgressSaveSnapshot() {
         file: escapedFile,
         page: metrics.currentPage,
         maxPage: metrics.totalPages,
+        completed: epubCompletionPending,
         cfi: typeof currentLocation?.cfi === 'string' ? currentLocation.cfi : '',
         fraction: typeof currentLocation?.fraction === 'number'
             ? currentLocation.fraction
@@ -579,6 +585,9 @@ function buildProgressFormData(snapshot) {
     if (snapshot.cfi !== '') {
         data.append('epub_cfi', snapshot.cfi);
     }
+    if (snapshot.completed) {
+        data.append('epub_completed', '1');
+    }
     if (snapshot.fraction !== null) {
         data.append('epub_fraction', String(snapshot.fraction));
     }
@@ -590,6 +599,7 @@ function getProgressSaveKey(snapshot) {
         snapshot.file,
         String(snapshot.page),
         String(snapshot.maxPage),
+        snapshot.completed ? '1' : '0',
         snapshot.cfi
     ].join('\n');
 }
@@ -644,11 +654,17 @@ async function flushProgressSave() {
                 maxPage: snapshot.maxPage
             });
         } else {
+            if (snapshot.completed) {
+                progressSavePending = true;
+            }
             debugLog('flushProgressSave() failed', {
                 status: response.status
             });
         }
     } catch (error) {
+        if (snapshot.completed) {
+            progressSavePending = true;
+        }
         debugLog('flushProgressSave() error', {
             message: error?.message || String(error)
         });
@@ -3446,6 +3462,7 @@ async function goNextPage() {
         });
         return;
     }
+    forwardNavigationSeq++;
     const beforeLocation = summarizeLocation();
     debugLog('goNextPage() start', beforeLocation);
     await view.next();
@@ -3842,6 +3859,7 @@ function setupTapNavigation(doc) {
     }, { passive: true });
 
     doc.addEventListener('touchmove', (event) => {
+        noteEpubScrollIntent();
         if (!scrolledTouchState) {
             return;
         }
@@ -3902,6 +3920,12 @@ function setupTapNavigation(doc) {
 
         // iOS Safari のスクロール可能 iframe でも中央タップでメニューを開けるようにするルン。
         openMenu();
+    }, { passive: true });
+
+    doc.addEventListener('wheel', (event) => {
+        if (!event.ctrlKey && !event.metaKey) {
+            noteEpubScrollIntent();
+        }
     }, { passive: true });
 }
 
@@ -3997,7 +4021,7 @@ function isEditableTarget(target) {
     return Boolean(element.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]'));
 }
 
-async function navigate(action) {
+async function navigate(action, { allowReadCompletion = true } = {}) {
     const intentSeq = ++navigationIntentSeq;
     debugLog('navigate() queued', summarizeLocation());
     let spinnerTimer = null;
@@ -4013,6 +4037,8 @@ async function navigate(action) {
             return;
         }
         const beforeLocation = summarizeLocation();
+        const beforeForwardNavigationSeq = forwardNavigationSeq;
+        const beforeEndNavigationSeq = endNavigationSeq;
         const beforeEventSeq = navigationEventSeq;
         const beforeRelocationSeq = relocationEventSeq;
         const navigationGuardSeq = ++rendererVisibilityGuardSeq;
@@ -4026,7 +4052,9 @@ async function navigate(action) {
         });
         const actionResult = await action();
         const targetInfo = normalizeNavigationTarget(actionResult);
-        const settled = await waitForNavigationSettled(
+        const forwardActionAlreadyAtEnd = forwardNavigationSeq !== beforeForwardNavigationSeq
+            && isEpubAtEndOfLinearReadingOrder();
+        const settled = forwardActionAlreadyAtEnd || await waitForNavigationSettled(
             beforeEventSeq,
             beforeLocation,
             {
@@ -4055,6 +4083,15 @@ async function navigate(action) {
             beforeRelocationSeq,
             beforeLocation
         );
+        if (
+            allowReadCompletion
+            && isEpubAtEndOfLinearReadingOrder()
+            && (forwardNavigationSeq !== beforeForwardNavigationSeq
+                || endNavigationSeq !== beforeEndNavigationSeq
+                || didNavigateForward(beforeLocation, summarizeLocation(view?.lastLocation || currentLocation)))
+        ) {
+            markEpubCompletedIfAtEnd('user-navigation');
+        }
         scheduleRendererVisibilityGuard('navigate-end', targetInfo);
         window.clearTimeout(spinnerTimer);
         if (spinnerShown) {
@@ -4098,6 +4135,9 @@ async function jumpToFraction(fraction) {
 }
 
 async function goToBoundary(atStart) {
+    if (!atStart) {
+        endNavigationSeq++;
+    }
     return await jumpToFraction(atStart ? 0 : 1);
 }
 
@@ -4164,6 +4204,60 @@ function getAdjacentLinearSectionIndex(previous, fromIndex = getCurrentNavigatio
         }
     }
     return null;
+}
+
+function didNavigateForward(beforeLocation, afterLocation) {
+    if (afterLocation.section !== beforeLocation.section) {
+        return afterLocation.section > beforeLocation.section;
+    }
+    return afterLocation.fraction > beforeLocation.fraction + 0.0005;
+}
+
+function isEpubAtEndOfLinearReadingOrder(location = currentLocation) {
+    const renderer = view?.renderer;
+    const sections = Array.isArray(view?.book?.sections) ? view.book.sections : [];
+    const sectionIndex = Number(location?.section?.current ?? location?.index);
+    let lastLinearIndex = -1;
+    for (let index = 0; index < sections.length; index++) {
+        if (sections[index]?.linear !== 'no') {
+            lastLinearIndex = index;
+        }
+    }
+    return viewInitialized
+        && typeof location?.cfi === 'string'
+        && location.cfi !== ''
+        && renderer?.atEnd === true
+        && lastLinearIndex >= 0
+        && sectionIndex === lastLinearIndex;
+}
+
+function markEpubCompletedIfAtEnd(reason) {
+    if (epubCompletionPending || !isNavigationReady() || !isEpubAtEndOfLinearReadingOrder()) {
+        return false;
+    }
+    epubCompletionPending = true;
+    debugLog('EPUB reading completed', {
+        reason,
+        location: summarizeLocation()
+    });
+    scheduleProgressSave({ immediate: true });
+    return true;
+}
+
+function noteEpubScrollIntent() {
+    if (!viewInitialized || currentFlowMode !== 'scrolled') {
+        return;
+    }
+    userScrollIntentUntil = Date.now() + 750;
+    if (completionCheckTimer !== null) {
+        window.clearTimeout(completionCheckTimer);
+    }
+    completionCheckTimer = window.setTimeout(() => {
+        completionCheckTimer = null;
+        if (Date.now() <= userScrollIntentUntil) {
+            markEpubCompletedIfAtEnd('user-scroll');
+        }
+    }, 350);
 }
 
 async function goToSpineSection(index, previous = false) {
@@ -4536,7 +4630,7 @@ function wireToolbar() {
             const nextDirection = button.dataset.epubDirectionOption;
             if (nextDirection === 'auto' || nextDirection === 'rtl' || nextDirection === 'ltr') {
                 currentDirectionOverride = nextDirection;
-                void navigate(() => applyLayoutOverride());
+                void navigate(() => applyLayoutOverride(), { allowReadCompletion: false });
             }
         });
     }
@@ -4545,7 +4639,7 @@ function wireToolbar() {
             const nextWritingMode = button.dataset.epubWritingOption;
             if (nextWritingMode === 'auto' || nextWritingMode === 'vertical' || nextWritingMode === 'horizontal') {
                 currentWritingModeOverride = nextWritingMode;
-                void navigate(() => applyLayoutOverride());
+                void navigate(() => applyLayoutOverride(), { allowReadCompletion: false });
             }
         });
     }
