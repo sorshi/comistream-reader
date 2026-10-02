@@ -608,7 +608,7 @@ function getCurrentPageNumberFromBookmarkfile()
             $stmt = $dbh->prepare($query);
             $stmt->execute([$user, $baseFile]);
             $row = $stmt->fetch(PDO::FETCH_NUM);
-            $page = $row[0];
+            $page = readerPageForDisplay($row[0], $row[2]);
             $favorite = $row[1] == 1 ? '*' : '';
             // $maxPage = $row[2]; // 必要に応じて使用
         } else {
@@ -977,6 +977,13 @@ function saveBookmark()
 
     // beaconリクエストはbest-effortなので、タイムアウトを短く設定
     set_time_limit(5);
+
+    // 不正なページ位置は、専用DB接続を作る前に拒否するルン。
+    $page = parseReaderInteger($page, 0, 2147483647);
+    if ($page === null) {
+        http_response_code(400);
+        exit;
+    }
 
     if ($user !== "guest") {
         $file = preg_replace('/\.\.\//', '', $file);

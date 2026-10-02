@@ -114,9 +114,8 @@ function generateHTML()
     $debug_flag = json_encode($global_debug_flag);
 
     // ページ数が最大ページ数を超えていたら最大ページ数に修正
-    if ($page > $maxPage) {
-        $page = $maxPage;
-    }
+    $page = readerPageForDisplay($page, $maxPage);
+    $pageJson = json_encode($page);
     // サイト名
     $apple_mobile_web_app_title = $conf['siteName'];
 
@@ -292,8 +291,8 @@ function generateHTML()
             };
         })();
 
-        var page = $page;
-        var prevPage = $page;
+        var page = $pageJson;
+        var prevPage = $pageJson;
         var indexArray = [$indexArray];
         var position = $positionJson;
         var direction = $directionJson;
