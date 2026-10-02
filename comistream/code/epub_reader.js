@@ -3,6 +3,8 @@ const FOLIATE_MODULE_BASE = 'https://cdn.jsdelivr.net/gh/sorshi/comistream-folia
 const TAP_MAX_DISTANCE_PX = 10;
 const TAP_MAX_DURATION_MS = 300;
 const EPUB_PAGE_SWIPE_MIN_DISTANCE_PX = 40;
+const EPUB_PAGE_TURN_DURATION_MS = 100;
+const EPUB_PAGE_TURN_OFFSET_PX = 32;
 const SCROLLED_CENTER_TAP_MAX_DISTANCE_PX = 20;
 const SCROLLED_CENTER_TAP_MAX_DURATION_MS = 500;
 const NAVIGATION_SETTLE_TIMEOUT_MS = 2600;
@@ -69,6 +71,8 @@ let pagePositionVisible = true;
 let currentPagePosition = null;
 let latestRendererPageLocation = null;
 let pagePositionTimer = null;
+let pageTurnAnimation = null;
+let pageTurnAnimationFrame = null;
 let currentTheme = 'paper';
 let currentDirectionOverride = 'auto';
 let currentWritingModeOverride = 'auto';
@@ -115,6 +119,7 @@ let initialRestoreCfi = '';
 let initialRestoreReconcileUntil = 0;
 let initialRestorePinnedLocation = null;
 const illustrationStyleSnapshots = new WeakMap();
+const sectionIsolationRenderers = new WeakSet();
 
 const appConfig = window.epubReaderConfig || {};
 const i18n = window.epubReaderI18n || {};
@@ -1367,6 +1372,34 @@ function setPaginatedSwipeMinimumDistance(renderer, isFixedLayout, flowMode) {
         return;
     }
     renderer.setAttribute('swipe-min-distance', String(EPUB_PAGE_SWIPE_MIN_DISTANCE_PX));
+}
+
+function configurePaginatedSectionIsolation(renderer, isFixedLayout, flowMode) {
+    if (!renderer || isFixedLayout) {
+        return;
+    }
+    if (!sectionIsolationRenderers.has(renderer)) {
+        // 採用中のFoliateでは単一章モードのgetterがスクロール表示に限定されているルン。
+        // ページ表示にも適用して、奇数カラムの章末を次章と同じ画面へ混ぜないルン。
+        const nativeGetter = Object.getOwnPropertyDescriptor(
+            Object.getPrototypeOf(renderer), 'noContinuousScroll'
+        )?.get;
+        if (!nativeGetter) {
+            console.warn('EPUB renderer does not support section isolation.');
+            return;
+        }
+        Object.defineProperty(renderer, 'noContinuousScroll', {
+            configurable: true,
+            get() {
+                return this.scrolled
+                    ? nativeGetter.call(this)
+                    : this.hasAttribute('no-continuous-scroll');
+            }
+        });
+        sectionIsolationRenderers.add(renderer);
+    }
+    // flowの切り替え前に属性を更新し、スクロール表示では従来の連続表示へ戻すルン。
+    renderer.toggleAttribute('no-continuous-scroll', flowMode === 'paginated');
 }
 
 function isValidThemeName(themeName) {
@@ -3274,6 +3307,7 @@ function updateToolbarState() {
 }
 
 function applyRendererPrefs() {
+    cancelPageTurnAnimation();
     applyShellTheme();
     if (!view?.renderer) {
         updateToolbarState();
@@ -3319,6 +3353,7 @@ function applyRendererPrefs() {
         // paginated + multi-section preload は section を跨いだ primary 判定が不安定になりやすいルン。
         // 安定動作を優先して、ページ送り中は現在 section ベースの遷移だけに絞るルン。
         view.renderer.toggleAttribute('no-preload', disableSectionPreload);
+        configurePaginatedSectionIsolation(view.renderer, Boolean(view.isFixedLayout), currentFlowMode);
         debugLog('applyRendererPrefs() preload mode', {
             flow: currentFlowMode,
             isFixedLayout: Boolean(view.isFixedLayout),
@@ -3444,7 +3479,7 @@ async function goPreviousPage() {
         });
         return await goToSpineSection(expectedPreviousIndex, true);
     }
-    if (!didMove && beforeLocation.fraction <= 0.02) {
+    if (!didMove && (isAtPaginatedSectionBoundary(true) ?? beforeLocation.fraction <= 0.02)) {
         debugLog('goPreviousPage() fallback to previous section', {
             beforeLocation,
             afterLocation
@@ -3483,7 +3518,7 @@ async function goNextPage() {
         });
         return await goToSpineSection(expectedNextIndex, false);
     }
-    if (!didMove && beforeLocation.fraction >= 0.98) {
+    if (!didMove && (isAtPaginatedSectionBoundary(false) ?? beforeLocation.fraction >= 0.98)) {
         debugLog('goNextPage() fallback to next section', {
             beforeLocation,
             afterLocation
@@ -3491,6 +3526,19 @@ async function goNextPage() {
         return await goToAdjacentSpineSection(false, getLocationSectionIndexOrNull(beforeLocation));
     }
     return null;
+}
+
+function isAtPaginatedSectionBoundary(previous) {
+    const renderer = view?.renderer;
+    if (!renderer || view.isFixedLayout || currentFlowMode !== 'paginated') {
+        return null;
+    }
+    const { start, end, viewSize } = renderer;
+    if (![start, end, viewSize].every(Number.isFinite) || viewSize <= 0) {
+        return null;
+    }
+    // 書籍全体の進捗ではなく章内の表示範囲で判定し、scroll座標の1px未満の丸めを許容するルン。
+    return previous ? start <= 1 : end >= viewSize - 1;
 }
 
 async function goPhysicalLeft() {
@@ -5008,12 +5056,69 @@ function bindViewLifecycleEvents() {
     });
 }
 
+function cancelPageTurnAnimation() {
+    if (pageTurnAnimationFrame !== null) {
+        window.cancelAnimationFrame(pageTurnAnimationFrame);
+        pageTurnAnimationFrame = null;
+    }
+    pageTurnAnimation?.cancel();
+    pageTurnAnimation = null;
+}
+
+function animatePageTurn(forward) {
+    cancelPageTurnAnimation();
+    const renderer = view?.renderer;
+    if (!viewInitialized || view?.isFixedLayout || currentFlowMode !== 'paginated'
+        || typeof renderer?.animate !== 'function') {
+        return;
+    }
+    const offset = EPUB_PAGE_TURN_OFFSET_PX
+        * (getNavigationIsRtl() ? -1 : 1) * (forward ? 1 : -1);
+    // 章の切り替えで本文が再表示されてから動かすルン。ページ送りは完了を待たないルン。
+    pageTurnAnimationFrame = window.requestAnimationFrame(() => {
+        pageTurnAnimationFrame = null;
+        const animation = renderer.animate([
+            { transform: `translateX(${offset}px)` },
+            { transform: 'translateX(0)' }
+        ], {
+            duration: EPUB_PAGE_TURN_DURATION_MS,
+            easing: 'ease-out'
+        });
+        pageTurnAnimation = animation;
+        animation.onfinish = () => {
+            if (pageTurnAnimation === animation) {
+                pageTurnAnimation = null;
+            }
+        };
+    });
+}
+
+function getPageTurnDirection(previous, current) {
+    if (!previous || !current
+        || !Number.isInteger(previous.index) || !Number.isInteger(current.index)
+        || !Number.isFinite(previous.fraction) || !Number.isFinite(current.fraction)) {
+        return 0;
+    }
+    if (previous.index !== current.index) {
+        return Math.sign(current.index - previous.index);
+    }
+    const delta = current.fraction - previous.fraction;
+    return Math.abs(delta) > 0.000001 ? Math.sign(delta) : 0;
+}
+
 function bindRendererPagePositionEvents() {
     const renderer = view?.renderer;
     if (!renderer?.addEventListener) {
         return false;
     }
+    let previousPageLocation = null;
     renderer.addEventListener('relocate', (event) => {
+        const direction = getPageTurnDirection(previousPageLocation, event.detail);
+        previousPageLocation = event.detail;
+        // 初期表示・再レイアウト・遅延scroll通知では演出を繰り返さないルン。
+        if (direction && ['page', 'snap', 'navigation'].includes(event.detail?.reason)) {
+            animatePageTurn(direction > 0);
+        }
         schedulePagePositionUpdate(event.detail);
     });
     renderer.addEventListener('stabilized', () => {
