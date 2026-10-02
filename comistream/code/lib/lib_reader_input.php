@@ -81,7 +81,6 @@ function resolveReaderCacheFile(string $directory, $relativePath, bool $allowMis
         return false;
     }
 
-    $relativePath = str_replace('\\', '/', $relativePath);
     $candidate = $base . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
     $resolved = realpath($candidate);
     if ($resolved !== false) {
@@ -97,5 +96,28 @@ function resolveReaderCacheFile(string $directory, $relativePath, bool $allowMis
         || ($parent !== $base && !str_starts_with($parent, $base . DIRECTORY_SEPARATOR))) {
         return false;
     }
+    return $parent . DIRECTORY_SEPARATOR . basename($candidate);
+}
+
+function resolveGeneratedImageDeletionPath(string $root, $relativePath, string $extension): string|false
+{
+    if (!isSafeReaderPagePath($relativePath) || preg_match('/\A[a-z0-9]+\z/i', $extension) !== 1
+        || str_ends_with(str_replace('\\', '/', $relativePath), '/')) {
+        return false;
+    }
+
+    $base = realpath($root);
+    if ($base === false || !is_dir($base)) {
+        return false;
+    }
+    $candidate = $base . DIRECTORY_SEPARATOR
+        . str_replace('/', DIRECTORY_SEPARATOR, $relativePath) . '.' . $extension;
+    $parent = realpath(dirname($candidate));
+    if ($parent === false || !is_dir($parent)
+        || ($parent !== $base && !str_starts_with($parent, $base . DIRECTORY_SEPARATOR))) {
+        return false;
+    }
+
+    // 親ディレクトリだけを実体確認し、末尾の symlink は unlink 対象として残すルン。
     return $parent . DIRECTORY_SEPARATOR . basename($candidate);
 }

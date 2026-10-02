@@ -297,26 +297,30 @@ function coverUpdate()
     global $publicDir, $user, $file, $coverFile, $previewFile;
 
     if (($user !== "guest") && !empty($user) && (strlen($user) > 0) && !empty($file)) {
-        // writelog("DEBUG coverUpdate() file:".$file);
-        $file = preg_replace('/\.\.\//', '', $file);
-        // 表紙画像のパスを作成
-        $file = preg_replace('/^(.*)\..*$/', '$1', $file);
-        $file = str_replace('+', '%2B', $file);
-        $file = urldecode($file);
-        // writelog("DEBUG coverUpdate() file:".$file);
-
-        // $coverFile = "$sharePath/theme/covers/" . $file . ".jpg";
-        // $previewFile = "$sharePath/theme/preview/" . $file . ".webp";
-        $coverFile = $conf["comistream_tool_dir"] . '/data/theme/covers' . $publicDir . '/' . $file . ".jpg";
-        $previewFile = $conf["comistream_tool_dir"] . '/data/theme/preview' . $publicDir . '/' . $file . ".webp";
-        if (file_exists($coverFile)) {
+        $sourcePath = (string)$file;
+        if (!isSafeReaderPagePath($sourcePath)) {
+            writelog("ERROR coverUpdate() unsafe file path");
+            errorExit('cover_update_failed');
+            return;
+        }
+        $relativeBase = preg_replace('/\.[^\.\/\\\\]*$/', '', $sourcePath);
+        $coverRoot = $conf["comistream_tool_dir"] . '/data/theme/covers' . $publicDir;
+        $previewRoot = $conf["comistream_tool_dir"] . '/data/theme/preview' . $publicDir;
+        $coverFile = resolveGeneratedImageDeletionPath($coverRoot, $relativeBase, 'jpg');
+        $previewFile = resolveGeneratedImageDeletionPath($previewRoot, $relativeBase, 'webp');
+        if ($coverFile === false || $previewFile === false) {
+            writelog("ERROR coverUpdate() generated image path is outside its root");
+            errorExit('cover_update_failed');
+            return;
+        }
+        if ((is_file($coverFile) || is_link($coverFile)) && !is_dir($coverFile)) {
             unlink($coverFile);
             writelog("INFO coverUpdate() cover deleted:$coverFile");
         } else {
             writelog("ERROR coverUpdate() cover not found:$coverFile");
         }
 
-        if (file_exists($previewFile)) {
+        if ((is_file($previewFile) || is_link($previewFile)) && !is_dir($previewFile)) {
             unlink($previewFile);
             writelog("INFO coverUpdate() preview deleted:$previewFile");
         } else {
