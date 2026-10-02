@@ -63,6 +63,12 @@ writelog("DEBUG QUERY mode:$mode file:$file playlist_id:$playlist_id", $writelog
 // Cookieの取得
 $user = isset($_COOKIE['comistreamUser']) ? $_COOKIE['comistreamUser'] : 'guest';
 
+// プレイリストの成功・エラー応答を、HTMLとして解釈させないルン。
+if (in_array($mode, ['create_playlist', 'add_to_playlist', 'get_playlists', 'get_playlist_tracks', 'delete_playlist'], true)) {
+    header('Content-Type: application/json; charset=UTF-8');
+    header('X-Content-Type-Options: nosniff');
+}
+
 // プレイリスト関連のDB テーブル作成
 createMusicTables($dbh);
 
