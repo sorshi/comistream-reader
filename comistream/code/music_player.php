@@ -1093,6 +1093,7 @@ function getCoverArt()
     $path = resolveMusicPlayerAudioPath($file);
 
     header('Cache-Control: private, max-age=600');
+    header('X-Content-Type-Options: nosniff');
 
     if ($path === false) {
         writelog("WARNING getCoverArt() rejected file request", $writelog_process_name);
@@ -1126,15 +1127,34 @@ function getCoverArt()
         }
     }
 
-    if ($result && isset($result['data'])) {
-        $mime = isset($result['mime']) ? $result['mime'] : 'image/jpeg';
-        header('Content-Type: ' . $mime);
+    $artwork = normalizeMusicCoverArtwork($result);
+    if ($artwork !== null) {
+        header('Content-Type: ' . $artwork['mime']);
         echo $result['data'];
         return;
     }
 
     // 見つからない場合は204 No Content
     http_response_code(204);
+}
+
+function normalizeMusicCoverArtwork($result): ?array
+{
+    if (!is_array($result) || !isset($result['data']) || !is_string($result['data'])) {
+        return null;
+    }
+    $info = @getimagesizefromstring($result['data']);
+    $types = [
+        IMAGETYPE_JPEG => 'image/jpeg',
+        IMAGETYPE_PNG => 'image/png',
+        IMAGETYPE_GIF => 'image/gif',
+        IMAGETYPE_WEBP => 'image/webp',
+        IMAGETYPE_BMP => 'image/bmp',
+    ];
+    if ($info === false || !isset($types[$info[2]])) {
+        return null;
+    }
+    return ['mime' => $types[$info[2]], 'data' => $result['data']];
 }
 
 // --- 解析ヘルパ ---
