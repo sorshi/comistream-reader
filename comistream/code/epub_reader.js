@@ -1,7 +1,8 @@
-const FOLIATE_MODULE_BASE = 'https://cdn.jsdelivr.net/gh/sorshi/comistream-foliate-js@e6777e15e279700e8a745f98a948ec1f29658184/';
+const FOLIATE_MODULE_BASE = 'https://cdn.jsdelivr.net/gh/sorshi/comistream-foliate-js@a4aa5c17aee2d383dc79aba3ef8dc56920706e82/';
 
 const TAP_MAX_DISTANCE_PX = 10;
 const TAP_MAX_DURATION_MS = 300;
+const EPUB_PAGE_SWIPE_MIN_DISTANCE_PX = 40;
 const SCROLLED_CENTER_TAP_MAX_DISTANCE_PX = 20;
 const SCROLLED_CENTER_TAP_MAX_DURATION_MS = 500;
 const NAVIGATION_SETTLE_TIMEOUT_MS = 2600;
@@ -1313,6 +1314,17 @@ function setRendererAttribute(name, value) {
         return;
     }
     view.renderer.setAttribute(name, String(value));
+}
+
+function setPaginatedSwipeMinimumDistance(renderer, isFixedLayout, flowMode) {
+    if (!renderer) {
+        return;
+    }
+    if (isFixedLayout || flowMode !== 'paginated') {
+        renderer.removeAttribute?.('swipe-min-distance');
+        return;
+    }
+    renderer.setAttribute('swipe-min-distance', String(EPUB_PAGE_SWIPE_MIN_DISTANCE_PX));
 }
 
 function isValidThemeName(themeName) {
@@ -3033,6 +3045,11 @@ function applyRendererPrefs() {
         return;
     }
     const disableSectionPreload = !view.isFixedLayout && currentFlowMode === 'paginated';
+    setPaginatedSwipeMinimumDistance(
+        view.renderer,
+        Boolean(view.isFixedLayout),
+        currentFlowMode
+    );
     let layout = null;
     let effectiveLayout = null;
     let viewportWidth = 0;
