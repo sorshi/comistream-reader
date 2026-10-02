@@ -1102,7 +1102,7 @@ function outputPage($isFileout = false)
     $bookCacheDirectory = resolveReaderCacheDirectory((string)$cacheDir, $file);
     $pagefile = $page !== null && $bookCacheDirectory !== false
         ? readReaderIndexPage($bookCacheDirectory, $page) : false;
-    if ($page === null || $width === null || $pagefile === false || $pagefile === '') {
+    if ($page === null || $width === null || $pagefile === false || !isSafeReaderPagePath($pagefile)) {
         if ($isFileout) {
             return '';
         }
@@ -1147,9 +1147,10 @@ function outputPage($isFileout = false)
     }
     $ext = trim($ext);
     // １ページ取得コマンド作成
-    if (file_exists("$cacheDir/$file/$pagefile")) {
+    $cachedPagePath = resolveReaderCacheFile($bookCacheDirectory, $pagefile);
+    if ($cachedPagePath !== false) {
         // キャッシュファイルが存在する場合はそれを返す
-        $pageInput = "cat \"$cacheDir/$file/$pagefile\"";
+        $pageInput = 'cat ' . escapeshellarg($cachedPagePath);
         writelog("DEBUG outputPage() output from cache. pageInput:" . $pageInput);
     } else {
         $fixPath = "";
@@ -1160,7 +1161,7 @@ function outputPage($isFileout = false)
             $pagefileOriginal = $pagefile;
             $pagefile = str_replace(['[', ']'], '?', $pagefile);
             if (file_exists("$cacheDir/$file/cp932")) {
-                $pageInput = "LANG=ja_JP.UTF8 $unzip -p -O cp932 \"$cacheDir/$file/file\" \"$pagefile\"";
+                $pageInput = "LANG=ja_JP.UTF8 $unzip -p -O cp932 \"$cacheDir/$file/file\" " . escapeshellarg($pagefile);
             } else {
                 // ファイルサイズ検証 ルン！
                 // 定数定義
@@ -1240,7 +1241,7 @@ function outputPage($isFileout = false)
                     writelog("DEBUG outputPage() The image file size (" . round($unpackedSize / 1024) . "KB) is within the " . round(MAX_FILE_SIZE_BYTES / 1024 / 1024) . "MB limit.");
                 }
 
-                $pageInput = "LANG=ja_JP.UTF8 $p7zip e -so \"$cacheDir/$file/file\" \"$pagefile\"";
+                $pageInput = "LANG=ja_JP.UTF8 $p7zip e -so \"$cacheDir/$file/file\" " . escapeshellarg($pagefile);
             }
             // } elseif (preg_match('/\.(rar|cbr)$/i', $ext)) {
             // rarから1ページ切り出し
@@ -1314,7 +1315,10 @@ function outputPage($isFileout = false)
         }
         // $isPageSave有効時は一度表示したページをキャッシュする
         if ($isPageSave) {
-            $pageInput .= " | tee \"$cacheDir/$file/$pagefile\" ";
+            $pageCachePath = resolveReaderCacheFile($bookCacheDirectory, $pagefile, true);
+            if ($pageCachePath !== false) {
+                $pageInput .= ' | tee ' . escapeshellarg($pageCachePath) . ' ';
+            }
         }
     }
     // 出力方法

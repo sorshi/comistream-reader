@@ -53,3 +53,49 @@ function readReaderIndexPage(string $directory, int $page): string|false
         fclose($handle);
     }
 }
+
+function isSafeReaderPagePath($path): bool
+{
+    if (!is_string($path) || $path === '' || strlen($path) > 4096
+        || preg_match('/[\x00-\x1f\x7f]/', $path) === 1
+        || $path[0] === '/' || $path[0] === '\\'
+        || preg_match('/\A[A-Za-z]:/', $path) === 1) {
+        return false;
+    }
+
+    foreach (explode('/', str_replace('\\', '/', $path)) as $segment) {
+        if ($segment === '..') {
+            return false;
+        }
+    }
+    return true;
+}
+
+function resolveReaderCacheFile(string $directory, $relativePath, bool $allowMissing = false): string|false
+{
+    if (!isSafeReaderPagePath($relativePath)) {
+        return false;
+    }
+    $base = realpath($directory);
+    if ($base === false || !is_dir($base)) {
+        return false;
+    }
+
+    $relativePath = str_replace('\\', '/', $relativePath);
+    $candidate = $base . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+    $resolved = realpath($candidate);
+    if ($resolved !== false) {
+        return is_file($resolved) && str_starts_with($resolved, $base . DIRECTORY_SEPARATOR)
+            ? $resolved : false;
+    }
+    if (!$allowMissing || is_link($candidate)) {
+        return false;
+    }
+
+    $parent = realpath(dirname($candidate));
+    if ($parent === false || !is_dir($parent)
+        || ($parent !== $base && !str_starts_with($parent, $base . DIRECTORY_SEPARATOR))) {
+        return false;
+    }
+    return $parent . DIRECTORY_SEPARATOR . basename($candidate);
+}
