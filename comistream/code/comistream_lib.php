@@ -4140,9 +4140,33 @@ EOF;
 
 
 ##### システム環境設定 ############################################################
+function ensureConfigCsrfToken(): string
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+    if (!isset($_SESSION['config_csrf_token']) || !is_string($_SESSION['config_csrf_token'])
+        || preg_match('/\A[a-f0-9]{64}\z/', $_SESSION['config_csrf_token']) !== 1) {
+        $_SESSION['config_csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['config_csrf_token'];
+}
+
+function validateConfigCsrfToken($provided): bool
+{
+    $expected = $_SESSION['config_csrf_token'] ?? null;
+    return is_string($provided) && $provided !== '' && is_string($expected) && $expected !== ''
+        && hash_equals($expected, $provided);
+}
+
 function system_config($dbh)
 {
     if ($_SESSION['is_admin']) {
+        $configCsrfToken = ensureConfigCsrfToken();
+        // 設定・テーマへ触れる前に、管理画面の要求か確かめるルン。
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && !validateConfigCsrfToken($_POST['config_csrf_token'] ?? null)) {
+            http_response_code(403);
+            echo 'Invalid CSRF token.';
+            exit;
+        }
         if (!empty($_SESSION['referer'])) {
             $link_target = "<a href=\"" . $_SESSION['referer'] . "\">ログイン前のページへ戻る</a>";
             $link_url = $_SESSION['referer'];
@@ -4153,6 +4177,7 @@ function system_config($dbh)
         }
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($_POST as $key => $value) {
+                if ($key === 'config_csrf_token') continue;
                 writelog("DEBUG system_config() UPDATE $key,$value");
                 updateSetting($dbh, $key, $value);
             }
@@ -4307,6 +4332,7 @@ function system_config($dbh)
                 <div class="message"><?php echo $message; ?></div>
             <?php endif; ?>
             <form method="POST" action="<?php echo $url; ?>">
+                <input type="hidden" name="config_csrf_token" value="<?php echo htmlspecialchars($configCsrfToken, ENT_QUOTES, 'UTF-8'); ?>">
                 <?php
                 if (!empty($link_url)) {
                     echo "<button type=\"button\" onclick=\"location.href='" . $link_url . "'\">ログイン前のページへ戻る</button>";
