@@ -27,6 +27,8 @@ if (file_exists(__DIR__ . "/comistream_lib.php")) {
   exit(1);
 }
 
+require_once __DIR__ . '/lib/lib_hls_paths.php';
+
 // セッションスタート
 session_start();
 
@@ -99,6 +101,11 @@ if ($mode != 'segment') {
 
 // Cookieの取得
 $user = isset($_COOKIE['comistreamUser'])  ? $_COOKIE['comistreamUser'] : 'guest';
+$hlsUserDirectory = ls_resolve_hls_directory($conf['comistream_tool_dir'] . '/data/theme/hls', $user);
+if ($hlsUserDirectory === false) {
+  http_response_code(400);
+  exit;
+}
 $liveStreamMode = $conf['liveStreamMode'];
 // 'liveStreamMode' => 'LiveStreamによるHLS再圧縮機能を利用できるユーザーを制限します。デフォルトは0で全てのユーザーが利用可能です。1:ゲストユーザーが利用できなくなります。2:管理者のみ利用できます。',
 if (!(PHP_SAPI === 'cli' && $mode === 'thumb_worker')) {
@@ -228,47 +235,6 @@ function ls_probe_duration($ffmpeg, $path)
 
   // ffprobeが使えない・失敗した場合のフォールバック
   return ls_duration_from_ffmpeg($ffmpeg, $path);
-}
-
-/**
- * HLS出力ディレクトリの中身を空にする(ディレクトリ自体は残す)。
- * 共通のdeleteDirectory()は削除許可パスリストにhls領域が含まれておらず
- * 常に失敗するため、ここで専用に処理する(過去動画のfileシンボリックリンクや
- * セグメントが残ると別ファイルを開いても前回の動画が再生される)
- */
-function ls_reset_hls_dir($hlsDir)
-{
-  if (!is_dir($hlsDir)) {
-    writelog("DEBUG ls_reset_hls_dir() dir not exist:$hlsDir", 'Livestream');
-    return true;
-  }
-  $items = scandir($hlsDir);
-  if ($items === false) {
-    writelog("ERROR ls_reset_hls_dir() scandir failed:$hlsDir", 'Livestream');
-    return false;
-  }
-  $removed = 0;
-  $failed = 0;
-  foreach ($items as $item) {
-    if ($item === '.' || $item === '..') {
-      continue;
-    }
-    $path = $hlsDir . '/' . $item;
-    if (is_link($path) || is_file($path)) {
-      if (@unlink($path)) {
-        $removed++;
-      } else {
-        $failed++;
-        writelog("ERROR ls_reset_hls_dir() unlink failed:$path", 'Livestream');
-      }
-    } else {
-      // サブディレクトリは本来存在しないはず。誤削除を避け警告のみ
-      $failed++;
-      writelog("WARN ls_reset_hls_dir() unexpected sub directory skipped:$path", 'Livestream');
-    }
-  }
-  writelog("DEBUG ls_reset_hls_dir() removed:$removed failed:$failed dir:$hlsDir", 'Livestream');
-  return $failed === 0;
 }
 
 /**
@@ -919,7 +885,7 @@ if ($mode == 'thumb_worker') {
   exit(ls_run_thumb_worker($id));
 } elseif ($mode == 'stop') {
   // エンコード停止
-  $hlsContentDir = $conf['comistream_tool_dir'] . "/data/theme/hls/$user";
+  $hlsContentDir = $hlsUserDirectory;
   $state = ls_read_state($hlsContentDir);
   writelog("DEBUG stop request user:$user state:" . ($state ? json_encode($state, JSON_UNESCAPED_SLASHES) : 'none'), $writelog_process_name);
   if ($state && isset($state['pid'])) {
@@ -927,7 +893,7 @@ if ($mode == 'thumb_worker') {
     ls_kill_pid($state['pid']);
   }
   // 旧バージョンや状態ファイル欠損時のフォールバック
-  exec("pkill -15 -f " . escapeshellarg("ffmpeg.*hls/$user/file"));
+  exec("pkill -15 -f " . escapeshellarg(ls_encoder_process_pattern($user)));
   sleep(1);
   writelog("DEBUG hls dir cleanup:" . $hlsContentDir, $writelog_process_name);
   ls_reset_hls_dir($hlsContentDir);
@@ -937,7 +903,7 @@ if ($mode == 'thumb_worker') {
 } elseif ($mode == 'segment') {
   // セグメントゲートウェイ: エンコード済みなら即返却、
   // 未エンコードなら必要に応じてffmpegを再起動して完成を待つ
-  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+  $hlsDir = $hlsUserDirectory;
   $n = isset($_REQUEST['n']) ? intval($_REQUEST['n']) : -1;
   $id = isset($_REQUEST['id']) ? preg_replace('/[^a-f0-9]/', '', $_REQUEST['id']) : '';
 
@@ -998,7 +964,7 @@ if ($mode == 'thumb_worker') {
   readfile($segFile);
   exit;
 } elseif ($mode == 'thumb_manifest') {
-  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+  $hlsDir = $hlsUserDirectory;
   $id = isset($_REQUEST['id']) ? preg_replace('/[^a-f0-9]/', '', $_REQUEST['id']) : '';
   list($state, $rejectReason) = ls_read_thumb_state($hlsDir, $id);
   if (!$state) {
@@ -1034,7 +1000,7 @@ if ($mode == 'thumb_worker') {
     'worker_total' => $manifest['worker_total'] ?? intval(ceil(floatval($state['total_duration']) / LS_THUMB_INTERVAL)),
   ]);
 } elseif ($mode == 'thumb_worker_start') {
-  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+  $hlsDir = $hlsUserDirectory;
   $id = isset($_REQUEST['id']) ? preg_replace('/[^a-f0-9]/', '', $_REQUEST['id']) : '';
   session_write_close();
 
@@ -1059,7 +1025,7 @@ if ($mode == 'thumb_worker') {
     'worker_total' => $manifest['worker_total'] ?? intval(ceil(floatval($state['total_duration']) / LS_THUMB_INTERVAL)),
   ]);
 } elseif ($mode == 'thumb') {
-  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+  $hlsDir = $hlsUserDirectory;
   $id = isset($_REQUEST['id']) ? preg_replace('/[^a-f0-9]/', '', $_REQUEST['id']) : '';
   $seconds = isset($_REQUEST['t']) ? floatval($_REQUEST['t']) : 0.0;
   session_write_close();
@@ -1092,7 +1058,7 @@ if ($mode == 'thumb_worker') {
   readfile($thumbFile);
   exit;
 } elseif ($mode == 'thumb_warmup') {
-  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+  $hlsDir = $hlsUserDirectory;
   $id = isset($_REQUEST['id']) ? preg_replace('/[^a-f0-9]/', '', $_REQUEST['id']) : '';
   $from = isset($_REQUEST['from']) ? floatval($_REQUEST['from']) : 0.0;
   $limit = isset($_REQUEST['limit']) ? intval($_REQUEST['limit']) : LS_THUMB_WARMUP_LIMIT;
@@ -1146,7 +1112,7 @@ if ($mode == 'thumb_worker') {
   // ファイルIDを作成
   $fileId = hash('sha256', $openFile);
 
-  $hlsDir = $conf["comistream_tool_dir"] . "/data/theme/hls/$user";
+  $hlsDir = $hlsUserDirectory;
   writelog("INFO open request user:$user openFile:$openFile fileId:$fileId", $writelog_process_name);
 
   // 既存エンコードの停止とHLS出力領域の初期化
@@ -1156,7 +1122,7 @@ if ($mode == 'thumb_worker') {
     ls_kill_pid($oldState['pid']);
   }
   // 旧バージョンや状態ファイル欠損時のフォールバック
-  exec("pkill -15 -f " . escapeshellarg("ffmpeg.*hls/$user/file"));
+  exec("pkill -15 -f " . escapeshellarg(ls_encoder_process_pattern($user)));
   if (!ls_reset_hls_dir($hlsDir)) {
     writelog("ERROR hls dir reset failed, stale files may remain:$hlsDir", $writelog_process_name);
   }
@@ -1264,6 +1230,7 @@ if ($mode == 'thumb_worker') {
   // ベースhtml出力
   // header('Content-Type: text/html');
   $thumbInterval = LS_THUMB_INTERVAL;
+  $userJson = json_encode($user, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
   echo <<<HTML
 <html>
 <head>
@@ -1368,7 +1335,7 @@ if ($mode == 'thumb_worker') {
   const publicDir = "$publicDir";
   const themeDir = "";
   const cgiPath = "$cgiPath";
-  const user = "$user";
+  const user = $userJson;
   const fileId = "$fileId";
   const playbackMode = "$playbackMode";
   const startPosition = $startPosition;

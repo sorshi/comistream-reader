@@ -262,7 +262,7 @@ function startPlayback(video, src){
 
 async function initPlayer(){
   const video = document.getElementById('video');
-  const videoSrc = themeDir + "/theme/hls/" + user + "/index.m3u8";
+  const videoSrc = themeDir + "/theme/hls/" + encodeURIComponent(user) + "/index.m3u8";
   const sleep = waitTime => new Promise( resolve => setTimeout(resolve, waitTime) );
   setupSeekPreview(video);
 
