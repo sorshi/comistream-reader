@@ -179,7 +179,7 @@ if command -v fd >/dev/null 2>&1; then
   # fd のパスの先頭に "./" がつく場合があるので sed で取り除く
   fd --type d ${fd_depth_option} -0 . $search_target_dir | \
     sed -z 's|^\./||' | \
-    xargs -0 -I{} -P ${multiProc} bash -c 'make_folder_icon "{}" 2>>'"$errorLog"
+    xargs -0 -I{} -P "${multiProc}" bash -c 'make_folder_icon "$1" 2>>"$2"' _ '{}' "$errorLog"
 else
   logger -t "comistream make_folder_image_run.sh[$$]" -p local1.error "Require fd command. '$search_target_dir'"
   # テストしてないのでfindは非対応
