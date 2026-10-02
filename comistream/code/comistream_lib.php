@@ -5189,6 +5189,12 @@ function installThemeFiles($dbh)
     readConfig($dbh);
 
     // .htaccess作成
+    // 既存テーマでも、旧版のHLS原本リンクを公開しないルン。
+    $hlsRoot = $conf['comistream_tool_dir'] . '/data/theme/hls';
+    if (!chkAndMakeDir($hlsRoot)
+        || file_put_contents($hlsRoot . '/.htaccess', "<Files \"file\">\nRequire all denied\n</Files>\n") === false) {
+        return false;
+    }
     $sourceFile = $conf["comistream_tool_dir"] . "/theme/htaccess";
     $destinationFile = $conf["webRoot"] . "/.htaccess";
     $themeDir = $conf["webRoot"] . "/theme";

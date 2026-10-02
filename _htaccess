@@ -14,6 +14,9 @@
   RewriteEngine On
   DirectoryIndex index.php index.html
 
+  # 旧版のHLS原本リンクは配信しないルン。
+  RewriteRule ^theme/hls/[^/]+/file$ - [F,L]
+
   # Do not rewrite for special aliased paths.
   # Exclude covers and preview from theme protection
   RewriteRule ^(cgi-bin/|bibi/) - [L]

@@ -25,7 +25,37 @@ function ls_encoder_process_pattern(string $user): string
 {
     // シェル引用とは別に、pkillの正規表現から名前を保護するルン。
     $literal = preg_replace('/([.\\\\+*?\[\]^$(){}|])/', '\\\\$1', $user);
-    return 'ffmpeg.*hls/' . $literal . '/file';
+    return 'ffmpeg.*hls/' . $literal . '/';
+}
+
+function ls_validate_source(string $share, $source): string|false
+{
+    $base = realpath($share);
+    $real = is_string($source) ? realpath($source) : false;
+    if ($base === false || $real === false || !is_file($real) || !is_readable($real)
+        || !str_starts_with($real, $base . DIRECTORY_SEPARATOR)) {
+        return false;
+    }
+    $formats = ['m2t', 'ts', 'iso', 'mp4', 'm4v', 'avi', 'mkv', 'wmv', 'mpg', 'm2p', 'webm', 'mov', 'flv', 'mpeg'];
+    return in_array(strtolower(pathinfo($real, PATHINFO_EXTENSION)), $formats, true) ? $real : false;
+}
+
+function ls_resolve_source(string $share, $requested): string|false
+{
+    if (!is_string($requested)) return false;
+    $path = resolveFileWithinBaseDirectory($share, rawurldecode($requested));
+    return $path === false ? false : ls_validate_source($share, $path);
+}
+
+function ls_remove_legacy_source_links(string $root): void
+{
+    foreach (@scandir($root) ?: [] as $user) {
+        $directory = ls_resolve_hls_directory($root, $user);
+        if ($directory !== false && is_link($directory . '/file')) {
+            // 旧版が公開領域へ置いた原本リンクだけを取り除くルン。
+            @unlink($directory . '/file');
+        }
+    }
 }
 
 function ls_reset_hls_dir($hlsDir)

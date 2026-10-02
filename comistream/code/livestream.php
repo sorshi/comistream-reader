@@ -128,6 +128,8 @@ if (!(PHP_SAPI === 'cli' && $mode === 'thumb_worker')) {
   }
 }
 
+ls_remove_legacy_source_links($conf['comistream_tool_dir'] . '/data/theme/hls');
+
 // ============================================================
 // ヘルパー関数
 // ============================================================
@@ -251,7 +253,12 @@ function ls_read_state($hlsDir)
     return null;
   }
   $state = json_decode($json, true);
-  return is_array($state) ? $state : null;
+  global $sharePath;
+  $source = is_array($state) ? ls_validate_source((string)$sharePath, $state['source'] ?? null) : false;
+  if ($source === false) return null;
+  $state['source'] = $source;
+  $state['input'] = $source;
+  return $state;
 }
 
 /**
@@ -748,8 +755,9 @@ function ls_thumb_state_from_manifest($id, $manifest)
   if ($id === '' || !preg_match('/^[a-f0-9]{64}$/', $id) || ($manifest['id'] ?? '') !== $id) {
     return [null, 'invalid id'];
   }
-  $source = $manifest['source'] ?? '';
-  if ($source === '' || !is_file($source)) {
+  global $sharePath;
+  $source = ls_validate_source((string)$sharePath, $manifest['source'] ?? null);
+  if ($source === false) {
     return [null, 'source not found'];
   }
   if (intval($manifest['source_mtime'] ?? -1) !== intval(filemtime($source))) {
@@ -1092,22 +1100,14 @@ if ($mode == 'thumb_worker') {
     'ready' => $manifest['generated'],
   ]);
 } elseif ($mode == 'open' && $file != '') {
-  // ファイルオープン
-  $file = str_replace('../', '', $file);
-  # デコード前ファイルパスを保存
-  $escapedFile = $file;
-  $openFile = "$sharePath/$file";
-  $openFile = str_replace('+', '%2B', $openFile);
-  $openFile = urldecode($openFile);
-  $baseFile = basename($openFile);
-
-  $cgiPath = $_SERVER['SCRIPT_NAME'];
-
-  if (!file_exists($openFile)) {
-    writelog("ERROR open target not found:$openFile", $writelog_process_name);
-    echo '<html><head><title>NOT FOUND</title></head><body><h1>File not found.</h1></body></html>';
-    exit(1);
+  // デコード後の原本を共有領域へ限定するルン。
+  $openFile = ls_resolve_source((string)$sharePath, $file);
+  if ($openFile === false) {
+    http_response_code(404);
+    exit;
   }
+  $baseFile = htmlspecialchars(basename($openFile), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+  $cgiPath = $_SERVER['SCRIPT_NAME'];
 
   // ファイルIDを作成
   $fileId = hash('sha256', $openFile);
@@ -1131,25 +1131,8 @@ if ($mode == 'thumb_worker') {
     exit(1);
   }
 
-  // 入力用シンボリックリンクの作成。古いリンクが残っていると前回の動画が
-  // 再生されてしまうため、確実に消してから張り直し、リンク先を検証する
-  $inputFile = "$hlsDir/file";
-  if (is_link($inputFile) || file_exists($inputFile)) {
-    writelog("WARN stale input link still exists, removing:" . $inputFile . " -> " . (is_link($inputFile) ? readlink($inputFile) : 'not a link'), $writelog_process_name);
-    @unlink($inputFile);
-  }
-  if (!symlink($openFile, $inputFile)) {
-    writelog("ERROR symlink creation failed target:$openFile link:$inputFile", $writelog_process_name);
-    echo '<html><head><title>ERROR</title></head><body><h1>Failed to prepare stream.</h1></body></html>';
-    exit(1);
-  }
-  $linkTarget = readlink($inputFile);
-  writelog("DEBUG input symlink created:$inputFile -> $linkTarget", $writelog_process_name);
-  if ($linkTarget !== $openFile) {
-    writelog("ERROR symlink target mismatch expected:$openFile actual:$linkTarget", $writelog_process_name);
-    echo '<html><head><title>ERROR</title></head><body><h1>Failed to prepare stream.</h1></body></html>';
-    exit(1);
-  }
+  // 原本は公開HLS領域へ接続せず、検証済みパスを直接使うルン。
+  $inputFile = $openFile;
 
   // ポスター画像を設定
   $posterFile = $conf["comistream_tool_dir"] . "/data/theme/covers" . $publicDir . "/" . $fileId . ".jpg";
