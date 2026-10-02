@@ -1174,19 +1174,21 @@ if ($is_404_mode) {
                 const breadcrumb = document.getElementById('breadcrumb');
 
                 if (breadcrumb) {
-                    // 既存のfooter.html処理を参考にしたパンくずリスト生成
-                    let pathAll = "/<a href=\"/\">TOP</a>";
-                    let path = "";
-                    const dirList = window.location.pathname.split("/");
-
-                    for (let i = 0; i < dirList.length; i++) {
-                        if (dirList[i] !== "") {
-                            path = path + "/" + dirList[i];
-                            pathAll = pathAll + "/<a href='" + path + "'>" + decodeURIComponent(dirList[i]) + "</a>";
-                        }
+                    // 復号した表示名はHTMLへ連結せず、文字列として表示するルン。
+                    const top = document.createElement('a');
+                    top.href = '/';
+                    top.textContent = 'TOP';
+                    breadcrumb.replaceChildren(document.createTextNode('/'), top);
+                    let path = '';
+                    for (const segment of window.location.pathname.split('/')) {
+                        if (segment === '') continue;
+                        path += '/' + segment;
+                        const anchor = document.createElement('a');
+                        anchor.setAttribute('href', path);
+                        try { anchor.textContent = decodeURIComponent(segment); }
+                        catch (_) { anchor.textContent = segment; }
+                        breadcrumb.append(document.createTextNode('/'), anchor);
                     }
-
-                    breadcrumb.innerHTML = pathAll;
                 }
             });
         </script>
