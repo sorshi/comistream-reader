@@ -16,7 +16,7 @@ async function runBrowserFixture(script, body = '') {
       window.pwned = 0; window.alert = () => window.pwned++;
       function expect(value, message) { if (!value) throw new Error(message); }
       try { (function(location) { ${script} })({ href: 'https://reader.invalid/library/', origin: 'https://reader.invalid' });
-        setTimeout(() => { document.getElementById('result').dataset.result = window.pwned ? 'failed' : 'passed'; }, 100);
+        setTimeout(() => { document.getElementById('result').dataset.result = window.pwned || window.testFailed || window.testDone === false ? 'failed' : 'passed'; }, 300);
       } catch (error) { document.getElementById('result').textContent = error.stack; document.getElementById('result').dataset.result = 'failed'; }
       </script>`);
     const output = await new Promise((resolve, reject) => {

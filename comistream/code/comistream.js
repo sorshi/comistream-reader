@@ -1886,8 +1886,7 @@ async function sugguestbook() {
     });
 
     // 現在読んでいる本
-    const currentBookHtml = `<p><img src="${themeDir}/theme/icons/book.png" /><b>${baseFile}</b><span style="color:#5674b9">　now reading</span></p>`;
-    suggestElement.insertAdjacentHTML("beforeend", currentBookHtml);
+    renderBookSuggestion(suggestElement, baseFile, '　now reading', '#5674b9');
 
     // 古い巻
     Object.keys(data.title.old).forEach(function (key) {
@@ -1900,9 +1899,8 @@ async function sugguestbook() {
     });
   } catch (error) {
     debugLog("Fetch errored: " + error);
-    const errorHtml = `<p><img src="${themeDir}/theme/icons/book.png" /><b>${baseFile}</b><span style="color:red">　no suggest</span></p>`;
     if (suggestElement) {
-      suggestElement.insertAdjacentHTML("beforeend", errorHtml);
+      renderBookSuggestion(suggestElement, baseFile, '　no suggest', 'red');
     }
   }
 
@@ -1949,6 +1947,20 @@ async function sugguestbook() {
   */
 }
 
+function renderBookSuggestion(container, title, status, color) {
+  const row = document.createElement('p');
+  const icon = document.createElement('img');
+  icon.src = themeDir + '/theme/icons/book.png';
+  icon.alt = '';
+  const label = document.createElement('b');
+  label.textContent = title;
+  const state = document.createElement('span');
+  state.style.color = color;
+  state.textContent = status;
+  row.append(icon, label, state);
+  container.appendChild(row);
+}
+
 //続刊へ移動
 function toNextBook(nextlocation) {
   // 次の本へ移動する前に確実にページ位置を保存するルン！
@@ -1975,28 +1987,32 @@ function addnextbooklist(nexttitle, nextlocation) {
   } else {
     // sizeOption = "";
   }
-  const encodeOpenFilePath = encodeURIComponent(
-    nextlocation.substring(shareroot.length + 1)
-  );
-  debugLog("addnextbooklist(); encodeOpenFilePath:" + encodeOpenFilePath);
-  let nexttag =
-    '<p><img src="' +
-    themeDir +
-    '/theme/icons/book.png" /><a href="' +
-    "javascript:toNextBook('" +
-    location.pathname +
-    "?file=" +
-    encodeOpenFilePath +
-    "&mode=open" +
-    sizeOption +
-    "')\">" +
-    nexttitle +
-    "</a></p>";
-  debugLog("addnextbooklist(); nexttag:" + nexttag);
-  // $("#suggest").append(nexttag);
+  const fullPath = String(nextlocation);
+  const publicPrefix = shareroot && shareroot !== '/'
+    ? shareroot.replace(/\/+$/, '') + '/'
+    : '/';
+  if (!fullPath.startsWith(publicPrefix) || fullPath.startsWith('//')) {
+    return;
+  }
+  const relativePath = fullPath.slice(publicPrefix.length);
+  const nextUrl = new URL(location.pathname, location.origin);
+  nextUrl.searchParams.set('file', relativePath);
+  nextUrl.searchParams.set('mode', 'open');
   const suggestElement = document.getElementById("suggest");
   if (suggestElement) {
-    suggestElement.insertAdjacentHTML("beforeend", nexttag);
+    const row = document.createElement('p');
+    const icon = document.createElement('img');
+    icon.src = themeDir + '/theme/icons/book.png';
+    icon.alt = '';
+    const link = document.createElement('a');
+    link.href = nextUrl.href;
+    link.textContent = nexttitle;
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      toNextBook(link.href);
+    });
+    row.append(icon, link);
+    suggestElement.appendChild(row);
   }
 }
 
