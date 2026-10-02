@@ -3842,8 +3842,8 @@ function basefilename2hash($baseFile)
         writelog("ERROR basefilename2hash() baseFile is empty");
         return '';
     } else {
-        // ファイル名のハッシュを生成
-        $baseFileHash = trim(shell_exec("echo -n \"$baseFile\" | $md5cmd | cut -d ' ' -f 1"));
+        // 設定済みの方式を保ち、ファイル名はシェル構文にしないルン。
+        $baseFileHash = trim((string)shell_exec("printf '%s' " . escapeshellarg($baseFile) . " | $md5cmd | cut -d ' ' -f 1"));
         writelog("DEBUG basefilename2hash() $baseFile: $baseFileHash");
         return $baseFileHash;
     }
