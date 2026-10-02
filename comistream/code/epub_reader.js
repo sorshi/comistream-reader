@@ -3679,7 +3679,10 @@ function setupViewerFallbackTapNavigation(viewer) {
             pointerState = null;
             return;
         }
-        if ((isNavigationReady() && !isFixedLayoutBook()) || !isTapEligibleTarget(event.target)) {
+        if (
+            (isNavigationReady() && !isFixedLayoutBook() && currentFlowMode !== 'paginated')
+            || !isTapEligibleTarget(event.target)
+        ) {
             pointerState = null;
             return;
         }
@@ -3723,7 +3726,25 @@ function setupViewerFallbackTapNavigation(viewer) {
         if (wasCancelled || distance > TAP_MAX_DISTANCE_PX || duration > TAP_MAX_DURATION_MS) {
             return;
         }
-        if (parseTapZone(event.clientX) === 'center') {
+        const reflowablePageTap = isNavigationReady() && !isFixedLayoutBook() && currentFlowMode === 'paginated';
+        if (reflowablePageTap) {
+            const readerDocuments = [document, ...getRendererContents().map((content) => content?.doc ?? content?.document)];
+            if (readerDocuments.some((doc) => {
+                const selection = doc?.getSelection?.();
+                return selection && !selection.isCollapsed;
+            })) {
+                return;
+            }
+        }
+
+        // 章末で iframe 外に空く表示枠も、本文と同じ左右のページ送りにするルン。
+        // iframe 内のイベントは親 document へ伝播しないので、本文側とは二重発火しないルン。
+        const zone = parseTapZone(event.clientX);
+        if (reflowablePageTap && zone === 'left') {
+            void navigate(() => goPhysicalLeft());
+        } else if (reflowablePageTap && zone === 'right') {
+            void navigate(() => goPhysicalRight());
+        } else if (zone === 'center') {
             openMenu();
         }
     }, { passive: true });
