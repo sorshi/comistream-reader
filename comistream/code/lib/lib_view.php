@@ -685,6 +685,9 @@ JS;
     $writingAutoLabel = htmlspecialchars($i18n->get('epub_auto'), ENT_QUOTES, 'UTF-8');
     $writingHorizontalLabel = htmlspecialchars($i18n->get('epub_writing_horizontal'), ENT_QUOTES, 'UTF-8');
     $writingVerticalLabel = htmlspecialchars($i18n->get('epub_writing_vertical'), ENT_QUOTES, 'UTF-8');
+    $pageAnimationLabel = htmlspecialchars($i18n->get('epub_page_animation'), ENT_QUOTES, 'UTF-8');
+    $pageAnimationToggleLabel = htmlspecialchars($i18n->get('epub_page_animation_toggle'), ENT_QUOTES, 'UTF-8');
+    $pageAnimationHelp = htmlspecialchars($i18n->get('epub_page_animation_help'), ENT_QUOTES, 'UTF-8');
     $pagePositionLabel = htmlspecialchars($i18n->get('epub_page_position'), ENT_QUOTES, 'UTF-8');
     $pagePositionToggleLabel = htmlspecialchars($i18n->get('epub_page_position_toggle'), ENT_QUOTES, 'UTF-8');
     $pagePositionHelp = htmlspecialchars($i18n->get('epub_page_position_help'), ENT_QUOTES, 'UTF-8');
@@ -1098,6 +1101,10 @@ JS;
                     <div class="epub-setting-row">
                         <span class="epub-setting-label">{$flowLabel}</span>
                         <span class="epub-setting-value" id="epub-flow-value">-</span>
+                    </div>
+                    <div class="epub-setting-row">
+                        <span class="epub-setting-label">{$pageAnimationLabel}</span>
+                        <button class="button button-mode epub-setting-value" id="epub-page-animation-toggle" type="button" aria-label="{$pageAnimationToggleLabel}" aria-pressed="true" title="{$pageAnimationHelp}">{$pageAnimationToggleLabel}</button>
                     </div>
                     <div class="epub-setting-row" id="epub-page-position-setting" hidden>
                         <span class="epub-setting-label">{$pagePositionLabel}</span>

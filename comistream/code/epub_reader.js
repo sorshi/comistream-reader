@@ -5,6 +5,7 @@ const TAP_MAX_DURATION_MS = 300;
 const EPUB_PAGE_SWIPE_MIN_DISTANCE_PX = 40;
 const EPUB_PAGE_TURN_DURATION_MS = 100;
 const EPUB_PAGE_TURN_OFFSET_PX = 32;
+const EPUB_PAGE_TURN_MIN_INTERVAL_MS = 200;
 const SCROLLED_CENTER_TAP_MAX_DISTANCE_PX = 20;
 const SCROLLED_CENTER_TAP_MAX_DURATION_MS = 500;
 const NAVIGATION_SETTLE_TIMEOUT_MS = 2600;
@@ -18,6 +19,7 @@ const FONT_SCALE_SOURCE_KEY = 'comistream_epub_font_scale_source';
 const FONT_SCALE_VERSION_KEY = 'comistream_epub_font_scale_version';
 const FLOW_MODE_KEY = 'comistream_epub_flow_mode';
 const PAGE_POSITION_VISIBLE_KEY = 'comistream_epub_position_visible';
+const PAGE_TURN_ANIMATION_KEY = 'comistream_epub_page_turn_animation';
 const THEME_KEY = 'comistream_epub_theme';
 const DIRECTION_OVERRIDE_KEY = 'comistream_epub_direction_override';
 const WRITING_MODE_OVERRIDE_KEY = 'comistream_epub_writing_mode_override';
@@ -71,6 +73,9 @@ let pagePositionVisible = true;
 let currentPagePosition = null;
 let latestRendererPageLocation = null;
 let pagePositionTimer = null;
+let pageTurnAnimationEnabled = true;
+let lastPageTurnAnimationAt = -Infinity;
+let pendingNavigationCount = 0;
 let pageTurnAnimation = null;
 let pageTurnAnimationFrame = null;
 let currentTheme = 'paper';
@@ -162,6 +167,10 @@ const THEME_OPTION_SYSTEM = 'system';
 const SYSTEM_DARK_MODE_QUERY = '(prefers-color-scheme: dark)';
 const systemDarkModeMedia = typeof window.matchMedia === 'function'
     ? window.matchMedia(SYSTEM_DARK_MODE_QUERY)
+    : null;
+
+const reducedMotionMedia = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
     : null;
 
 function $(id) {
@@ -1737,6 +1746,7 @@ function restoreViewerPrefs() {
         currentFlowMode = storedFlow;
     }
     pagePositionVisible = localStorage.getItem(PAGE_POSITION_VISIBLE_KEY) !== '0';
+    setPageTurnAnimationEnabled(localStorage.getItem(PAGE_TURN_ANIMATION_KEY) !== '0', { persist: false });
     const storedTheme = localStorage.getItem(THEME_KEY);
     if (storedTheme && isValidThemeName(storedTheme)) {
         currentTheme = storedTheme;
@@ -3303,6 +3313,7 @@ function updateToolbarState() {
         positionButton.setAttribute('aria-pressed', pagePositionVisible ? 'true' : 'false');
     }
     updatePagePositionSetting();
+    updatePageTurnAnimationSetting();
     updateDirectionState();
 }
 
@@ -4071,6 +4082,10 @@ function isEditableTarget(target) {
 
 async function navigate(action, { allowReadCompletion = true } = {}) {
     const intentSeq = ++navigationIntentSeq;
+    pendingNavigationCount++;
+    if (pendingNavigationCount > 1) {
+        cancelPageTurnAnimation();
+    }
     debugLog('navigate() queued', summarizeLocation());
     let spinnerTimer = null;
     let spinnerShown = false;
@@ -4169,6 +4184,8 @@ async function navigate(action, { allowReadCompletion = true } = {}) {
         if (spinnerShown) {
             hideReaderLoading();
         }
+    }).finally(() => {
+        pendingNavigationCount--;
     });
 
     return navigationChain;
@@ -4621,6 +4638,9 @@ function wireToolbar() {
     $('epub-page-position-toggle')?.addEventListener('click', () => {
         setPagePositionVisible(!pagePositionVisible);
     });
+    $('epub-page-animation-toggle')?.addEventListener('click', () => {
+        setPageTurnAnimationEnabled(!pageTurnAnimationEnabled);
+    });
     $('epub-back-button')?.addEventListener('click', () => backListPage());
     $('epub-prev-page')?.addEventListener('click', () => {
         void navigate(() => goPreviousPage());
@@ -5056,6 +5076,46 @@ function bindViewLifecycleEvents() {
     });
 }
 
+function updatePageTurnAnimationSetting() {
+    const button = $('epub-page-animation-toggle');
+    if (button) {
+        button.classList.toggle('pressed', pageTurnAnimationEnabled);
+        button.setAttribute('aria-pressed', String(pageTurnAnimationEnabled));
+    }
+}
+
+function setPageTurnAnimationEnabled(enabled, { persist = true } = {}) {
+    pageTurnAnimationEnabled = Boolean(enabled);
+    cancelPageTurnAnimation();
+    lastPageTurnAnimationAt = -Infinity;
+    if (persist) {
+        localStorage.setItem(PAGE_TURN_ANIMATION_KEY, pageTurnAnimationEnabled ? '1' : '0');
+    }
+    updatePageTurnAnimationSetting();
+}
+
+function bindPageTurnAnimationPreferences() {
+    window.addEventListener('storage', (event) => {
+        if (event.storageArea === localStorage
+            && (event.key === PAGE_TURN_ANIMATION_KEY || event.key === null)) {
+            setPageTurnAnimationEnabled(localStorage.getItem(PAGE_TURN_ANIMATION_KEY) !== '0', { persist: false });
+        }
+    });
+    const onMotionPreferenceChange = () => cancelPageTurnAnimation();
+    if (typeof reducedMotionMedia?.addEventListener === 'function') {
+        reducedMotionMedia.addEventListener('change', onMotionPreferenceChange);
+    } else {
+        reducedMotionMedia?.addListener?.(onMotionPreferenceChange);
+    }
+}
+
+function shouldAnimatePageTurn() {
+    return viewInitialized && !view?.isFixedLayout && currentFlowMode === 'paginated'
+        && pageTurnAnimationEnabled && !reducedMotionMedia?.matches
+        && pendingNavigationCount <= 1
+        && performance.now() - lastPageTurnAnimationAt >= EPUB_PAGE_TURN_MIN_INTERVAL_MS;
+}
+
 function cancelPageTurnAnimation() {
     if (pageTurnAnimationFrame !== null) {
         window.cancelAnimationFrame(pageTurnAnimationFrame);
@@ -5068,8 +5128,7 @@ function cancelPageTurnAnimation() {
 function animatePageTurn(forward) {
     cancelPageTurnAnimation();
     const renderer = view?.renderer;
-    if (!viewInitialized || view?.isFixedLayout || currentFlowMode !== 'paginated'
-        || typeof renderer?.animate !== 'function') {
+    if (!shouldAnimatePageTurn() || typeof renderer?.animate !== 'function') {
         return;
     }
     const offset = EPUB_PAGE_TURN_OFFSET_PX
@@ -5077,6 +5136,11 @@ function animatePageTurn(forward) {
     // 章の切り替えで本文が再表示されてから動かすルン。ページ送りは完了を待たないルン。
     pageTurnAnimationFrame = window.requestAnimationFrame(() => {
         pageTurnAnimationFrame = null;
+        // 待機中のページ送りと連打を優先して、演出だけを間引くルン。
+        if (view?.renderer !== renderer || !shouldAnimatePageTurn()) {
+            return;
+        }
+        lastPageTurnAnimationAt = performance.now();
         const animation = renderer.animate([
             { transform: `translateX(${offset}px)` },
             { transform: 'translateX(0)' }
@@ -5135,6 +5199,7 @@ async function init() {
     restoreViewerPrefs();
     applyShellTheme();
     wireToolbar();
+    bindPageTurnAnimationPreferences();
     bindKeyboardShortcuts(document);
     registerServiceWorker();
     perf('shell ready');
