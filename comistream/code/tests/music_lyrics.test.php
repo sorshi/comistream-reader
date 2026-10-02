@@ -56,6 +56,13 @@ try {
     expectMusicLyricsTest($parsedLrc['lines'][2]['text'] === '二行目', 'Same-time LRC order was not preserved.');
     expectMusicLyricsTest($parsedLrc['lines'][3]['timeMs'] === 3400, 'One-digit LRC fraction was incorrect.');
 
+    $expandedLrc = str_repeat('[00:01.00]', 2000) . str_repeat('x', 6000);
+    expectMusicLyricsTest(
+        normalizeMusicLyrics($expandedLrc, 'lrc') === null,
+        'Timestamp expansion exceeded the output size limit.'
+    );
+    expectMusicLyricsTest(musicLyricsParserVersion() === '2', 'Parser cache version was not advanced.');
+
     $lateOffset = normalizeMusicLyrics("[00:01.00]offset後\n[offset:250]", 'lrc');
     expectMusicLyricsTest(is_array($lateOffset) && $lateOffset['lines'][0]['timeMs'] === 1250, 'LRC offset was not applied globally.');
 

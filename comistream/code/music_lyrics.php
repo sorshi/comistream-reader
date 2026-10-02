@@ -18,7 +18,7 @@
  */
 function musicLyricsParserVersion(): string
 {
-    return '1';
+    return '2';
 }
 
 /**
@@ -160,6 +160,7 @@ function parseMusicLyricsLRC(string $text): ?array
 {
     $entries = [];
     $nonTimedLines = [];
+    $expandedTextBytes = 0;
     $offsetMs = 0;
     $offsetSeen = false;
     $order = 0;
@@ -170,20 +171,28 @@ function parseMusicLyricsLRC(string $text): ?array
             $offsetSeen = true;
         }
 
-        preg_match_all(
-            '/\[(\d{1,3}):([0-5]\d)(?:[\.:](\d{1,3}))?\]/',
-            $line,
-            $timestampMatches,
-            PREG_SET_ORDER
-        );
+        $timestampPattern = '/\[(\d{1,3}):([0-5]\d)(?:[\.:](\d{1,3}))?\]/';
+        $timestampCount = preg_match_all($timestampPattern, $line);
 
-        if ($timestampMatches !== []) {
+        if ($timestampCount > 0) {
+            if ($timestampCount > 10000 - count($entries)) {
+                musicLyricsLog('WARNING', 'parseMusicLyricsLRC() line count exceeded the limit');
+                return null;
+            }
             $lineText = preg_replace(
                 '/\[(?:\d{1,3}):(?:[0-5]\d)(?:[\.:]\d{1,3})?\]/',
                 '',
                 $line
             ) ?? $line;
             $lineText = trim(stripMusicLyricsMetadataTags($lineText));
+            $lineTextBytes = strlen($lineText);
+            if ($lineTextBytes > 0
+                && $lineTextBytes > intdiv(musicLyricsMaxBytes() - $expandedTextBytes, $timestampCount)) {
+                musicLyricsLog('WARNING', 'parseMusicLyricsLRC() expanded text exceeded the size limit');
+                return null;
+            }
+            $expandedTextBytes += $lineTextBytes * $timestampCount;
+            preg_match_all($timestampPattern, $line, $timestampMatches, PREG_SET_ORDER);
             foreach ($timestampMatches as $timestampMatch) {
                 $entries[] = [
                     'timeMs' => parseMusicLyricsTimestamp($timestampMatch),
