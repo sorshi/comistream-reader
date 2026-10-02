@@ -41,6 +41,7 @@ require_once(__DIR__ . '/lib/lib_bookmark.php');
 require_once(__DIR__ . '/lib/lib_reader_marker.php');
 require_once(__DIR__ . '/lib/lib_image.php');
 require_once(__DIR__ . '/lib/lib_image_quality.php');
+require_once(__DIR__ . '/lib/lib_reader_input.php');
 require_once(__DIR__ . '/lib/lib_view.php');
 
 
@@ -1063,22 +1064,31 @@ function outputPage($isFileout = false)
 
     $quality = normalizeImageQuality($quality);
 
+    // HTTPと表紙バッチの両方で、数値とキャッシュ境界を確定するルン。
+    $page = parseReaderInteger($page, 1, 2147483647);
+    $width = parseReaderInteger($width, 1, 32768);
+    $bookCacheDirectory = resolveReaderCacheDirectory((string)$cacheDir, $file);
+    $pagefile = $page !== null && $bookCacheDirectory !== false
+        ? readReaderIndexPage($bookCacheDirectory, $page) : false;
+    if ($page === null || $width === null || $pagefile === false || $pagefile === '') {
+        if ($isFileout) {
+            return '';
+        }
+        if ($page !== null && $width !== null && is_string($file)
+            && preg_match('/\A[A-Za-z0-9_-]+\z/', $file) === 1 && $pagefile === false) {
+            showReloadRequiredImg();
+        }
+        http_response_code(400);
+        exit;
+    }
+
     $crop_half_cmd = '';
     $crop_half_cmd_left = '';
     $crop_half_cmd_right = '';
     $output_mime = '';
     $input_format = ' - ';
     // indexからページのファイル名を取得
-    if (file_exists("$cacheDir/$file/index")) {
-        $shell_cmd = "sed -n {$page}p $cacheDir/$file/index";
-        $pagefile = rtrim(shell_exec($shell_cmd), "\n");
-        writelog("DEBUG outputPage() pagefile:" . $pagefile . " executed:" . $shell_cmd);
-    } else {
-        // キャッシュファイルが存在しない場合はリロードを促す画像を返す
-        showReloadRequiredImg();
-        writelog("ERROR outputPage() no such file. $cacheDir/$file/index");
-        exit(1);
-    }
+    writelog("DEBUG outputPage() pagefile:" . $pagefile);
     // ImageMagick の画像 Crop
     if ($view === 'trimming') {
         if ((preg_match('/\.avif$/i', $pagefile)) && ($conf["isLowMemoryMode"] === 1)) {
