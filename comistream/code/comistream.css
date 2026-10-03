@@ -1035,3 +1035,360 @@ input[type="range"]::-moz-range-thumb {
     padding: 6px 10px;
   }
 }
+
+/* TOCは面・輪郭・小さな印で役割を分け、押下時も寸法を変えないルン。 */
+.contents {
+  box-sizing: border-box;
+  max-width: calc(100vw - 20px);
+  max-height: calc(100dvh - 20px);
+  background-color: rgba(24, 26, 30, 0.97);
+  border: 1px solid #41454d;
+  border-radius: 16px;
+  box-shadow: 0 16px 48px #0003;
+}
+
+/* floatによる逆順・ばらばらな折り返しをやめ、操作列の間隔をそろえるルン。 */
+.contents :is(.toc-buttons, .epub-toolbar) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.contents :is(.toc-buttons, .epub-toolbar) > :is(.button, .clock-icon-button, .inspector-icon-button) {
+  float: none;
+  margin: 0;
+}
+
+.contents :is(.reader-utility-actions, .reader-mode-actions, .reader-section-actions, .reader-page-actions) {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.contents :is(.reader-utility-actions, .reader-mode-actions, .reader-section-actions, .reader-page-actions) > :is(.button, .clock-icon-button, .inspector-icon-button) {
+  float: none;
+  margin: 0;
+}
+
+.contents .reader-page-actions {
+  margin-left: auto;
+}
+
+.contents .epub-toolbar::after {
+  content: none;
+}
+
+.contents :is(.button, .epub-mini-button, .clock-icon-button, .inspector-icon-button) {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-weight: 500;
+  line-height: 1.35;
+  min-height: 44px;
+  padding: 10px 14px;
+  color: #f0f1f3;
+  background-color: #33363c;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  box-shadow: none;
+  top: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: none;
+}
+
+.contents .button.button-mode {
+  min-height: 44px;
+  padding: 10px 14px;
+}
+
+/* 両方の訳文の幅を確保し、モード切り替えでボタン列が動かないようにするルン。 */
+.contents .reader-mode-label {
+  display: inline-grid;
+}
+
+.contents .reader-mode-label > span {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+
+.contents .reader-mode-sizer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.contents :is(.button-mode[aria-pressed], .clock-icon-button, .inspector-icon-button) {
+  padding-right: 34px;
+  color: #dce0e6;
+  background-color: #202329;
+  border-color: #626872;
+  border-radius: 999px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M6 10h8' fill='none' stroke='%23afb6c2' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-position: right 10px center;
+  background-size: 16px 16px;
+  background-repeat: no-repeat;
+}
+
+/* 単一選択は共通の受け皿へまとめるルン。ツールチップの疑似要素は使わないルン。 */
+.contents :is(.epub-segmented-control, .epub-theme-toggle-group) {
+  padding: 4px;
+  gap: 3px;
+  background-color: #101216;
+  border: 1px solid #41454d;
+  border-radius: 12px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.contents .epub-theme-toggle-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+}
+
+.contents :is(.epub-segmented-control, .epub-theme-toggle-group) .button-mode {
+  border-color: transparent;
+  border-radius: 8px;
+  background-color: transparent;
+  background-image: none;
+  padding: 10px 30px 10px 12px;
+  background-position: right 9px center;
+  background-size: 16px 16px;
+  background-repeat: no-repeat;
+}
+
+.contents :is(.button-mode, .clock-icon-button, .inspector-icon-button):is(.pressed, [aria-pressed="true"], [aria-checked="true"]) {
+  color: #20252b;
+  background-color: #e7e9e7;
+  border-color: #e7e9e7;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='m5 10 3 3 7-7' fill='none' stroke='%2320252b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  box-shadow: none;
+  top: 0;
+}
+
+.contents :is(.clock-icon-button, .inspector-icon-button) svg {
+  stroke: currentColor;
+  vertical-align: middle;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .contents :is(.button, .epub-mini-button, .clock-icon-button, .inspector-icon-button):hover:not(:disabled):not(.button-close):not(.pressed):not([aria-pressed="true"]):not([aria-checked="true"]) {
+    background-color: #42464e;
+    border-color: #737b88;
+  }
+}
+
+.contents :is(.button, .epub-mini-button, .clock-icon-button, .inspector-icon-button):active:not(:disabled) {
+  box-shadow: inset 0 0 0 999px #80808018;
+  top: 0;
+}
+
+.contents :is(button, .button):focus-visible {
+  outline: 2px solid #bed3f0;
+  outline-offset: 3px;
+}
+
+.contents :is(.button-mode, .epub-mini-button):disabled {
+  color: #a7afba;
+  background-color: #252a32;
+  border-color: #555e6d;
+  border-style: dashed;
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .contents :is(.button, .epub-mini-button, .clock-icon-button, .inspector-icon-button) {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .contents :is(.button, .epub-mini-button, .clock-icon-button, .inspector-icon-button) {
+    color: ButtonText;
+    background-color: ButtonFace;
+    border-color: ButtonText;
+    border-width: 3px;
+    background-image: none;
+  }
+  .contents :is(.button-mode, .clock-icon-button, .inspector-icon-button):is(.pressed, [aria-pressed="true"], [aria-checked="true"]) {
+    border-style: double;
+    text-decoration: underline double;
+    outline: 2px solid Highlight;
+    outline-offset: -5px;
+  }
+  .contents :is(button, .button):focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 3px;
+  }
+}
+
+/* 非表示のツールチップが操作列の横幅を広げないようにするルン。 */
+.contents [data-tooltip]::before,
+.contents [data-tooltip]::after {
+  display: none;
+}
+
+.contents :is(.clock-icon-button, .inspector-icon-button, .lang-selector)[data-tooltip]::after {
+  left: auto;
+  right: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .contents [data-tooltip]:hover::before,
+  .contents [data-tooltip]:hover::after {
+    display: block;
+  }
+}
+
+/* 閉じる操作と一覧へ戻る操作は、どのリーダーでも左右の定位置に置くルン。 */
+.contents .reader-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  background: #181a1e;
+  border-bottom: 1px solid #41454d;
+}
+
+.contents .reader-menu-dismiss {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 1px solid #626872;
+  border-radius: 8px;
+  color: #e7e9e7;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.contents .button.button-close.reader-menu-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  float: none;
+  margin: 0;
+  min-width: 88px;
+  color: #29251e;
+  background-color: #d7c6a7;
+  border-color: #d7c6a7;
+  font-weight: 600;
+}
+
+.reader-menu-header svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .contents .button.button-close.reader-menu-back:hover {
+    color: #29251e;
+    background-color: #e7d8bd;
+    border-color: #e7d8bd;
+  }
+  .contents .reader-menu-dismiss:hover {
+    background-color: #33363c;
+  }
+}
+
+.contents .reader-menu-dismiss:active {
+  background-color: #42464e;
+}
+
+@media (forced-colors: active) {
+  .contents .reader-menu-dismiss,
+  .contents .button.button-close.reader-menu-back {
+    color: ButtonText;
+    background-color: ButtonFace;
+    border-color: ButtonText;
+  }
+}
+
+/* 説明は必要なときだけ開き、本文や設定の位置を動かさないルン。 */
+.epub-position-summary {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.epub-position-summary .epub-page-position-menu {
+  margin-top: 0;
+  min-width: 0;
+}
+
+.contents .reader-help-button {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: #b7bec8;
+  background: transparent;
+  cursor: pointer;
+}
+
+.reader-help-button svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.contents .reader-help-button[aria-expanded="true"] {
+  color: #e7e9e7;
+  background: #33363c;
+}
+
+.reader-help-tooltip {
+  position: fixed;
+  z-index: 110;
+  box-sizing: border-box;
+  width: 320px;
+  padding: 14px 16px;
+  color: #e7e9e7;
+  background: #252a32;
+  border: 1px solid #626872;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px #0004;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+@media (forced-colors: active) {
+  .reader-help-tooltip {
+    color: CanvasText;
+    background: Canvas;
+    border-color: CanvasText;
+  }
+}

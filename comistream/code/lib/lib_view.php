@@ -360,18 +360,22 @@ function generateHTML()
 
 <div class="contents" id="contents">
     <div>
+        <div class="reader-menu-header">
+            <button type="button" class="reader-menu-dismiss" aria-label="$alt_close_button" onclick="document.getElementById('contents').style.display='none'"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+            <button type="button" class="button button-close reader-menu-back" onclick="backListPage();" data-tooltip="$tooltip_back"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg><span>{$i18n->get('back')}</span></button>
+        </div>
         <div class="toc-buttons">
-            <img src="$themeDir/theme/icons/close.png" alt="$alt_close_button" class="close" onclick="document.getElementById('contents').style.display='none'">
-            <span class="button button-close" onclick="backListPage();" data-tooltip="$tooltip_back">{$i18n->get('back')}</span>
-            <span id="rawMode" class="$size_button_class button-mode" onclick="toggleRaw();" data-tooltip-full="$tooltip_full_size" data-tooltip-compressed="$tooltip_compressed">$size_button_flag</span>
-            <span id="pageMode" class="$pagemode_button_class button-mode" onclick="togglePageMode()" data-tooltip-single="$tooltip_single_page" data-tooltip-spread="$tooltip_spread_page">$pagemode_button_text</span>
-            <span class="button button-mode" onclick="fixSpreadPage();" data-tooltip="$tooltip_spread_fix">{$i18n->get('spread_fix')}</span>
-            <span class="$direction_button_class button-mode" id="direction" onclick="toggleDirection()" data-tooltip="$tooltip_direction">$direction_button_text</span>
-            <span class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()" data-tooltip="$tooltip_fullscreen">{$i18n->get('fullscreen')}</span>
-            <span class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()" data-tooltip-trimming="$tooltip_trimmingmode_trimming" data-tooltip-normal="$tooltip_trimmingmode_normal">$split_button_text</span>
-            $langSelectorHtml
-            <span class="clock-icon-button" id="clockToggleButton" onclick="toggleClock()" data-tooltip="$tooltip_clock"><i data-feather="clock"></i></span>
-            <span class="inspector-icon-button" id="inspectorToggleButton" onclick="showInspector()" data-tooltip="$tooltip_inspector"><i data-feather="info"></i></span>
+            <div class="reader-utility-actions">
+                $langSelectorHtml
+                <button type="button" aria-pressed="false" aria-label="$tooltip_clock" class="clock-icon-button" id="clockToggleButton" onclick="toggleClock()" data-tooltip="$tooltip_clock"><i data-feather="clock"></i></button>
+                <button type="button" aria-pressed="false" aria-label="$tooltip_inspector" class="inspector-icon-button" id="inspectorToggleButton" onclick="showInspector()" data-tooltip="$tooltip_inspector"><i data-feather="info"></i></button>
+            </div>
+            <button type="button" class="$split_button_class button-mode" id="splitFile" onclick="toggleTrimmingFile()" data-tooltip-trimming="$tooltip_trimmingmode_trimming" data-tooltip-normal="$tooltip_trimmingmode_normal">$split_button_text</button>
+            <button type="button" class="button button-mode" id="fullScreenButton" onclick="toggleFullScreen()" data-tooltip="$tooltip_fullscreen">{$i18n->get('windowed')}</button>
+            <button type="button" class="$direction_button_class button-mode" id="direction" onclick="toggleDirection()" data-tooltip="$tooltip_direction">$direction_button_text</button>
+            <button type="button" class="button button-mode" onclick="fixSpreadPage();" data-tooltip="$tooltip_spread_fix">{$i18n->get('spread_fix')}</button>
+            <button type="button" id="pageMode" class="$pagemode_button_class button-mode" onclick="togglePageMode()" data-tooltip-single="$tooltip_single_page" data-tooltip-spread="$tooltip_spread_page">$pagemode_button_text</button>
+            <button type="button" id="rawMode" class="$size_button_class button-mode" onclick="toggleRaw();" data-tooltip-full="$tooltip_full_size" data-tooltip-compressed="$tooltip_compressed">$size_button_flag</button>
         </div>
         <div style="clear:both;">
             <div class="bookName">$bookName</div>
@@ -636,6 +640,8 @@ JS;
         'epub_writing_horizontal' => $i18n->get('epub_writing_horizontal'),
         'epub_writing_vertical' => $i18n->get('epub_writing_vertical'),
         'epub_page_position_readout' => $i18n->get('epub_page_position_readout'),
+        'epub_page_position' => $i18n->get('epub_page_position'),
+        'epub_section_progress' => $i18n->get('epub_section_progress'),
         'epub_page_position_loading' => $i18n->get('epub_page_position_loading'),
         'epub_page_position_unavailable' => $i18n->get('epub_page_position_unavailable'),
         'epub_status_loading' => $i18n->get('epub_status_loading'),
@@ -685,6 +691,8 @@ JS;
     $themeDarkLabel = htmlspecialchars($i18n->get('epub_theme_dark'), ENT_QUOTES, 'UTF-8');
     $themeSystemLabel = htmlspecialchars($i18n->get('epub_theme_system'), ENT_QUOTES, 'UTF-8');
     $flowLabel = htmlspecialchars($i18n->get('epub_flow_mode'), ENT_QUOTES, 'UTF-8');
+    $flowPaginatedLabel = htmlspecialchars($i18n->get('epub_flow_paginated'), ENT_QUOTES, 'UTF-8');
+    $flowScrolledLabel = htmlspecialchars($i18n->get('epub_flow_scrolled'), ENT_QUOTES, 'UTF-8');
     $tocLabel = htmlspecialchars($i18n->get('epub_toc'), ENT_QUOTES, 'UTF-8');
     $progressLabel = htmlspecialchars($i18n->get('epub_progress'), ENT_QUOTES, 'UTF-8');
     $jumpLabel = htmlspecialchars($i18n->get('epub_jump_to_progress'), ENT_QUOTES, 'UTF-8');
@@ -705,6 +713,7 @@ JS;
     $pageAnimationHelp = htmlspecialchars($i18n->get('epub_page_animation_help'), ENT_QUOTES, 'UTF-8');
     $pagePositionLabel = htmlspecialchars($i18n->get('epub_page_position'), ENT_QUOTES, 'UTF-8');
     $pagePositionToggleLabel = htmlspecialchars($i18n->get('epub_page_position_toggle'), ENT_QUOTES, 'UTF-8');
+    $pagePositionHelpLabel = htmlspecialchars($i18n->get('epub_page_position_help_label'), ENT_QUOTES, 'UTF-8');
     $pagePositionHelp = htmlspecialchars($i18n->get('epub_page_position_help'), ENT_QUOTES, 'UTF-8');
     $pagePositionLoading = htmlspecialchars($i18n->get('epub_page_position_loading'), ENT_QUOTES, 'UTF-8');
     $fullscreenLabel = htmlspecialchars($i18n->get('windowed'), ENT_QUOTES, 'UTF-8');
@@ -809,6 +818,7 @@ JS;
         #epub-page-position[hidden],
         #epub-page-position-status[hidden],
         #epub-page-position-help[hidden],
+        #epub-page-position-info[hidden],
         #epub-page-position-setting[hidden] {
             display: none;
         }
@@ -823,6 +833,7 @@ JS;
             z-index: 95;
             display: none;
             width: min(760px, calc(100vw - 20px));
+            box-sizing: border-box;
             max-width: min(760px, calc(100vw - 20px));
             max-height: calc(100dvh - 20px);
         }
@@ -855,16 +866,14 @@ JS;
             line-height: 1.45;
             overflow-wrap: anywhere;
         }
-        .epub-page-position-help {
-            color: #c0c0c0;
-        }
         .epub-panel-section {
             margin-bottom: 12px;
         }
         .epub-panel-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 10px 14px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            align-items: start;
+            gap: 20px 24px;
             margin-top: 12px;
         }
         .epub-setting-row {
@@ -875,9 +884,10 @@ JS;
             flex-wrap: wrap;
         }
         .epub-setting-label {
+            flex-basis: 100%;
             min-width: 72px;
-            color: #d0d0d0;
-            font-size: 0.82em;
+            color: #b7bec8;
+            font-size: 0.78em;
         }
         .epub-setting-value {
             font-size: 0.9em;
@@ -895,7 +905,7 @@ JS;
         }
         .epub-segmented-control {
             display: inline-flex;
-            flex-wrap: nowrap;
+            flex-wrap: wrap;
             gap: 6px;
             white-space: nowrap;
         }
@@ -1086,24 +1096,37 @@ JS;
     </div>
     <div class="contents" id="epub-menu-panel">
         <div>
+            <div class="reader-menu-header">
+                <button type="button" class="reader-menu-dismiss" id="epub-menu-close" aria-label="{$altCloseButton}"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+                <button type="button" class="button button-close reader-menu-back" id="epub-back-button" data-tooltip="{$tooltipBack}"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg><span>{$backLabel}</span></button>
+            </div>
             <div class="epub-toolbar">
-                <img src="/theme/icons/close.png" alt="{$altCloseButton}" class="close epub-toolbar-close" id="epub-menu-close">
-                <span class="button button-close" id="epub-back-button" data-tooltip="{$tooltipBack}">{$backLabel}</span>
-                <span class="button button-mode" id="epub-next-page" data-tooltip="{$tooltipEpubNextPage}">{$nextPageLabel}</span>
-                <span class="button button-mode" id="epub-prev-page" data-tooltip="{$tooltipEpubPrevPage}">{$prevPageLabel}</span>
-                <span class="button button-mode" id="epub-next-section" data-tooltip="{$tooltipEpubNextSection}">{$nextSectionLabel}</span>
-                <span class="button button-mode" id="epub-prev-section" data-tooltip="{$tooltipEpubPrevSection}">{$prevSectionLabel}</span>
-                <span class="button button-mode" id="fullScreenButton" data-tooltip="{$tooltipFullscreen}">{$fullscreenLabel}</span>
-                <span class="button button-mode" id="epub-flow-toggle" data-tooltip="{$tooltipEpubFlowToggle}">{$flowLabel}</span>
-                {$langSelectorHtml}
-                <span class="clock-icon-button" id="clockToggleButton" data-tooltip="{$tooltipClock}"><i data-feather="clock"></i></span>
-                <span class="inspector-icon-button" id="inspectorToggleButton" data-tooltip="{$tooltipInspector}"><i data-feather="info"></i></span>
+                <div class="reader-utility-actions">
+                    {$langSelectorHtml}
+                    <button type="button" aria-pressed="false" aria-label="{$tooltipClock}" class="clock-icon-button" id="clockToggleButton" data-tooltip="{$tooltipClock}"><i data-feather="clock"></i></button>
+                    <button type="button" aria-pressed="false" aria-label="{$tooltipInspector}" class="inspector-icon-button" id="inspectorToggleButton" data-tooltip="{$tooltipInspector}"><i data-feather="info"></i></button>
+                </div>
+                <div class="reader-mode-actions">
+                    <button type="button" class="button button-mode" id="epub-flow-toggle" data-tooltip="{$tooltipEpubFlowToggle}"><span class="reader-mode-label"><span aria-hidden="true" class="reader-mode-sizer">{$flowPaginatedLabel}</span><span aria-hidden="true" class="reader-mode-sizer">{$flowScrolledLabel}</span><span id="epub-flow-current">{$flowPaginatedLabel}</span></span></button>
+                    <button type="button" class="button button-mode" id="fullScreenButton" data-tooltip="{$tooltipFullscreen}">{$fullscreenLabel}</button>
+                </div>
+                <div class="reader-section-actions">
+                    <button type="button" class="button button-mode" id="epub-next-section" data-tooltip="{$tooltipEpubNextSection}">{$nextSectionLabel}</button>
+                    <button type="button" class="button button-mode" id="epub-prev-section" data-tooltip="{$tooltipEpubPrevSection}">{$prevSectionLabel}</button>
+                </div>
+                <div class="reader-page-actions">
+                    <button type="button" class="button button-mode" id="epub-next-page" data-tooltip="{$tooltipEpubNextPage}">{$nextPageLabel}</button>
+                    <button type="button" class="button button-mode" id="epub-prev-page" data-tooltip="{$tooltipEpubPrevPage}">{$prevPageLabel}</button>
+                </div>
             </div>
             <div class="epub-panel-section">
                 <div class="bookName epub-book-heading" id="epub-book-heading">{$bookName}</div>
                 <div id="epub-status">{$statusLoadingLabel}</div>
-                <div id="epub-page-position-status" class="epub-page-position-menu" role="status" aria-live="off">{$pagePositionLoading}</div>
-                <div id="epub-page-position-help" class="epub-page-position-menu epub-page-position-help">{$pagePositionHelp}</div>
+                <div class="epub-position-summary">
+                    <div id="epub-page-position-status" class="epub-page-position-menu" role="status" aria-live="off">{$pagePositionLoading}</div>
+                    <button type="button" class="reader-help-button" id="epub-page-position-info" aria-label="{$pagePositionHelpLabel}" aria-controls="epub-page-position-help" aria-describedby="epub-page-position-help" aria-expanded="false" hidden><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg></button>
+                </div>
+                <div id="epub-page-position-help" class="reader-help-tooltip" role="tooltip" hidden>{$pagePositionHelp}</div>
                 <div class="epub-slider-row">
                     <label for="epub-slider">{$progressLabel}</label>
                     <span class="reader-marker-slider">

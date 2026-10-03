@@ -1648,11 +1648,9 @@ function updateFullScreenButton() {
   if (isFullscreen) {
     // 全画面モード時は「全画面」を表示するルン！（現在のモード表示）
     fullScreenButton.textContent = window.i18n.toc_button_fullscreen;
-    fullScreenButton.classList.add("pressed");
   } else {
     // 窓表示時は「窓表示」を表示するルン！（現在のモード表示）
     fullScreenButton.textContent = window.i18n.toc_button_windowed;
-    fullScreenButton.classList.remove("pressed");
   }
 }
 
@@ -1718,6 +1716,10 @@ function toggleDirection() {
 }
 
 function funcKey(evt) {
+  // 設定ボタンのSpace/Enterで読書操作を重ねて実行しないルン。
+  if (['Space', 'Enter'].includes(evt.code) || evt.keyCode === 32 || evt.keyCode === 13) {
+    if (evt.target?.closest?.('.contents button')) return;
+  }
   if (isZoomed()) return; // 拡大表示中はキー操作によるページめくり等を無効化
 
   // 【ショートカット一覧】
@@ -1785,6 +1787,7 @@ function funcKey(evt) {
 }
 
 function toggleRaw() {
+  // 再読込前はラベルと装飾クラスを保ち、押した瞬間の寸法変化を防ぐルン。
   // 圧縮有無の切り替え ルン！現在のモードを表示するように変更するルン！
   let data = new FormData();
   data.append("mode", "close");
@@ -1805,16 +1808,10 @@ function toggleRaw() {
     .replace(/\?$/, ""); // 末尾の?を削除
 
   if (document.getElementById("rawMode").classList.contains("raw")) {
-    document.getElementById("rawMode").className = "button cmp";
-    document.getElementById("rawMode").textContent =
-      window.i18n.toc_button_compress;
     document.cookie = "rawMode=cmp; path=/; max-age=31536000";
     debugLog("toggleRaw() size toggle to cmp, reload_url:" + reload_url);
     location.replace(reload_url);
   } else {
-    document.getElementById("rawMode").className = "button raw";
-    document.getElementById("rawMode").textContent =
-      window.i18n.toc_button_full;
     document.cookie = "rawMode=raw; path=/; max-age=31536000";
     debugLog("toggleRaw() size toggle to raw, reload_url:" + reload_url);
     location.replace(reload_url);
@@ -1822,6 +1819,7 @@ function toggleRaw() {
 }
 
 function toggleTrimmingFile() {
+  // 表示の切り替えは遷移先に任せ、現在のボタン寸法を保つルン。
   // サーバー側で左右余白トリミングするモード（旧:見開きサイズ画像ファイルの左右分割表示モード） ルン！
   let data = new FormData();
   data.append("mode", "close");
@@ -1831,9 +1829,6 @@ function toggleTrimmingFile() {
     // 左右余白トリミングモードへ
     // page = page*2;
     navigator.sendBeacon("comistream.php", data);
-    document.getElementById("splitFile").className = "button trimming";
-    document.getElementById("splitFile").textContent =
-      window.i18n.toc_button_trimming; // 現在のモードを表示するルン！
     // console.log("toggleTrimmingFile() normal to split");
     let reload_url = location.href + "&view=trimming";
     // (reload_url);
@@ -1842,9 +1837,6 @@ function toggleTrimmingFile() {
     // 通常表示モードへ
     // page = Math.floor((page+1)/2);
     navigator.sendBeacon("comistream.php", data);
-    document.getElementById("splitFile").className = "button normal";
-    document.getElementById("splitFile").textContent =
-      window.i18n.toc_button_normal;
     // console.log("toggleTrimmingFile() split to normal");
     let reload_url = location.href.replace("&view=trimming", "");
     // console.log(reload_url);
@@ -2369,6 +2361,10 @@ async function quickSpredView() {
 function showInspector() {
   // iキーを押すとインスペクターを表示
   let inspector = document.getElementById("inspector");
+  const toggle = document.getElementById("inspectorToggleButton");
+  const willOpen = inspector.style.display !== "block";
+  toggle?.classList.toggle("pressed", willOpen);
+  toggle?.setAttribute("aria-pressed", String(willOpen));
   let aspect = imagex / imagey;
   aspect = Math.round(aspect * 100) / 100;
   const preLoadCacheSize = preCaches.getSize();
@@ -2485,6 +2481,7 @@ function toggleClock() {
     // 時計を表示
     clock.classList.remove("clock-hidden");
     clockButton.classList.add("pressed");
+    clockButton.setAttribute("aria-pressed", "true");
     // ローカルストレージに設定を保存
     localStorage.setItem("clockDisplay", "show");
     // 時計の更新を開始
@@ -2495,6 +2492,7 @@ function toggleClock() {
     // 時計を非表示
     clock.classList.add("clock-hidden");
     clockButton.classList.remove("pressed");
+    clockButton.setAttribute("aria-pressed", "false");
     // ローカルストレージに設定を保存
     localStorage.setItem("clockDisplay", "hide");
     // 時計の更新を停止

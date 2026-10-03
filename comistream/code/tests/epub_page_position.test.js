@@ -9,6 +9,25 @@ const end = source.indexOf('function getPagePositionReadout(', start);
 const context = vm.createContext({ PAGE_POSITION_INTEGER_TOLERANCE: 0.001 });
 vm.runInContext(source.slice(start, end), context);
 
+test('reflow menu progress identifies book sections without changing saved progress numbers', () => {
+    const scope = vm.createContext({
+        view: { isFixedLayout: false, book: { sections: Array(27).fill({}) } },
+        currentLocation: { section: { current: 14 }, sectionFraction: 0.5 },
+        clamp: (value, min, max) => Math.min(Math.max(value, min), max),
+        t: (key, fallback) => key === 'epub_section_progress' ? '%s番目の区切り（全%s）' : fallback
+    });
+    vm.runInContext(source.slice(source.indexOf('function getBookSectionCount('), start), scope);
+    const progress = scope.getLocationProgressMetrics();
+    assert.equal(progress.statusProgressText, '15番目の区切り（全27）');
+    assert.equal(progress.currentPage, 15);
+    assert.equal(progress.totalPages, 27);
+    assert.equal(progress.sliderValue, 15);
+    assert.equal(scope.getLocationProgressMetrics({ section: { current: 0 } }).statusProgressText, '1番目の区切り（全27）');
+    assert.equal(scope.getLocationProgressMetrics({ section: { current: 26 } }).statusProgressText, '27番目の区切り（全27）');
+    scope.view.isFixedLayout = true;
+    assert.equal(scope.getLocationProgressMetrics({ fraction: 0.5, location: { total: 20 } }).statusProgressText, '11/20');
+});
+
 test('single-page positions count screens within the ordered book section', () => {
     assert.deepEqual(
         { ...context.calculateSectionPagePosition({ index: 2, fraction: 11 / 34, size: 1 / 34 }) },

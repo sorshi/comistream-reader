@@ -15,20 +15,20 @@
 return [
     // ヘッダーとナビゲーション
     'back' => '戻る',
-    'full_size' => '原寸',
-    'compressed' => '節約',
-    'single_page' => '単頁',
-    'spread_page' => '見開',
-    'auto_page' => '自動',
-    'tooltip_auto_page' => '表示領域が横長なら見開き、それ以外は単頁に切り替えます。横長画像は1枚で表示します。押すと単頁固定に戻ります',
-    'spread_fix' => '見開補正',
-    'direction' => '綴方向',
-    'direction_right' => '右綴',
-    'direction_left' => '左綴',
-    'fullscreen' => '全画面',
-    'windowed' => '窓表示',
-    'trimmingmode_trimming' => '余白除',
-    'trimmingmode_normal' => '全体',
+    'full_size' => 'オリジナル画質',
+    'compressed' => '通信量節約表示',
+    'single_page' => '1ページ表示',
+    'spread_page' => '見開き表示',
+    'auto_page' => '自動切替',
+    'tooltip_auto_page' => '表示領域が横長なら見開き表示、それ以外は1ページ表示に切り替えます。横長画像は1枚で表示します。押すと1ページ表示に戻ります',
+    'spread_fix' => '見開きの組み合わせを調整',
+    'direction' => '読む方向',
+    'direction_right' => '右から左',
+    'direction_left' => '左から右',
+    'fullscreen' => '全画面表示',
+    'windowed' => '通常表示',
+    'trimmingmode_trimming' => '余白カット',
+    'trimmingmode_normal' => '余白あり',
     'clock' => '時計',
     'epub_menu' => 'メニュー',
     'epub_font_size' => '文字サイズ',
@@ -38,30 +38,32 @@ return [
     'epub_theme_dark' => 'ダークモード',
     'epub_theme_system' => 'システム',
     'epub_flow_mode' => '表示形式',
-    'epub_flow_paginated' => 'ページ',
-    'epub_flow_scrolled' => 'スクロール',
+    'epub_flow_paginated' => 'ページ表示',
+    'epub_flow_scrolled' => 'スクロール表示',
     'epub_page_animation' => 'ページアニメーション',
     'epub_page_animation_toggle' => 'アニメーションを有効化',
     'epub_page_animation_help' => 'このブラウザの全EPUBに共通です。ページ表示で動作し、高速めくり中は演出を間引きます。OSの「視差効果を減らす」設定にも従います。',
     'epub_page_position' => 'ページ位置',
     'epub_page_position_toggle' => 'ページ位置を表示',
-    'epub_page_position_help' => '3–12は、本の3番目の区切りの12画面目を表します。文字サイズや画面サイズを変えると番号も変わります。',
+    'epub_page_position_help_label' => 'ページ位置の説明',
+    'epub_page_position_help' => 'ページ位置「3–12」表記は、本の3番目の区切りの12画面目を表します。文字サイズや画面サイズを変えると番号も変わります。',
+    'epub_section_progress' => '%s番目の区切り（全%s）',
     'epub_page_position_readout' => '本の%s番目の区切り、%s画面目',
     'epub_page_position_loading' => 'ページ位置を確認中',
     'epub_page_position_unavailable' => 'ページ位置を取得できません',
     'epub_toc' => '目次',
     'epub_progress' => '進捗',
     'epub_jump_to_progress' => '進捗へ移動',
-    'epub_prev_page' => '前頁',
-    'epub_next_page' => '次頁',
+    'epub_prev_page' => '前のページ',
+    'epub_next_page' => '次のページ',
     'epub_prev_section' => '前の章',
     'epub_next_section' => '次の章',
     'epub_auto' => '自動',
     'epub_override' => '上書き',
-    'epub_direction' => '進行方向',
+    'epub_direction' => '読む方向',
     'epub_direction_ltr' => '左から右',
     'epub_direction_rtl' => '右から左',
-    'epub_writing_mode' => '組方向',
+    'epub_writing_mode' => '文字の向き',
     'epub_writing_horizontal' => '横書き',
     'epub_writing_vertical' => '縦書き',
     'epub_status_loading' => '読み込み中...',
@@ -122,40 +124,40 @@ return [
     'config_not_found' => '設定が見つかりません',
     'file_not_found' => 'ファイルが見つかりません',
     'invalid_config' => '設定内容が異常です',
-    
+
     // システム関連エラー
     'invalid_arguments' => '引数が正しくありません',
     'database_execution_error' => 'DB実行エラーが発生しました',
     'system_error' => 'システムエラー',
     'not_found_files' => '必要なファイルが見つかりません',
-    
+
     // ファイル・アクセス関連エラー
     'file_not_readable' => 'ファイルが読めません',
     'file_processing_failed' => 'ファイルが処理できません',
     'invalid_file_type' => '未対応ファイルです',
     'pdf_file_error' => 'PDFファイルの読み込みに失敗しました',
     'access_denied' => 'アクセス拒否',
-    
+
     // ディレクトリ・権限関連エラー
     'mkdir_failed' => 'ディレクトリ作成に失敗しました',
     'permission_error' => 'パーミッションエラーです',
     'symlink_failed' => 'シンボリックリンクの作成に失敗しました',
-    
+
     // アーカイブ関連エラー
     'archive_corrupted' => 'アーカイブファイルが破損しています',
     'archive_expanding' => 'アーカイブの展開中です',
     'archive_open_failed' => 'アーカイブファイルの展開に失敗しました',
-    
+
     // ライブストリーム関連エラー
     'guest_not_allowed' => 'ゲストユーザーはLiveStream機能を利用できません',
     'admin_only' => '管理者以外はLiveStream機能を利用できません',
     'livestream_config_not_found' => 'livestream.jsファイルがみつかりません',
-    
+
     // 成功・完了メッセージ
     'cover_deleted' => '表紙画像とプレビュー画像を削除しました',
     'cover_update_failed' => '権限が足りないかファイルが指定されていません',
     'processing_complete' => '処理が正常に完了しました',
-    
+
     // 詳細エラーメッセージ
     'file_not_found_detail' => '指定されたファイルは存在しないか削除された可能性があります',
     'permission_denied_detail' => 'このファイルにアクセスする権限がありません',
@@ -221,8 +223,8 @@ return [
 
     // Tooltips for TOC menu buttons
     'tooltip_back' => 'リーダーを閉じて元の画面に戻ります',
-    'tooltip_full_size' => 'オリジナルの画像ファイルをそのまま表示します。高画質ですがパケット消費が多くなります',
-    'tooltip_compressed' => '画像を圧縮して表示します。パケット消費を抑えられますが画質は低下します。スマホサイズでは充分高画質なケースも多いです',
+    'tooltip_full_size' => 'オリジナルの画像ファイルをそのまま表示します。高画質ですが通信量が多くなります',
+    'tooltip_compressed' => '画像を圧縮して表示します。通信量を抑えられますが画質は低下します。スマホサイズでは充分高画質なケースも多いです',
     'tooltip_single_page' => 'ページを1枚ずつ表示します。縦長の表示に最適です。長押しやスペースキーでクイック見開き表示が可能です',
     'tooltip_spread_page' => 'ページを2枚並べて表示します。横長の表示に最適です',
     'tooltip_spread_fix' => '見開き表示モードのときに左ページと右ページを補正します',

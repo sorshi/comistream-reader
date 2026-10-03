@@ -73,6 +73,8 @@ let pagePositionVisible = true;
 let currentPagePosition = null;
 let latestRendererPageLocation = null;
 let pagePositionTimer = null;
+let pagePositionHelpPinned = false;
+let pagePositionHelpTimer = null;
 let pageTurnAnimationEnabled = true;
 let lastPageTurnAnimationAt = -Infinity;
 let pendingNavigationCount = 0;
@@ -2829,24 +2831,17 @@ function updateSegmentedButtons(selector, selectedValue) {
 }
 
 function updateNavigationButtonOrder(navigationIsRtl) {
-    const toolbar = document.querySelector('.epub-toolbar');
-    if (!toolbar) {
-        return;
-    }
-
-    const prevPage = $('epub-prev-page');
-    const nextPage = $('epub-next-page');
-    if (prevPage?.parentElement === toolbar && nextPage?.parentElement === toolbar) {
-        toolbar.insertBefore(navigationIsRtl ? prevPage : nextPage, navigationIsRtl ? nextPage : prevPage);
-    }
-
-    const prevSection = $('epub-prev-section');
-    const nextSection = $('epub-next-section');
-    if (prevSection?.parentElement === toolbar && nextSection?.parentElement === toolbar) {
-        toolbar.insertBefore(
-            navigationIsRtl ? prevSection : nextSection,
-            navigationIsRtl ? nextSection : prevSection
-        );
+    // 各ペアのDOM順を画面上の左右に合わせ、Tab移動も同じ順序にするルン。
+    for (const [previousId, nextId] of [
+        ['epub-prev-page', 'epub-next-page'],
+        ['epub-prev-section', 'epub-next-section']
+    ]) {
+        const previous = $(previousId);
+        const next = $(nextId);
+        const group = previous?.parentElement;
+        if (group && next?.parentElement === group) {
+            group.insertBefore(navigationIsRtl ? next : previous, navigationIsRtl ? previous : next);
+        }
     }
 }
 
@@ -2889,7 +2884,9 @@ function getLocationProgressMetrics(location = currentLocation) {
             sliderMax: sectionTotal,
             sliderValue: currentPage,
             progressRatio,
-            statusProgressText: `${currentPage}/${sectionTotal}`
+            statusProgressText: t('epub_section_progress', 'Section %s of %s')
+                .replace('%s', String(currentPage))
+                .replace('%s', String(sectionTotal))
         };
     }
 
@@ -3064,20 +3061,92 @@ function schedulePagePositionUpdate(location = latestRendererPageLocation) {
     );
 }
 
+function hidePagePositionHelp() {
+    window.clearTimeout(pagePositionHelpTimer);
+    pagePositionHelpTimer = null;
+    pagePositionHelpPinned = false;
+    const help = $('epub-page-position-help');
+    if (help) help.hidden = true;
+    $('epub-page-position-info')?.setAttribute('aria-expanded', 'false');
+}
+
+function showPagePositionHelp() {
+    const button = $('epub-page-position-info');
+    const help = $('epub-page-position-help');
+    if (!menuVisible || !button || button.hidden || !help) return;
+    window.clearTimeout(pagePositionHelpTimer);
+    const viewport = window.visualViewport;
+    const left = (viewport?.offsetLeft ?? 0) + 16;
+    const top = (viewport?.offsetTop ?? 0) + 16;
+    const width = Math.max(1, (viewport?.width ?? window.innerWidth) - 32);
+    const height = Math.max(1, (viewport?.height ?? window.innerHeight) - 32);
+    help.style.maxWidth = `${width}px`;
+    help.style.maxHeight = `${height}px`;
+    help.hidden = false;
+    const anchor = button.getBoundingClientRect();
+    const popup = help.getBoundingClientRect();
+    help.style.left = `${Math.max(left, Math.min(anchor.left, left + width - popup.width))}px`;
+    const below = anchor.bottom + 8;
+    help.style.top = `${below + popup.height <= top + height
+        ? below : Math.max(top, anchor.top - popup.height - 8)}px`;
+    button.setAttribute('aria-expanded', 'true');
+}
+
+function bindPagePositionHelp() {
+    const button = $('epub-page-position-info');
+    const help = $('epub-page-position-help');
+    if (!button || !help) return;
+    const cancelHide = () => window.clearTimeout(pagePositionHelpTimer);
+    const scheduleHide = () => {
+        if (!pagePositionHelpPinned) {
+            pagePositionHelpTimer = window.setTimeout(hidePagePositionHelp, 120);
+        }
+    };
+    button.addEventListener('pointerenter', (event) => {
+        if (event.pointerType === 'mouse') showPagePositionHelp();
+    });
+    button.addEventListener('pointerleave', scheduleHide);
+    help.addEventListener('pointerenter', cancelHide);
+    help.addEventListener('pointerleave', scheduleHide);
+    button.addEventListener('focus', () => {
+        if (button.matches(':focus-visible')) showPagePositionHelp();
+    });
+    button.addEventListener('click', () => {
+        if (pagePositionHelpPinned) hidePagePositionHelp();
+        else {
+            pagePositionHelpPinned = true;
+            showPagePositionHelp();
+        }
+    });
+    // タッチ・キーボードでも、説明の外へ移れば閉じるルン。
+    const dismissOutside = (event) => {
+        if (!button.contains(event.target) && !help.contains(event.target)) hidePagePositionHelp();
+    };
+    document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('focusin', dismissOutside);
+    $('epub-menu-panel')?.addEventListener('scroll', hidePagePositionHelp);
+    window.addEventListener('resize', hidePagePositionHelp);
+    window.visualViewport?.addEventListener('resize', hidePagePositionHelp);
+}
+
 function updatePagePositionSetting() {
     const isSupported = Boolean(view && !view.isFixedLayout && currentFlowMode === 'paginated');
     const row = $('epub-page-position-setting');
     const button = $('epub-page-position-toggle');
-    const help = $('epub-page-position-help');
+    const helpButton = $('epub-page-position-info');
     const menuStatus = $('epub-page-position-status');
     if (row) {
         row.hidden = !isSupported;
     }
     if (button) {
         button.setAttribute('aria-pressed', pagePositionVisible ? 'true' : 'false');
+        button.classList.toggle('pressed', pagePositionVisible);
     }
-    if (help) {
-        help.hidden = !isSupported;
+    if (helpButton) {
+        helpButton.hidden = !isSupported;
+    }
+    if (!isSupported) {
+        hidePagePositionHelp();
     }
     if (menuStatus) {
         menuStatus.hidden = !isSupported;
@@ -3285,7 +3354,7 @@ async function reapplyInitialRestoreTarget(target, reason) {
 function updateToolbarState() {
     const fontLabel = $('epub-font-value');
     const flowLabel = $('epub-flow-value');
-    const flowToggle = $('epub-flow-toggle');
+    const flowToggleLabel = $('epub-flow-current');
     const fontMinus = $('epub-font-minus');
     const fontPlus = $('epub-font-plus');
     const paperThemeButton = $('epub-theme-paper');
@@ -3303,9 +3372,8 @@ function updateToolbarState() {
     if (flowLabel) {
         flowLabel.textContent = flowLabelText;
     }
-    if (flowToggle) {
-        flowToggle.textContent = flowLabelText;
-        flowToggle.classList.toggle('pressed', currentFlowMode === 'scrolled');
+    if (flowToggleLabel) {
+        flowToggleLabel.textContent = flowLabelText;
     }
     if (fontMinus) {
         fontMinus.disabled = isFixedLayout;
@@ -3469,6 +3537,7 @@ function toggleMenu(forceVisible = null) {
     }
 
     if (!menuVisible) {
+        hidePagePositionHelp();
         focusReader();
         schedulePagePositionUpdate();
     } else {
@@ -3683,6 +3752,7 @@ function toggleInspector(forceVisible = null, error = null, fallbackState = null
         inspector.style.opacity = '0';
         if (toggle) {
             toggle.classList.remove('pressed');
+            toggle.setAttribute('aria-pressed', 'false');
         }
         window.setTimeout(() => {
             inspector.style.display = 'none';
@@ -3696,6 +3766,7 @@ function toggleInspector(forceVisible = null, error = null, fallbackState = null
     inspector.style.display = 'block';
     if (toggle) {
         toggle.classList.add('pressed');
+        toggle.setAttribute('aria-pressed', 'true');
     }
     window.setTimeout(() => {
         inspector.style.opacity = '1';
@@ -3717,7 +3788,6 @@ function updateFullScreenButton() {
     fullScreenButton.textContent = isFullscreen
         ? t('fullscreen', 'Fullscreen')
         : t('windowed', 'Windowed');
-    fullScreenButton.classList.toggle('pressed', isFullscreen);
 }
 
 function toggleFullScreen() {
@@ -3770,6 +3840,7 @@ function toggleClock(forceVisible = null) {
     if (shouldShow) {
         clock.classList.remove('clock-hidden');
         clockButton.classList.add('pressed');
+        clockButton.setAttribute('aria-pressed', 'true');
         localStorage.setItem(CLOCK_DISPLAY_KEY, 'show');
         updateClock();
         if (clockTimer) {
@@ -3779,6 +3850,7 @@ function toggleClock(forceVisible = null) {
     } else {
         clock.classList.add('clock-hidden');
         clockButton.classList.remove('pressed');
+        clockButton.setAttribute('aria-pressed', 'false');
         localStorage.setItem(CLOCK_DISPLAY_KEY, 'hide');
         if (clockTimer) {
             window.clearInterval(clockTimer);
@@ -4470,7 +4542,17 @@ async function goToAdjacentSection(previous) {
 }
 
 function handleKeydown(event) {
+    // 設定ボタンのSpace/Enterはブラウザ標準のクリックへ任せるルン。
+    if (['Space', 'Enter'].includes(event.code) || [' ', 'Enter'].includes(event.key)) {
+        if (event.target?.closest?.('.contents button')) return;
+    }
     if (event.defaultPrevented) {
+        return;
+    }
+    const help = $('epub-page-position-help');
+    if (event.key === 'Escape' && help && !help.hidden) {
+        event.preventDefault();
+        hidePagePositionHelp();
         return;
     }
     if (isEditableTarget(event.target)) {
@@ -4652,6 +4734,7 @@ function commitSliderPosition() {
 }
 
 function wireToolbar() {
+    bindPagePositionHelp();
     const viewer = $('epub-viewer');
     setupViewerFallbackTapNavigation(viewer);
     viewer?.addEventListener('click', () => {
@@ -5032,6 +5115,7 @@ function bindViewLifecycleEvents() {
     view.addEventListener('load', (event) => {
         navigationEventSeq++;
         const doc = event.detail?.doc;
+        doc?.addEventListener('pointerdown', hidePagePositionHelp, { passive: true });
         preparePaperImages(doc);
         markMediaPageLayout(doc);
         setupTapNavigation(doc);

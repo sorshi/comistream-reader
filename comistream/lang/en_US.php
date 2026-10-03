@@ -45,7 +45,9 @@ return [
     'epub_page_animation_help' => 'Applies to all EPUBs in this browser. Animates paginated reading, with fewer animations during rapid turns. Respects the system reduced motion setting.',
     'epub_page_position' => 'Page position',
     'epub_page_position_toggle' => 'Show page position',
-    'epub_page_position_help' => '3–12 means screen 12 in the book’s third section. The number changes when the text size or screen size changes.',
+    'epub_page_position_help_label' => 'About page position',
+    'epub_page_position_help' => 'The page position “3–12” means screen 12 in the book’s third section. The number changes when the text size or screen size changes.',
+    'epub_section_progress' => 'Section %s of %s',
     'epub_page_position_readout' => 'Book section %s, screen %s',
     'epub_page_position_loading' => 'Checking page position',
     'epub_page_position_unavailable' => 'Page position unavailable',
@@ -122,40 +124,40 @@ return [
     'config_not_found' => 'Configuration not found',
     'file_not_found' => 'File not found',
     'invalid_config' => 'Invalid configuration',
-    
+
     // System Related Errors
     'invalid_arguments' => 'Invalid arguments',
     'database_execution_error' => 'Database execution error occurred',
     'system_error' => 'System Error',
     'not_found_files' => 'Required files not found',
-    
+
     // File and Access Related Errors
     'file_not_readable' => 'File is not readable',
     'file_processing_failed' => 'File processing failed',
     'invalid_file_type' => 'Unsupported file type',
     'pdf_file_error' => 'Failed to load PDF file',
     'access_denied' => 'Access Denied',
-    
+
     // Directory and Permission Related Errors
     'mkdir_failed' => 'Failed to create directory',
     'permission_error' => 'Permission error',
     'symlink_failed' => 'Failed to create symbolic link',
-    
+
     // Archive Related Errors
     'archive_corrupted' => 'Archive file is corrupted',
     'archive_expanding' => 'Archive is being expanded',
     'archive_open_failed' => 'Failed to extract archive file',
-    
+
     // LiveStream Related Errors
     'guest_not_allowed' => 'Guest users are not allowed to use LiveStream',
     'admin_only' => 'Only administrators are allowed to use LiveStream',
     'livestream_config_not_found' => 'livestream.js file not found',
-    
+
     // Success and Completion Messages
     'cover_deleted' => 'Cover image and preview image deleted',
     'cover_update_failed' => 'Insufficient permissions or file not specified',
     'processing_complete' => 'Processing completed successfully',
-    
+
     // Detailed Error Messages
     'file_not_found_detail' => 'The specified file does not exist or may have been deleted',
     'permission_denied_detail' => 'You do not have permission to access this file',
