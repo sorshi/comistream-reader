@@ -6227,6 +6227,10 @@ function handleFoliateEpubOpen()
     }
 
     $publicFilePath = rtrim((string)$publicDir, '/') . '/' . ltrim($remotePath, '/');
+    $conf['epub_loading_cover_url'] = getEpubLoadingCoverUrl(
+        $conf['comistream_tool_dir'] . '/data/theme/covers',
+        $publicFilePath
+    );
     $parentUrl = dirname($publicFilePath);
     $conf['reader_fallback_parent_url'] = $parentUrl === '.' ? '/' : rtrim($parentUrl, '/') . '/';
     $conf['reader_fallback_home_url'] = '/';

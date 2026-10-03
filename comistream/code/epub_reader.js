@@ -474,7 +474,30 @@ function setReaderLoading(visible, message = '') {
     overlay.setAttribute('aria-hidden', visible ? 'false' : 'true');
 }
 
+function setupInitialLoadingCover() {
+    const cover = $('epub-loading-cover');
+    if (!cover) {
+        return;
+    }
+    const showCover = () => {
+        if (cover.isConnected && cover.naturalWidth > 0) {
+            cover.hidden = false;
+        }
+    };
+    cover.addEventListener('load', showCover, { once: true });
+    cover.addEventListener('error', () => cover.remove(), { once: true });
+    if (cover.complete) {
+        if (cover.naturalWidth > 0) {
+            showCover();
+        } else {
+            cover.remove();
+        }
+    }
+}
+
 function hideReaderLoading() {
+    // 起動完了・失敗時に取り除き、遅れて読み込まれても章移動では再表示しないルン。
+    $('epub-loading-cover')?.remove();
     setReaderLoading(false);
 }
 
@@ -5196,6 +5219,7 @@ async function init() {
     const perf = createPerfTimer('init()');
     exposeDebugHelpers();
     setReaderLoading(true, t('epub_loading_opening', 'Opening EPUB...'));
+    setupInitialLoadingCover();
     restoreViewerPrefs();
     applyShellTheme();
     wireToolbar();

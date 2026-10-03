@@ -446,6 +446,17 @@ function printHTML()
     writelog("DEBUG printHTML done.");
 } //end function printHTML
 
+function getEpubLoadingCoverUrl(string $coverRoot, string $publicFilePath): string
+{
+    // 一覧と同じ拡張子置換で、作成済みの表紙だけを使うルン。
+    $relativePath = preg_replace('/\.[^.]+$/', '.jpg', ltrim($publicFilePath, '/'));
+    $coverPath = resolveReaderCacheFile($coverRoot, $relativePath);
+    if ($coverPath === false || !is_readable($coverPath)) {
+        return '';
+    }
+    return '/theme/covers/' . urlEncodeFilePath($relativePath);
+}
+
 function generateEpubHTML(): string
 {
     global $conf, $bookName, $escapedFile, $baseFile, $user, $readerMarkerCsrfToken;
@@ -529,6 +540,10 @@ JS;
     }
 
     $savedCfi = (string)($conf['epub_saved_cfi'] ?? '');
+    $loadingCoverUrl = (string)($conf['epub_loading_cover_url'] ?? '');
+    $loadingCoverHtml = $loadingCoverUrl === '' ? ''
+        : '<img id="epub-loading-cover" src="' . htmlspecialchars($loadingCoverUrl, ENT_QUOTES, 'UTF-8')
+            . '" alt="" aria-hidden="true" decoding="async" hidden>';
     $savedUpdatedAt = (int)($conf['epub_saved_updated_at'] ?? 0);
     $readerFallbackParentUrl = (string)($conf['reader_fallback_parent_url'] ?? '/');
     $readerFallbackHomeUrl = (string)($conf['reader_fallback_home_url'] ?? '/');
@@ -987,6 +1002,8 @@ JS;
             visibility: hidden;
         }
         .epub-loading-box {
+            position: relative;
+            z-index: 1;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -1003,6 +1020,18 @@ JS;
             border-top-color: #fff;
             border-radius: 50%;
             animation: epub-loading-spin 0.8s linear infinite;
+        }
+        #epub-loading-cover {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            opacity: 0.15;
+            pointer-events: none;
+        }
+        #epub-loading-cover[hidden] {
+            display: none;
         }
         .epub-loading-message {
             max-width: min(72vw, 22em);
@@ -1049,6 +1078,7 @@ JS;
         <div id="epub-page-position" aria-hidden="true" hidden></div>
     </div>
     <div id="epub-loading-overlay" role="status" aria-live="polite" aria-hidden="false">
+        {$loadingCoverHtml}
         <div class="epub-loading-box">
             <div class="epub-loading-spinner" aria-hidden="true"></div>
             <div class="epub-loading-message" id="epub-loading-message">{$statusLoadingLabel}</div>
