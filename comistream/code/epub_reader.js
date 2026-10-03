@@ -4182,7 +4182,7 @@ function isEditableTarget(target) {
     return Boolean(element.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]'));
 }
 
-async function navigate(action, { allowReadCompletion = true } = {}) {
+async function navigate(action, { allowReadCompletion = true, recordProgress = true } = {}) {
     const intentSeq = ++navigationIntentSeq;
     pendingNavigationCount++;
     if (pendingNavigationCount > 1) {
@@ -4192,7 +4192,7 @@ async function navigate(action, { allowReadCompletion = true } = {}) {
     let spinnerTimer = null;
     let spinnerShown = false;
     navigationChain = navigationChain.then(async () => {
-        if (typeof epubProgressManager !== 'undefined' && epubProgressManager && !(await epubProgressManager.beforeNavigation())) return;
+        if (recordProgress && typeof epubProgressManager !== 'undefined' && epubProgressManager && !(await epubProgressManager.beforeNavigation())) return;
         clearInitialRestorePin();
         const readyBeforeAction = await waitForNavigationReady();
         if (!readyBeforeAction) {
@@ -4258,7 +4258,7 @@ async function navigate(action, { allowReadCompletion = true } = {}) {
         ) {
             markEpubCompletedIfAtEnd('user-navigation');
         }
-        if (typeof epubProgressManager !== 'undefined' && epubProgressManager &&
+        if (recordProgress && typeof epubProgressManager !== 'undefined' && epubProgressManager &&
             currentLocation?.cfi !== beforeLocation.cfi) recordEpubUserPosition();
         scheduleRendererVisibilityGuard('navigate-end', targetInfo);
         window.clearTimeout(spinnerTimer);
@@ -4827,7 +4827,7 @@ function wireToolbar() {
             const nextDirection = button.dataset.epubDirectionOption;
             if (nextDirection === 'auto' || nextDirection === 'rtl' || nextDirection === 'ltr') {
                 currentDirectionOverride = nextDirection;
-                void navigate(() => applyLayoutOverride(), { allowReadCompletion: false });
+                void navigate(() => applyLayoutOverride(), { allowReadCompletion: false, recordProgress: false });
             }
         });
     }
@@ -4836,7 +4836,7 @@ function wireToolbar() {
             const nextWritingMode = button.dataset.epubWritingOption;
             if (nextWritingMode === 'auto' || nextWritingMode === 'vertical' || nextWritingMode === 'horizontal') {
                 currentWritingModeOverride = nextWritingMode;
-                void navigate(() => applyLayoutOverride(), { allowReadCompletion: false });
+                void navigate(() => applyLayoutOverride(), { allowReadCompletion: false, recordProgress: false });
             }
         });
     }
@@ -5380,7 +5380,7 @@ async function initializeEpubProgress() {
 function readerProgressAtStart(cfi, locator) {
     try {
         const parsed = cfi.parse(cfi.collapse(locator));
-        const parts = parsed.at(-1);
+        const parts = parsed.length > 1 ? parsed.at(-1).slice(1) : [];
         return parsed[0][1]?.index === 2 && parts.every(part => part.index <= 2 && !(part.offset > 0));
     } catch (_) { return false; }
 }

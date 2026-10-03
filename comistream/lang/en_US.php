@@ -242,5 +242,5 @@ return [
     'reader_sync_forward' => 'Another device has reached page %s. Move there?',
     'reader_sync_changed' => 'Another device changed the reading position to page %s. Move there?',
     'reader_sync_epub' => 'The reading position changed on another device. Move to the saved position in section %s?',
-    'reader_sync_unsaved' => 'The reading position has not been synchronized. It is saved on this device for the next connection.',
+    'reader_sync_unsaved' => 'The reading position has not been synchronized. Check the connection and reopen the book on this device.',
 ];

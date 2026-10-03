@@ -78,3 +78,21 @@ test('guest uses the same unread and completed resume rules', async () => {
   await c.initialize(); c.record('20'); c.record('3'); assert.equal(c.getState().locator,'20');
   c.record('30',{completed:true}); c.record('1'); assert.equal(c.getState().locator,'1'); assert.equal(c.getState().has_read,true);
 });
+
+
+test('an acknowledged save cannot regress to an older cached GET revision', async () => {
+  const f=fixture(); await f.c.initialize(); f.c.record('20'); await f.c.flush();
+  assert.equal(f.c.getState().revision,1);
+  await f.c.beforeNavigation();
+  assert.equal(f.c.getState().revision,1); assert.equal(f.c.getState().locator,'20');
+});
+
+
+test('new movement after observing the same remote position uses the observed revision', async () => {
+  const f=fixture({read:true}); await f.c.initialize(); f.c.record('10'); f.setPosition('10');
+  f.update({revision:1,locator:'10',last_writer_id:'writer_B'}); f.advance();
+  assert.equal(await f.c.beforeNavigation(),true); assert.equal(f.questions.length,0);
+  f.c.record('20'); await f.c.flush();
+  assert.equal(f.requests.length,1); assert.equal(f.requests[0].expected_revision,'1');
+  assert.equal(f.server().locator,'20');
+});

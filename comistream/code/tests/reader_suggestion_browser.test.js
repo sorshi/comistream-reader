@@ -15,7 +15,7 @@ test('readerの続刊名は文字列になり、リンクはreader URLと保存�
     const saved = { count: 0 }, suggest = document.getElementById('suggest');
     location.pathname = '/cgi-bin/comistream.php';
     location.replace = (href) => { window.nextLocation = href; };
-    window.savePageTimer = null; window.lastSaveTime = 0;
+    window.savePageTimer = null; window.lastSaveTime = 0; window.readerProgressManager = null;
     globalThis.saveCurrentPage = () => { saved.count++; };
     globalThis.debugLog = () => {};
     globalThis.fetch = async () => ({ ok: true, json: async () => ({

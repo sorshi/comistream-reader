@@ -5,7 +5,9 @@
   function create(options) {
     const writer = options.writerId || global.crypto?.randomUUID?.() ||
       'reader_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2);
-    const storage = options.storage || global.localStorage;
+    let storage;
+    try { storage = options.storage || global.localStorage; }
+    catch (_) { /* 保存領域を拒否するブラウザでも閲覧を継続するルン。 */ }
     const key = 'comistream_progress:v1:' + options.userKey + ':' + options.bookKey;
     const fetcher = options.fetch || global.fetch?.bind(global);
     const now = options.now || Date.now;
@@ -115,7 +117,7 @@
     function record(locator, detail = {}) {
       if (closed || locator === null || locator === undefined) return;
       locator = String(locator);
-      const currentPending = pending || carry;
+      const currentPending = carry || pending;
       if (pending && samePosition(pending.locator, locator) && !detail.completed) return;
       if (!pending && state && samePosition(state.locator, locator) && !detail.completed) return;
       let furthest = detail.linear === false ? null : locator;
@@ -186,6 +188,10 @@
           if (move) { await options.moveTo(latest.locator); return false; }
         } else {
           if (!samePolicy(state, latest)) { pending = null; carry = null; conflict = false; }
+          else if (pending && latest.revision > state.revision) {
+            clearTimer();
+            carry = { ...pending, expected_revision: latest.revision };
+          }
           state = latest; persist();
         }
         return true;

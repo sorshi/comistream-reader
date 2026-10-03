@@ -11,7 +11,7 @@ final class ReaderProgressException extends RuntimeException
 
 function readerProgressCfiParts(string $cfi): array
 {
-    if (strlen($cfi) > 8192 || !preg_match('/\Aepubcfi\((.+)\)\z/D', $cfi, $match)) {
+    if (strlen($cfi) > 8192 || preg_match('//u', $cfi) !== 1 || !preg_match('/\Aepubcfi\((.+)\)\z/D', $cfi, $match)) {
         throw new ReaderProgressException('unsupported_locator', 422);
     }
     // assertion内の区切りとエスケープを比較用の経路から除くルン。
@@ -127,7 +127,7 @@ function initializeReaderProgress(PDO $database, string $user, string $baseFile,
         } catch (ReaderProgressException $e) { /* 不正な旧位置は復元候補にしないルン。 */ }
     } else {
         $candidate = parseReaderInteger($history['current_page'], 1, 2147483647);
-        if ($candidate !== null) $locator = (string)$candidate;
+        if ($candidate !== null) $locator = (string)($total === null ? $candidate : min($candidate, $total));
     }
     $total ??= parseReaderInteger($history['max_page'], 1, 2147483647);
     $statement = $database->prepare('INSERT OR IGNORE INTO reader_progress '
@@ -190,7 +190,7 @@ function readerProgressBookMetadata(array $book, array $history, string $cacheRo
     $container = $readXml(resolveReaderCacheFile($directory, 'META-INF/container.xml'));
     $xpath = new DOMXPath($container);
     $package = $xpath->evaluate('string((//*[local-name()="rootfile"])[1]/@full-path)');
-    $document = $readXml(resolveReaderCacheFile($directory, $package));
+    $document = $readXml(resolveReaderCacheFile($directory, rawurldecode($package)));
     $xpath = new DOMXPath($document); $linear = [];
     foreach ($xpath->query('//*[local-name()="spine"]/*[local-name()="itemref"]') as $item) {
         $linear[] = $item->getAttribute('linear') !== 'no';
@@ -230,6 +230,7 @@ function saveReaderProgress(PDO $database, string $user, string $baseFile, array
         $format = $state['format']; $total = $metadata['total'] ?? $state['total_units'];
         $locator = normalizeReaderProgressLocator($input['locator'] ?? null, $format, $total);
         $furthest = normalizeReaderProgressLocator($input['furthest'] ?? $locator, $format, $total);
+        $completionSeq = null;
         $completion = $input['completion_locator'] ?? null;
         if ($completion !== null && $completion !== '') {
             $completion = normalizeReaderProgressLocator($completion, $format, $total);
@@ -251,7 +252,10 @@ function saveReaderProgress(PDO $database, string $user, string $baseFile, array
                 if (readerProgressSection($completion, $linear) !== $end) throw new ReaderProgressException('invalid_completion');
             }
         }
-        $hash = hash('sha256', json_encode($input, JSON_THROW_ON_ERROR));
+        // フィールド順やCSRF更新では同じ操作を別内容にしないルン。
+        $pageHint = $format === 'epub' ? readerProgressInteger($input['page'] ?? 1, 1) : null;
+        $hash = hash('sha256', json_encode([$stateId, $revision, $epoch, $writer, $seq,
+            $locator, $furthest, $completion, $completionSeq, $pageHint], JSON_THROW_ON_ERROR));
         if ($state['last_writer_id'] === $writer && $seq <= $state['last_writer_seq']) {
             if ($seq === $state['last_writer_seq'] && $state['last_operation_hash'] !== $hash) throw new ReaderProgressException('operation_reused');
             $database->exec('ROLLBACK');
@@ -275,7 +279,7 @@ function saveReaderProgress(PDO $database, string $user, string $baseFile, array
         $statement->execute([$saved, $total, $saved, $writer, $seq,
             $sameWriter ? $state['writer_base_revision'] : $state['revision'], $hash, $state['history_id']]);
         $page = $saved === null ? 0 : ($format === 'epub'
-            ? (isset($metadata['linear']) ? readerProgressSection($saved, $metadata['linear']) + 1 : readerProgressInteger($input['page'] ?? 1, 1))
+            ? (isset($metadata['linear']) ? readerProgressSection($saved, $metadata['linear']) + 1 : $pageHint)
             : (int)$saved);
         $statement = $database->prepare('UPDATE book_history SET current_page=?,max_page=?,has_read=?,epub_cfi=? WHERE id=? AND user=?');
         $statement->execute([$page, $read ? 0 : ($total ?? 0), $read ? 1 : 0, $format === 'epub' ? $saved : null, $state['history_id'], $user]);
@@ -294,8 +298,10 @@ function updateReaderProgressPolicy(PDO $database, string $user, array $historyI
     $database->exec('BEGIN IMMEDIATE');
     try {
         foreach ($historyIds as $id) {
-            $statement = $database->prepare('UPDATE book_history SET has_read=? WHERE id=? AND user=?');
-            $statement->execute([$read ? 1 : 0, $id, $user]);
+            $statement = $database->prepare('UPDATE book_history SET has_read=?, max_page=CASE WHEN ? THEN 0 '
+                . 'ELSE COALESCE((SELECT total_units FROM reader_progress WHERE history_id=book_history.id),max_page) END '
+                . 'WHERE id=? AND user=?');
+            $statement->execute([$read ? 1 : 0, $read ? 1 : 0, $id, $user]);
             $statement = $database->prepare('UPDATE reader_progress SET policy_epoch=policy_epoch+1,revision=revision+1, '
                 . 'last_writer_id=NULL,last_writer_seq=0,last_operation_hash=NULL WHERE history_id=? '
                 . 'AND EXISTS (SELECT 1 FROM book_history WHERE id=? AND user=?)');
@@ -325,6 +331,8 @@ function handleReaderProgressApi(string $mode, array $input): never
             if (!is_string($token) || $token === '' || !is_string($expected) || !hash_equals($expected, $token)) throw new ReaderProgressException('csrf_failed', 403);
         }
         $book = resolveReaderMarkerBook(is_string($input['file'] ?? null) ? $input['file'] : '', $sharePath);
+        // 共有領域内の別名symlinkでも既存履歴のファイル名を継承するルン。
+        $book['base_file'] = basename($book['relative_path']);
         $history = readerProgressHistory($dbh, $user, $book['base_file']);
         $metadata = readerProgressBookMetadata($book, $history, $cacheDir);
         $dbh->exec('PRAGMA busy_timeout = 1000');

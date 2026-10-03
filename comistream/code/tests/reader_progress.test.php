@@ -39,12 +39,14 @@ foreach ([[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]] as $order) {
 $a = progressOperation($state,1,'20');
 $first=saveReaderProgress($db,'reader','book',$a);
 expectProgress(saveReaderProgress($db,'reader','book',$a)['result']==='duplicate','Replay not recognized.');
+expectProgress(saveReaderProgress($db,'reader','book',['csrf_token'=>'renewed']+array_reverse($a,true))['result']==='duplicate','Field order changed operation identity.');
 $b=progressOperation($first['state'],1,'3',['writer_id'=>'writer_B_123456789']);
 $second=saveReaderProgress($db,'reader','book',$b);
 expectProgress(saveReaderProgress($db,'reader','book',progressOperation($state,2,'1'))['result']==='conflict','Foreign writer overwritten.');
 updateReaderProgressPolicy($db,'reader',[$state['history_id']],false);
 expectProgress(saveReaderProgress($db,'reader','book',progressOperation($second['state'],2,'30',['writer_id'=>'writer_B_123456789','completion_locator'=>'30','completion_seq'=>2]))['reason']==='state_changed','Old completion reversed manual unread.');
 expectProgress(readerProgressState($db,'reader','book')['locator']==='3','Manual unread moved position.');
+expectProgress((int)$db->query('SELECT max_page FROM book_history')->fetchColumn()===30,'Manual unread lost total.');
 $db->exec('DELETE FROM book_history');
 expectProgress(readerProgressState($db,'reader','book')===null,'Deleted history retained progress.');
 [$db,$state]=progressFixture();
@@ -78,4 +80,47 @@ $state=initializeReaderProgress($db,'reader','book','archive');
 expectProgress($state['locator']==='20' && $state['total_units']===null,'Legacy read position collapsed.');
 initializeReaderProgress($db,'reader','book','archive',30);
 expectProgress(readerProgressState($db,'reader','book')['revision']===0,'Metadata advanced operation revision.');
+// OCFのパッケージパスを復号し、通常読書順を判定するルン。
+$root = sys_get_temp_dir() . '/reader-progress-' . bin2hex(random_bytes(8));
+mkdir($root); mkdir($root . '/fixture'); mkdir($root . '/fixture/META-INF');
+try {
+    file_put_contents($root . '/fixture/META-INF/container.xml', '<container><rootfiles><rootfile full-path="Book%20One.opf"/></rootfiles></container>');
+    file_put_contents($root . '/fixture/Book One.opf', '<package><spine><itemref idref="a"/><itemref idref="note" linear="no"/></spine></package>');
+    $metadata = readerProgressBookMetadata(['format'=>'epub'], ['path_hash'=>'fixture'], $root);
+    expectProgress($metadata === ['total'=>2,'linear'=>[true,false]], 'Encoded package path or reading order not resolved.');
+} finally {
+    unlink($root . '/fixture/Book One.opf'); unlink($root . '/fixture/META-INF/container.xml');
+    rmdir($root . '/fixture/META-INF'); rmdir($root . '/fixture'); rmdir($root);
+}
+// 別接続の書き込みロックで位置が失われないことを確認するルン。
+$databaseFile = tempnam(sys_get_temp_dir(), 'reader-progress-lock-');
+$left = $right = null;
+try {
+    $left = new PDO('sqlite:' . $databaseFile);
+    $left->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $schema = file_get_contents(dirname(__DIR__, 2) . '/rsrc/sql/make-comistream-db-ddl.sql');
+    $left->exec(substr($schema, 0, strpos($schema, 'CREATE TABLE IF NOT EXISTS reader_markers')));
+    $left->exec("INSERT INTO book_history(user,base_file,current_page,max_page) VALUES ('reader','book',3,30)");
+    $state = initializeReaderProgress($left, 'reader', 'book', 'archive', 30);
+    $left->exec('CREATE TABLE system_config (key TEXT PRIMARY KEY, value TEXT)');
+    $migration = file_get_contents(dirname(__DIR__, 2) . '/rsrc/sql/migration_021_add_reader_progress.sql');
+    $left->exec($migration); $left->exec($migration);
+    expectProgress(readerProgressState($left,'reader','book')['state_id']===$state['state_id'], 'Repeated migration changed state.');
+    $right = new PDO('sqlite:' . $databaseFile);
+    $right->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $right->exec('PRAGMA busy_timeout = 20');
+    $left->exec('BEGIN IMMEDIATE');
+    try {
+        saveReaderProgress($right,'reader','book',progressOperation($state,1,'20'));
+        throw new RuntimeException('Concurrent write ignored database lock.');
+    } catch (PDOException $e) {
+        expectProgress(str_contains($e->getMessage(), 'locked'), 'Unexpected lock failure.');
+    }
+    $left->exec('ROLLBACK');
+    expectProgress(readerProgressState($right,'reader','book')['revision']===0, 'Locked write changed progress.');
+    expectProgress(saveReaderProgress($right,'reader','book',progressOperation($state,1,'20'))['state']['locator']==='20', 'Save did not recover after lock.');
+} finally {
+    $left = $right = null;
+    unlink($databaseFile);
+}
 echo "reader_progress.test.php: OK\n";

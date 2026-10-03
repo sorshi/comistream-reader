@@ -242,5 +242,5 @@ return [
     'reader_sync_forward' => '另一個裝置已閱讀到第%s頁。要移動嗎？',
     'reader_sync_changed' => '另一個裝置已將閱讀位置變更為第%s頁。要移動嗎？',
     'reader_sync_epub' => '另一個裝置已更新閱讀位置。要移動到第%s節的儲存位置嗎？',
-    'reader_sync_unsaved' => '閱讀位置尚未同步。已儲存於此裝置，將於下次連線時重新確認。',
+    'reader_sync_unsaved' => '閱讀位置尚未同步。請確認連線，並在此裝置重新開啟書籍。',
 ];
