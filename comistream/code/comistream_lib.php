@@ -42,6 +42,7 @@ require_once(__DIR__ . '/lib/lib_reader_marker.php');
 require_once(__DIR__ . '/lib/lib_image.php');
 require_once(__DIR__ . '/lib/lib_image_quality.php');
 require_once(__DIR__ . '/lib/lib_reader_input.php');
+require_once(__DIR__ . '/lib/lib_reader_progress.php');
 require_once(__DIR__ . '/lib/lib_view.php');
 
 
@@ -414,10 +415,12 @@ function setFavorite()
                 $base_file_hash = basefilename2hash($base_file_utf);
                 if ($mode === "favON") {
                     // お気に入りONの場合は、既読もONにする
-                    $query = "INSERT INTO book_history (user, base_file, base_file_hash, favorite, has_read) VALUES (?, ?, ?, 1, 1) ON CONFLICT(user, base_file) DO UPDATE SET favorite=excluded.favorite, has_read=excluded.has_read";
+                    $query = "INSERT INTO book_history (user, base_file, base_file_hash, favorite, has_read) VALUES (?, ?, ?, 1, 1) ON CONFLICT(user, base_file) DO UPDATE SET favorite=excluded.favorite";
                     $sth = $dbh->prepare($query);
                     writelog("DEBUG setFavorite() user:$user base_file_utf:$base_file_utf  base_file_hash:$base_file_hash favorite_flag:$favorite_flag");
                     $sth->execute([$user, $base_file_utf, $base_file_hash]);
+                    $history = readerProgressHistory($dbh, (string)$user, $base_file_utf);
+                    updateReaderProgressPolicy($dbh, (string)$user, [$history['id']], true);
                     // DBのレコード更新のためにページを開いたことにする
                     openPage();
                 } else {
@@ -483,17 +486,21 @@ function setHasRead()
         if ($global_use_db_flag == 1) {
             $hasRead_flag = ($mode === "readON") ? 1 : 0;
 
+            ensureReaderProgressTable($dbh);
             if ($use_base_file_hash == 1) {
-                $query = "UPDATE book_history SET has_read = ? WHERE user = ? AND base_file_hash = ?";
-                $sth = $dbh->prepare($query);
-                $sth->execute([$hasRead_flag, $user, $base_file_hash]);
+                $statement = $dbh->prepare('SELECT id FROM book_history WHERE user = ? AND base_file_hash = ?');
+                $statement->execute([$user, $base_file_hash]);
             } else {
                 $base_file_utf = $baseFile;
                 $base_file_hash = basefilename2hash($base_file_utf);
-                $query = "INSERT INTO book_history (user, base_file, base_file_hash, has_read) VALUES (?, ?, ?, ?) ON CONFLICT(user, base_file) DO UPDATE SET has_read=excluded.has_read";
-                $sth = $dbh->prepare($query);
-                $sth->execute([$user, $base_file_utf, $base_file_hash, $hasRead_flag]);
+                $statement = $dbh->prepare('INSERT INTO book_history (user,base_file,base_file_hash) VALUES (?,?,?) ON CONFLICT(user,base_file) DO NOTHING');
+                $statement->execute([$user, $base_file_utf, $base_file_hash]);
+                $statement = $dbh->prepare('SELECT id FROM book_history WHERE user = ? AND base_file = ?');
+                $statement->execute([$user, $base_file_utf]);
             }
+            $historyIds = $statement->fetchAll(PDO::FETCH_COLUMN);
+            $statement->closeCursor();
+            updateReaderProgressPolicy($dbh, (string)$user, $historyIds, $hasRead_flag === 1);
             if ($dbh->errorInfo()[2]) {
                 writelog("ERROR setHasRead() SQL error: " . $dbh->errorInfo()[2] . " $query:$user, $base_file_hash, $hasRead_flag");
             }
@@ -653,6 +660,7 @@ function makeBookmark()
             $request_uri .= "?&file=" . $escapedFile . "&mode=open";
             writelog("DEBUG makeBookmark() request_uri is replaces:$request_uri");
         }
+        $request_uri = normalizeReaderHistoryUri($request_uri);
         // $dirname = trim(shell_exec('dirname "' . $bookmarkPath . '/bookmark"'));
         $dirname = dirname($bookmarkPath);
         writelog("DEBUG makeBookmark() bookmarkPath:$bookmarkPath dirname:$dirname with DB");
@@ -669,7 +677,7 @@ function makeBookmark()
         $dbh->setAttribute(PDO::ATTR_TIMEOUT, 5);
         $dbh->exec('PRAGMA busy_timeout = 5000');
 
-        $query = "INSERT INTO book_history (user, request_uri, path_hash, relative_path, base_file, base_file_hash, current_page, max_page) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user, base_file) DO UPDATE SET current_page = excluded.current_page, max_page = excluded.max_page, request_uri = excluded.request_uri, path_hash = excluded.path_hash, relative_path = excluded.relative_path";
+        $query = "INSERT INTO book_history (user, request_uri, path_hash, relative_path, base_file, base_file_hash, current_page, max_page) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user, base_file) DO UPDATE SET max_page = CASE WHEN has_read = 1 THEN 0 ELSE excluded.max_page END, request_uri = excluded.request_uri, path_hash = excluded.path_hash, relative_path = excluded.relative_path";
 
         $sqlStartTime = microtime(true);
 
@@ -825,7 +833,7 @@ function getHistory()
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($row) {
-                echo renderHistoryLink($row['request_uri'], $row['base_file']);
+                echo renderHistoryLink(normalizeReaderHistoryUri($row['request_uri']), $row['base_file']);
                 writelog("DEBUG getHistory() {$row['request_uri']}:{$row['path_hash']}:{$row['base_file']} with DB");
             }
         } else {
@@ -855,7 +863,7 @@ function getRecentBooks()
 
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $json[] = [
-                    'href' => $row['request_uri'],
+                    'href' => normalizeReaderHistoryUri($row['request_uri']),
                     'file' => $row['path_hash'],
                     'baseFile' => $row['base_file']
                 ];
@@ -987,6 +995,10 @@ function persistBookReadingProgress(
     bool $isEpub,
     bool $epubCompleted
 ): array {
+    ensureReaderProgressTable($database);
+    if (readerProgressState($database, $user, $baseFile) !== null) {
+        throw new ReaderProgressException('client_upgrade_required', 409);
+    }
     if ($isEpub) {
         $maxPageValue = $submittedMaxPage ?? 0;
         $completedValue = $epubCompleted ? 1 : 0;
@@ -994,7 +1006,8 @@ function persistBookReadingProgress(
             . "max_page = CASE WHEN has_read = 1 OR ? = '1' THEN 0 "
             . "WHEN CAST(? AS INTEGER) > 0 THEN ? ELSE max_page END, "
             . "has_read = CASE WHEN has_read = 1 OR ? = '1' THEN 1 ELSE has_read END, "
-            . "epub_cfi = ? WHERE user = ? AND base_file = ?";
+            . "epub_cfi = ? WHERE user = ? AND base_file = ? "
+            . "AND NOT EXISTS (SELECT 1 FROM reader_progress WHERE history_id = book_history.id)";
         $statement = $database->prepare($query);
         $statement->execute([
             $page,
@@ -1028,7 +1041,8 @@ function persistBookReadingProgress(
     }
 
     $query = "UPDATE book_history SET current_page = ?, max_page = ?, has_read = ?, "
-        . "epub_cfi = ? WHERE user = ? AND base_file = ?";
+        . "epub_cfi = ? WHERE user = ? AND base_file = ? "
+        . "AND NOT EXISTS (SELECT 1 FROM reader_progress WHERE history_id = book_history.id)";
     $statement = $database->prepare($query);
     $statement->execute([
         $page,
@@ -1115,6 +1129,8 @@ function saveBookmark()
                     writelog("ERROR saveBookmark() SQL error: " . $beacon_dbh->errorInfo()[2]);
                 }
                 writelog("DEBUG saveBookmark() $page, $maxPage, $hasRead, $user, $baseFileUtf with DB");
+            } catch (ReaderProgressException $e) {
+                http_response_code($e->status);
             } catch (PDOException $e) {
                 writelog("WARNING saveBookmark() UPDATE failed (timeout or lock): " . $e->getMessage());
             } finally {
@@ -3109,17 +3125,14 @@ function openPage()
     writelog("DEBUG openPage() \$file:" . $file);
 
     // ページNO初期化
-    if ($page > 1 && $page <= $maxPage) {
-        writelog("DEBUG openPage() $page overwrite from argument.");
+    $requestedPage = parseReaderInteger($page, 1, (int)$maxPage);
+    $page = 1;
+    if ($user !== "guest") {
+        makeBookmark();
     } else {
-        $page = 1;
-        // ゲストユーザー以外は履歴レコードを作成するルン
-        if ($user !== "guest") {
-            makeBookmark();
-        } else {
-            $baseFile = basename($openFile);
-        }
+        $baseFile = basename($openFile);
     }
+    if ($requestedPage !== null) $page = $requestedPage;
     // 表紙画像とプレビュー画像作成
     // メインに移動
     // makeCover($escapedFile, $coverFile, $previewFile);

@@ -337,3 +337,15 @@ function handleReaderProgressApi(string $mode, array $input): never
     } catch (ReaderProgressException $e) { readerProgressJson(['ok' => false, 'reason' => $e->reason], $e->status); }
     catch (PDOException $e) { writelog('WARNING Reader progress database unavailable: ' . $e->getMessage()); readerProgressJson(['ok' => false, 'reason' => 'database_unavailable'], 503); }
 }
+
+/** 履歴から通常openするときに古い明示位置を引き継がないルン。 */
+function normalizeReaderHistoryUri(string $uri): string
+{
+    $parts = explode('?', $uri, 2);
+    if (count($parts) < 2) return $uri;
+    $query = array_filter(explode('&', $parts[1]), static function (string $part): bool {
+        $key = urldecode(explode('=', $part, 2)[0]);
+        return !in_array($key, ['page', 'index'], true);
+    });
+    return $parts[0] . '?' . implode('&', $query);
+}

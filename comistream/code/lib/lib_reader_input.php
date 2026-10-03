@@ -12,9 +12,9 @@ function parseReaderInteger($value, int $minimum, int $maximum): ?int
 function readerPageForDisplay($value, $maximum): int
 {
     $page = parseReaderInteger($value, 0, 2147483647);
-    $last = parseReaderInteger($maximum, 1, 2147483647) ?? 1;
+    $last = parseReaderInteger($maximum, 1, 2147483647);
     // 旧DBの不正値も切り詰めず、安全な開始位置へ戻すルン。
-    return $page === null || $page === 0 ? 1 : min($page, $last);
+    return $page === null || $page === 0 ? 1 : ($last === null ? $page : min($page, $last));
 }
 
 function resolveReaderCacheDirectory(string $root, $id): string|false
