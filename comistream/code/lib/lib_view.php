@@ -74,6 +74,14 @@ function generateHTML()
         errorExit('js_file_read_error', 'reader_markers.js read failed');
     }
 
+    $readerProgressJs = file_get_contents($conf["comistream_tool_dir"] . '/code/reader_progress.js');
+    $readerProgressConfigJson = json_encode([
+        'isGuest' => ($user ?? 'guest') === 'guest',
+        'userKey' => hash('sha256', (string)($user ?? 'guest')),
+        'bookKey' => (string)$baseFile,
+        'requestedPage' => parseReaderInteger($_GET['page'] ?? null, 1, 2147483647),
+    ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+
     $readerJsPath = $conf["comistream_tool_dir"] . '/code/comistream.js';
     if (file_exists($readerJsPath)) {
         $reader_js = file_get_contents($readerJsPath);
@@ -213,6 +221,10 @@ function generateHTML()
         'toc_button_fullscreen' => $i18n->get('fullscreen'),
         'toc_button_windowed' => $i18n->get('windowed'),
         'large_page_notification' => $i18n->get('large_page_notification'),
+        'reader_sync_forward' => $i18n->get('reader_sync_forward'),
+        'reader_sync_changed' => $i18n->get('reader_sync_changed'),
+        'reader_sync_epub' => $i18n->get('reader_sync_epub'),
+        'reader_sync_unsaved' => $i18n->get('reader_sync_unsaved'),
         'reader_markers' => $i18n->get('reader_markers'),
         'reader_marker_default' => $i18n->get('reader_marker_default'),
         'reader_marker_add' => $i18n->get('reader_marker_add'),
@@ -317,6 +329,8 @@ function generateHTML()
         let global_preload_pages = $global_preload_pages;
         $pageGenerator
 
+        window.readerProgressConfig = $readerProgressConfigJson;
+        $readerProgressJs
         // comistream.js
         $contents_js
 
@@ -429,6 +443,7 @@ EOF;
 function printHTML()
 {
     // HTML文字列を生成 ルン！
+    header('Cache-Control: private, no-store');
     $html = generateHTML();
     writelog("DEBUG printHTML() HTML generated: length=" . strlen($html) . " bytes");
 
@@ -662,6 +677,10 @@ JS;
         'epub_inspector_signature_expiration' => $i18n->get('epub_inspector_signature_expiration'),
         'epub_inspector_last_saved' => $i18n->get('epub_inspector_last_saved'),
         'epub_unknown' => $i18n->get('epub_unknown'),
+        'reader_sync_forward' => $i18n->get('reader_sync_forward'),
+        'reader_sync_changed' => $i18n->get('reader_sync_changed'),
+        'reader_sync_epub' => $i18n->get('reader_sync_epub'),
+        'reader_sync_unsaved' => $i18n->get('reader_sync_unsaved'),
         'reader_markers' => $i18n->get('reader_markers'),
         'reader_marker_default' => $i18n->get('reader_marker_default'),
         'reader_marker_add' => $i18n->get('reader_marker_add'),

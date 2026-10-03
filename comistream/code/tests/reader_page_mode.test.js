@@ -5,7 +5,9 @@ const vm = require('node:vm');
 const viewport = require('../comistream_viewport.js');
 const source = fs.readFileSync(require.resolve('../comistream.js'), 'utf8');
 
-function reader({ preference = 'auto', width = 900, height = 600, wide = [], count = 9 } = {}) {
+function reader({ preference = 'auto', width = 900, height = 600, wide = [], count = 9, progressState = null } = {}) {
+  let remote = progressState;
+  const posts = [];
   const elements = new Map();
   const storage = new Map([['readerPageModePreference', preference]]);
   const writes = [];
@@ -24,7 +26,7 @@ function reader({ preference = 'auto', width = 900, height = 600, wide = [], cou
     return elements.get(id);
   }
   const context = {
-    console, URL, performance, global_preload_pages: 4, size: 'FULL',
+    console, URL, performance, AbortController, global_preload_pages: 4, size: 'FULL',
     global_preload_delay_ms: 100, averagePageKBytes: 100, jpegXlProbePage: 0,
     file: 'book', escapedFile: 'book', baseFile: 'book', page: 5, prevPage: 5,
     maxPage: count, direction: 'left', position: 'right', autoSplit: 'on',
@@ -59,15 +61,29 @@ function reader({ preference = 'auto', width = 900, height = 600, wide = [], cou
       }
     },
   };
+  if (progressState) {
+    context.readerProgressConfig = { isGuest: false, userKey: 'test', bookKey: 'book' };
+    context.fetch = async (_url, init) => {
+      if (init.body) {
+        posts.push({ ...init.body.values });
+        remote = { ...remote, locator: remote.has_read || init.body.values.completion_locator
+          ? init.body.values.locator : String(Math.max(Number(remote.locator), Number(init.body.values.furthest))),
+          has_read: remote.has_read || Boolean(init.body.values.completion_locator), revision: remote.revision + 1 };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: 'applied', state: { ...remote } }) };
+    };
+    context.confirm = () => true;
+  }
   context.window = context;
   vm.createContext(context);
+  if (progressState) vm.runInContext(fs.readFileSync(require.resolve('../reader_progress.js'), 'utf8'), context);
   vm.runInContext(source, context);
   context.sugguestbook = () => {};
   context.checkAndShowLargePageNotification = () => {};
   context.updateFullScreenButton = () => {};
   context.unixtime = Math.floor(Date.now() / 1000);
   const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
-  return { c: context, element, storage, writes, beacons, events, settle };
+  return { c: context, element, storage, writes, beacons, events, settle, posts, setRemote: (state) => { remote = state; } };
 }
 
 test('旧設定・不正値を復元し、固定と自動の縦横境界を区別する', () => {
@@ -231,4 +247,40 @@ test('クイック表示の遅延を取消し、続巻候補のoverlayを消さ�
   r.element('overlay').style.display = 'block';
   r.c.closeQuickSpread();
   assert.equal(r.element('overlay').style.display, 'block');
+});
+
+
+const initialProgress = (patch = {}) => ({ state_id: 'a'.repeat(32), revision: 0, policy_epoch: 0,
+  has_read: true, locator: '1', last_writer_id: null, last_writer_seq: 0, writer_base_revision: 0, ...patch });
+
+test('新方式ではサーバーの表紙を復元し、初期表示と回転で保存しない', async () => {
+  const r = reader({ progressState: initialProgress(), count: 20 });
+  r.storage.set('book', '3');
+  await r.c.restorePage(); await r.settle();
+  assert.equal(r.c.page, 1); assert.equal(r.posts.length, 0); assert.equal(r.beacons.length, 0);
+  await r.c.updateReaderViewport('resize');
+  await r.c.readerProgressManager.flush();
+  assert.equal(r.posts.length, 0);
+});
+
+test('新方式で既読の戻り位置と読了直後の表紙を保存する', async () => {
+  const r = reader({ progressState: initialProgress({ locator: '3' }), count: 20 });
+  await r.c.restorePage();
+  r.c.page = 1; await r.c.loadPage(-1); await r.c.readerProgressManager.flush();
+  assert.equal(r.posts.at(-1).locator, '1');
+  const unread = reader({ preference: 'single', progressState: initialProgress({ has_read: false, locator: '19' }), count: 20 });
+  await unread.c.restorePage(); unread.c.page = 20; await unread.c.loadPage(1);
+  unread.c.page = 1; await unread.c.loadPage(-1); await unread.c.readerProgressManager.flush();
+  assert.equal(unread.posts.at(-1).locator, '1');
+  assert.ok(unread.posts.some(post => post.completion_locator === '20'));
+});
+
+test('新方式の復帰確認は描画と保存より先に行う', async () => {
+  const r = reader({ progressState: initialProgress({ locator: '3' }), count: 20 });
+  await r.c.restorePage();
+  r.setRemote(initialProgress({ revision: 1, locator: '1', last_writer_id: 'another_writer' }));
+  for (const wake of r.events.get('focus')) wake();
+  await r.settle();
+  r.c.page = 4; await r.c.loadPage(1); await r.settle();
+  assert.equal(r.c.page, 1); assert.equal(r.posts.length, 0);
 });

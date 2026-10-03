@@ -159,7 +159,7 @@
       return success && !pending;
     }
     function beacon() {
-      if (options.isGuest || !pending || pending.unbased || conflict) return false;
+      if (options.isGuest || !pending || pending.unbased || conflict || needsCheck) return false;
       persist();
       return (options.sendBeacon || global.navigator?.sendBeacon?.bind(global.navigator))?.(options.endpoint || 'comistream.php', form(pending)) || false;
     }

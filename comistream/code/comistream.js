@@ -225,6 +225,8 @@ var nextimage2 = new Image();
 var mode = 1;
 var pageModePreference = "single";
 var readerReady = false;
+var readerProgressManager = null;
+var readerNavigationPending = false;
 var readerLayoutPending = false;
 var readerRenderId = 0;
 var displayedStart = 1;
@@ -733,6 +735,9 @@ function resetZoom() {
 }
 
 function saveCurrentPage() {
+  if (readerProgressManager) {
+    return readerProgressManager.beacon();
+  }
   // ページ離脱時に最終ページ保存
   // タイマーが残っていたらクリアするルン！
   if (savePageTimer) {
@@ -752,7 +757,7 @@ function saveCurrentPage() {
   data.append("mode", "close");
   data.append("file", escapedFile);
   data.append("page", localPage);
-  navigator.sendBeacon("comistream.php", data);
+  readerProgressManager ? readerProgressManager.beacon() : navigator.sendBeacon("comistream.php", data);
 }
 
 function jump() {
@@ -964,7 +969,7 @@ function hideSuggestPanel() {
   );
 }
 
-function next() {
+async function next() {
   if (readerRenderPending) return;
   const imageElement = document.getElementById("image");
   if (
@@ -980,29 +985,6 @@ function next() {
   } else {
     if (displayedEnd < maxPage) {
       page = displayedEnd + 1;
-      // 別デバイスでページを読み進んでいたら移動する
-      let now = Math.floor(new Date().getTime() / 1000);
-      if (now - unixtime > 60) {
-        // 過去同期時刻から60秒以上経過していたら同期確認
-        debugLog(
-          "next() call devicePageSync() now:" +
-            parseInt(now) +
-            " unixtime:" +
-            parseInt(unixtime)
-        );
-        devicePageSync();
-        //devicePageSyncNew();
-        unixtime = Math.floor(new Date().getTime() / 1000);
-        debugLog("next() page " + parseInt(page));
-      } else {
-        // 経過時間が60秒以内の場合はパフォーマンス向上のため同期確認しない
-        debugLog(
-          "next() do nothing now:" +
-            parseInt(now) +
-            " unixtime:" +
-            parseInt(unixtime)
-        );
-      }
       loadPage(1);
       window.scroll({ top: 0, behavior: "smooth" });
       if (autoLightSplitMode == true) {
@@ -1023,6 +1005,10 @@ function next() {
       if (savePageTimer) {
         clearTimeout(savePageTimer);
         savePageTimer = null;
+      }
+      if (readerProgressManager) {
+        if (!(await readerProgressManager.beforeNavigation())) return;
+        readerProgressManager.record(String(maxPage), { completed: true, immediate: true });
       }
       saveCurrentPage();
       lastSaveTime = Date.now();
@@ -1071,7 +1057,7 @@ function back() {
   }
 }
 
-function nextIndex() {
+async function nextIndex() {
   if (readerRenderPending) return false;
   const jumpStops = getChapterJumpStops();
   const pageStopFinder = window.ComistreamReaderMarkers?.findAdjacentPageStop;
@@ -1090,6 +1076,10 @@ function nextIndex() {
     if (savePageTimer) {
       clearTimeout(savePageTimer);
       savePageTimer = null;
+    }
+    if (readerProgressManager) {
+      if (!(await readerProgressManager.beforeNavigation())) return false;
+      readerProgressManager.record(String(maxPage), { completed: true, immediate: true });
     }
     saveCurrentPage();
     lastSaveTime = Date.now();
@@ -1134,6 +1124,7 @@ function getChapterJumpStops() {
 }
 
 async function devicePageSync() {
+  if (readerProgressManager) return readerProgressManager.beforeNavigation();
   //別デバイスでのページが読み進んでないかページ番号を返す
   debugLog(
     "devicePageSync() current page:" +
@@ -1183,7 +1174,22 @@ async function devicePageSync() {
   }
 }
 
-function loadPage(dir) {
+async function loadPage(dir, { restore = false } = {}) {
+  const targetPage = Math.max(1, Math.min(maxPage, parseInt(page, 10) || 1));
+  if (readerProgressManager && !restore) {
+    if (readerNavigationPending) { page = prevPage; return; }
+    readerNavigationPending = true;
+    page = prevPage;
+    try {
+      if (!(await readerProgressManager.beforeNavigation())) return;
+      page = targetPage;
+      await loadPage(dir, { restore: true });
+      const completed = !readerProgressManager.getState()?.has_read && dir >= 0 && displayedEnd >= maxPage;
+      const locator = completed ? maxPage : page;
+      readerProgressManager.record(String(locator), { completed, page: locator });
+      return;
+    } finally { readerNavigationPending = false; }
+  }
   closeQuickSpread();
   page = Math.max(1, Math.min(maxPage, parseInt(page, 10) || 1));
   autoLightSplitModeViewPosition = dir < 0 ? "left" : "right";
@@ -1193,40 +1199,42 @@ function loadPage(dir) {
     autoLightSplitMode = false;
   }
 
-  // 既存の保存タイマーをクリアするルン！
-  if (savePageTimer) {
-    clearTimeout(savePageTimer);
-    savePageTimer = null;
-  }
+  if (!readerProgressManager) {
+    // 既存の保存タイマーをクリアするルン！
+    if (savePageTimer) {
+      clearTimeout(savePageTimer);
+      savePageTimer = null;
+    }
 
-  // 現在ページを保存（戻る操作、大きなページ後退、5秒以上経過時は即座に保存するルン！）
-  const now = Date.now();
-  const isLargeBackwardJump = prevPage - page > 3; // 3ページ以上戻った場合（最終ページ→先頭など）
-  if (dir < 0 || isLargeBackwardJump) {
-    // ページを戻る操作、または大きなページ後退は即座に保存するルン！
-    // これでdevicePageSync()での誤判定を防ぐルン☆
-    saveCurrentPage();
-    lastSaveTime = now;
-    debugLog(
-      "saveCurrentPage() executed immediately (backward/large jump back)"
-    );
-  } else if (now - lastSaveTime >= 5000) {
-    // 5秒以上経過していたら即座に保存するルン！
-    saveCurrentPage();
-    lastSaveTime = now;
-    debugLog("saveCurrentPage() executed immediately (>5sec)");
-  } else {
-    // 5秒以内の前進はスキップして、タイマーで後で保存するルン！
-    debugLog("saveCurrentPage() skipped (<5sec), will save after 5sec");
-  }
+    // 現在ページを保存（戻る操作、大きなページ後退、5秒以上経過時は即座に保存するルン！）
+    const now = Date.now();
+    const isLargeBackwardJump = prevPage - page > 3; // 3ページ以上戻った場合（最終ページ→先頭など）
+    if (dir < 0 || isLargeBackwardJump) {
+      // ページを戻る操作、または大きなページ後退は即座に保存するルン！
+      // これでdevicePageSync()での誤判定を防ぐルン☆
+      saveCurrentPage();
+      lastSaveTime = now;
+      debugLog(
+        "saveCurrentPage() executed immediately (backward/large jump back)"
+      );
+    } else if (now - lastSaveTime >= 5000) {
+      // 5秒以上経過していたら即座に保存するルン！
+      saveCurrentPage();
+      lastSaveTime = now;
+      debugLog("saveCurrentPage() executed immediately (>5sec)");
+    } else {
+      // 5秒以内の前進はスキップして、タイマーで後で保存するルン！
+      debugLog("saveCurrentPage() skipped (<5sec), will save after 5sec");
+    }
 
-  // 5秒そのページに留まったら保存するタイマーを設定するルン！
-  savePageTimer = setTimeout(() => {
-    saveCurrentPage();
-    lastSaveTime = Date.now();
-    savePageTimer = null;
-    debugLog("saveCurrentPage() executed by timer (stayed 5sec)");
-  }, 5000);
+    // 5秒そのページに留まったら保存するタイマーを設定するルン！
+    savePageTimer = setTimeout(() => {
+      saveCurrentPage();
+      lastSaveTime = Date.now();
+      savePageTimer = null;
+      debugLog("saveCurrentPage() executed by timer (stayed 5sec)");
+    }, 5000);
+  }
   writeReaderStorage(file, String(page));
   preCaches.recordPageTurn();
   if (Math.abs(prevPage - page) > 3) {
@@ -1234,7 +1242,7 @@ function loadPage(dir) {
     setTimeout(() => preLoadInitialImages(preloadPage), global_preload_delay_ms);
   }
   prevPage = page;
-  void renderReaderPage("navigation");
+  await renderReaderPage(restore ? "restore" : "navigation");
 }
 
 function readReaderStorage(key) {
@@ -1441,7 +1449,23 @@ async function restorePage() {
     return;
   }
 
-  if (page == 1) {
+  if (window.ComistreamReaderProgress && window.readerProgressConfig) {
+    const config = window.readerProgressConfig;
+    readerProgressManager = window.ComistreamReaderProgress.create({
+      ...config, file: escapedFile, csrfToken: readerMarkerConfig.csrfToken,
+      totalUnits: maxPage, legacyLocator: readReaderStorage(file),
+      compare: (a, b) => Math.sign(Number(a) - Number(b)),
+      getPosition: () => String(prevPage), isStart: (locator) => locator === "1",
+      confirm: (state) => window.confirm((window.i18n[state.has_read ? "reader_sync_changed" : "reader_sync_forward"] ||
+        "Reading position changed to page %s on another device. Move there?").replace("%s", state.locator)),
+      moveTo: async (locator) => { page = Number(locator); await loadPage(1, { restore: true }); },
+      onError: (error) => debugLog("Reading position synchronization failed: " + error.message),
+      onUnsynced: () => window.alert(window.i18n.reader_sync_unsaved || "Reading position is pending synchronization."),
+    });
+    const state = await readerProgressManager.initialize();
+    if (state?.locator) page = Number(state.locator);
+    readerProgressManager.bindLifecycle();
+  } else if (page == 1) {
     page = parseInt(readReaderStorage(file) || page, 10);
   }
   pageModePreference = window.ComistreamViewport.restorePageModePreference(
@@ -1451,7 +1475,12 @@ async function restorePage() {
   writeReaderStorage("readerPageModePreference", pageModePreference);
   readerReady = true;
   readerLayoutPending = false;
-  loadPage(1);
+  await loadPage(1, { restore: true });
+  if (readerProgressManager?.getPending()) await readerProgressManager.beforeNavigation();
+  if (window.readerProgressConfig?.requestedPage) {
+    page = window.readerProgressConfig.requestedPage;
+    await loadPage(1);
+  }
   if (indexName != "") {
     Array.prototype.forEach.call(
       document.getElementsByClassName("toclink"),
@@ -1604,7 +1633,8 @@ function spread() {
   selectPageMode("spread");
 }
 
-function backListPage() {
+async function backListPage() {
+  if (readerProgressManager) await readerProgressManager.finish();
   // リーダーを閉じる前に確実にページ位置を保存するルン！
   if (savePageTimer) {
     clearTimeout(savePageTimer);
@@ -1793,7 +1823,7 @@ function toggleRaw() {
   data.append("mode", "close");
   data.append("file", escapedFile);
   data.append("page", page);
-  navigator.sendBeacon("comistream.php", data);
+  readerProgressManager ? readerProgressManager.beacon() : navigator.sendBeacon("comistream.php", data);
 
   // URLからsizeパラメータを削除してCookie設定を優先させるルン！
   // URLオブジェクトを使うとエンコーディングが変わるので正規表現で削除するルン
@@ -1828,7 +1858,7 @@ function toggleTrimmingFile() {
   if (document.getElementById("splitFile").classList.contains("normal")) {
     // 左右余白トリミングモードへ
     // page = page*2;
-    navigator.sendBeacon("comistream.php", data);
+    readerProgressManager ? readerProgressManager.beacon() : navigator.sendBeacon("comistream.php", data);
     // console.log("toggleTrimmingFile() normal to split");
     let reload_url = location.href + "&view=trimming";
     // (reload_url);
@@ -1836,7 +1866,7 @@ function toggleTrimmingFile() {
   } else {
     // 通常表示モードへ
     // page = Math.floor((page+1)/2);
-    navigator.sendBeacon("comistream.php", data);
+    readerProgressManager ? readerProgressManager.beacon() : navigator.sendBeacon("comistream.php", data);
     // console.log("toggleTrimmingFile() split to normal");
     let reload_url = location.href.replace("&view=trimming", "");
     // console.log(reload_url);
@@ -1954,7 +1984,8 @@ function renderBookSuggestion(container, title, status, color) {
 }
 
 //続刊へ移動
-function toNextBook(nextlocation) {
+async function toNextBook(nextlocation) {
+  if (readerProgressManager) await readerProgressManager.finish();
   // 次の本へ移動する前に確実にページ位置を保存するルン！
   if (savePageTimer) {
     clearTimeout(savePageTimer);

@@ -61,7 +61,7 @@ for (const [id, initialClass, fn, expectedUrlPart] of [
             document: { getElementById: () => button },
             window: { i18n: {} },
             FormData: class { append() {} },
-            navigator: { sendBeacon() {} }, escapedFile: 'book', page: 3,
+            readerProgressManager: null, navigator: { sendBeacon() {} }, escapedFile: 'book', page: 3,
             debugLog() {},
             location: { href: 'https://reader.test/comistream.php?file=book&size=FULL' + (initialClass === 'trimming' ? '&view=trimming' : ''), replace: (url) => { destination = url; } }
         });
