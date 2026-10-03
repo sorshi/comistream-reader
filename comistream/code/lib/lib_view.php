@@ -1058,7 +1058,7 @@ JS;
             width: 100%;
             height: 100%;
             object-fit: contain;
-            opacity: 0.15;
+            opacity: 0.4;
             pointer-events: none;
         }
         #epub-loading-cover[hidden] {
