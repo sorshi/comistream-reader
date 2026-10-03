@@ -138,3 +138,24 @@ test('a failed completion save stays pending and is retried', async () => {
     ]);
     assert.equal(f.context.lastProgressSaveKey.endsWith('server-cfi'), true);
 });
+
+
+test('new shared state wins regardless of the old local EPUB timestamp', () => {
+    const f = fixture({ local: { cfi: 'old-device-cfi', updatedAt: 9999999999999 } });
+    f.context.epubProgressManager = { getState: () => ({ locator: 'shared-cover-cfi' }) };
+    assert.equal(f.context.getStoredLocation(), 'shared-cover-cfi');
+});
+
+test('shared EPUB restore and re-layout never create legacy progress writes', async () => {
+    const f = fixture();
+    const calls = [];
+    f.context.epubProgressManager = {
+        flush: async () => calls.push('flush'), beacon: () => calls.push('beacon'),
+    };
+    f.context.persistCurrentLocation();
+    f.context.scheduleProgressSave({ immediate: true });
+    assert.deepEqual(calls, []);
+    await f.context.flushProgressSave(); f.context.sendProgressBeacon();
+    assert.deepEqual(calls, ['flush', 'beacon']);
+    assert.deepEqual(f.posts, []); assert.deepEqual(f.beacons, []);
+});

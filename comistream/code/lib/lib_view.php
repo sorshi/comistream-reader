@@ -558,6 +558,7 @@ JS;
         errorExit('css_file_read_error', 'comistream.css read failed');
     }
 
+    $readerProgressJs = file_get_contents($conf["comistream_tool_dir"] . '/code/reader_progress.js');
     $savedCfi = (string)($conf['epub_saved_cfi'] ?? '');
     $loadingCoverUrl = (string)($conf['epub_loading_cover_url'] ?? '');
     $loadingCoverHtml = $loadingCoverUrl === '' ? ''
@@ -580,6 +581,7 @@ JS;
         'baseFile' => (string)$baseFile,
         'csrfToken' => (string)$readerMarkerCsrfToken,
         'isGuest' => $user === 'guest',
+        'userKey' => hash('sha256', (string)$user),
         'savedCfi' => $savedCfi,
         'savedUpdatedAt' => $savedUpdatedAt,
         'readerFallbackParentUrl' => $readerFallbackParentUrl,
@@ -1257,6 +1259,9 @@ JS;
             + JSON.stringify(constructStyleSheetsImportMap).replace(/</g, '\\u003c')
             + '<\\/script>'
         );
+    </script>
+    <script>
+{$readerProgressJs}
     </script>
     <script type="module">
 {$readerMarkerJs}

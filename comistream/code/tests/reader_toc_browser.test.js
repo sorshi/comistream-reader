@@ -79,6 +79,7 @@ test('original-size click keeps its geometry until navigation', { skip: !chrome 
     const start = source.indexOf('function toggleRaw(');
     const rawCode = source.slice(start, source.indexOf('function toggleTrimmingFile(', start));
     await runBrowserFixture(`
+        const readerProgressManager = null;
         const navigator = { sendBeacon() {} };
         const escapedFile = 'book';
         const page = 1;

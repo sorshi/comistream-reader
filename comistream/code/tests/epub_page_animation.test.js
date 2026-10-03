@@ -248,3 +248,17 @@ test('navigation queue counters drain after skipped or failed navigation', async
         assert.equal(context.pendingNavigationCount, 0);
     }
 });
+
+
+test('remote EPUB restore consumes the triggering navigation before renderer actions', async () => {
+    const context = vm.createContext({
+        navigationIntentSeq: 0, pendingNavigationCount: 0, navigationChain: Promise.resolve(),
+        epubProgressManager: { beforeNavigation: async () => false },
+        debugLog() {}, summarizeLocation: () => ({}), cancelPageTurnAnimation() {},
+    });
+    const start = source.indexOf('async function navigate(');
+    const end = source.indexOf('async function jumpToFraction(', start);
+    vm.runInContext(source.slice(start, end), context);
+    await context.navigate(() => assert.fail('Consumed navigation reached renderer'));
+    assert.equal(context.pendingNavigationCount, 0);
+});

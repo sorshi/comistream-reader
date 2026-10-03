@@ -69,7 +69,9 @@
       return data;
     }
     function acknowledge(snapshot, saved) {
-      if (!state || saved.state_id !== state.state_id || saved.revision >= state.revision) state = saved;
+      if (!state || saved.state_id !== state.state_id || saved.revision >= state.revision) {
+        state = saved; remote = saved;
+      }
       if (pending && pending.writer_id === snapshot.writer_id && pending.seq <= snapshot.seq) pending = null;
       conflict = false;
       persist();
@@ -166,7 +168,8 @@
     async function beforeNavigation() {
       if (options.isGuest) return true;
       try {
-        const latest = needsCheck || now() - lastCheck >= 60000 || !remote ? await refresh() : remote;
+        let latest = needsCheck || now() - lastCheck >= 60000 || !remote ? await refresh() : remote;
+        if (state && latest.state_id === state.state_id && latest.revision < state.revision) latest = state;
         const position = String(options.getPosition());
         const changed = !state || !samePolicy(state, latest) || latest.revision > state.revision;
         const foreign = latest.last_writer_id !== writer;
