@@ -68,6 +68,58 @@ test('fixed-layout renderers are left unchanged', () => {
     assert.equal(renderer.attributes.size, 0);
 });
 
+function paddingFixture(size = 1080, columns = 19) {
+    const style = { height: `${size * columns / 2}px`, width: '834px' };
+    class PaddingRenderer extends Renderer {
+        viewportSize = size;
+        columnCount = 2;
+        scrollProp = 'scrollTop';
+        sideProp = 'height';
+        shadowRoot = { getElementById: () => ({ children: [{ style }] }) };
+        get size() { return this.viewportSize; }
+        get noContinuousScroll() { return this.hasAttribute('no-continuous-scroll'); }
+    }
+    const renderer = new PaddingRenderer();
+    configure(renderer, 'paginated');
+    return { renderer, style };
+}
+
+test('an odd vertical section gets a trailing half-screen without changing its content size', () => {
+    const { renderer, style } = paddingFixture();
+    assert.equal(renderer.size, 1080);
+    assert.equal(style.paddingBottom, '540px');
+    assert.equal(style.height, '10260px');
+    assert.equal(renderer.size, 1080);
+    assert.equal(style.paddingBottom, '540px');
+    style.height = '10800px';
+    void renderer.size;
+    assert.equal(style.paddingBottom, '0px');
+});
+
+test('fractional viewport sizes pad a short section to one screen', () => {
+    const { renderer, style } = paddingFixture(1079.953125, 1);
+    void renderer.size;
+    assert.equal(parseFloat(style.height) + parseFloat(style.paddingBottom), renderer.size);
+});
+
+test('single-column, scrolled, continuous and horizontal layouts clear the trailing padding', () => {
+    for (const change of [
+        renderer => { renderer.columnCount = 1; },
+        renderer => { renderer.scrolled = true; },
+        renderer => { renderer.toggleAttribute('no-continuous-scroll', false); },
+        renderer => { renderer.scrollProp = 'scrollLeft'; renderer.sideProp = 'width'; }
+    ]) {
+        const { renderer, style } = paddingFixture();
+        void renderer.size;
+        assert.equal(style.paddingBottom, '540px');
+        change(renderer);
+        void renderer.size;
+        assert.equal(style.paddingBottom, '0px');
+        assert.equal(style.paddingLeft, '0px');
+        assert.equal(style.paddingRight, '0px');
+    }
+});
+
 function navigationFixture({ start = 0, end = 800, viewSize = 800.8, fraction = 0.4 } = {}) {
     const moves = [];
     const location = { section: 1, fraction, cfi: 'same-position' };

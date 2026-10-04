@@ -1467,9 +1467,51 @@ function configurePaginatedSectionIsolation(renderer, isFixedLayout, flowMode) {
             }
         });
         sectionIsolationRenderers.add(renderer);
+        configurePaginatedSectionPadding(renderer);
     }
     // flowの切り替え前に属性を更新し、スクロール表示では従来の連続表示へ戻すルン。
     renderer.toggleAttribute('no-continuous-scroll', flowMode === 'paginated');
+}
+
+function configurePaginatedSectionPadding(renderer) {
+    const container = renderer.shadowRoot?.getElementById('container');
+    const nativeSize = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(renderer), 'size'
+    )?.get;
+    if (!container || !nativeSize) {
+        return;
+    }
+    // 本文の段数やCFIを変えず、縦書きの章を包む要素の末尾を画面単位に補うルン。
+    Object.defineProperty(renderer, 'size', {
+        configurable: true,
+        get() {
+            const size = nativeSize.call(this);
+            const columns = this.columnCount;
+            for (const element of container.children) {
+                let padding = 0;
+                // Foliateが設定した本文寸法を読み、前回追加したpaddingを数えないルン。
+                const contentSize = parseFloat(element.style[this.sideProp]);
+                if (!this.scrolled && this.noContinuousScroll && this.scrollProp === 'scrollTop'
+                    && Number.isInteger(columns) && columns > 1
+                    && Number.isFinite(size) && size > 0
+                    && Number.isFinite(contentSize) && contentSize > 0) {
+                    const columnSize = size / columns;
+                    // getBoundingClientRectの小数丸めで余白が1画面増えないようにするルン。
+                    const contentColumns = Math.round(contentSize / columnSize);
+                    const screens = Math.ceil(contentColumns / columns);
+                    padding = Math.max(0, screens * size - contentSize);
+                }
+                // 描画・移動がサイズを読む時点で更新し、初回やアニメーションのclampも防ぐルン。
+                for (const side of ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']) {
+                    const value = `${side === 'paddingBottom' ? padding : 0}px`;
+                    if (element.style[side] !== value) {
+                        element.style[side] = value;
+                    }
+                }
+            }
+            return size;
+        }
+    });
 }
 
 function isValidThemeName(themeName) {
