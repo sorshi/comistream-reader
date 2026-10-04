@@ -1376,6 +1376,8 @@ async function renderReaderPage(reason) {
     if (renderId === readerRenderId) {
       readerRenderPending = false;
       document.getElementById("loading").style.display = "none";
+      // 読書を続けている間も、表示中の診断値を更新するルン。
+      if (imageInspectorUI?.isOpen()) showInspector(true);
     }
   }
 }
@@ -1765,6 +1767,7 @@ function funcKey(evt) {
   if (['Space', 'Enter'].includes(evt.code) || evt.keyCode === 32 || evt.keyCode === 13) {
     if (evt.target?.closest?.('.contents button')) return;
   }
+  if (evt.defaultPrevented || imageInspectorUI?.handleKeydown(evt)) return;
   if (isZoomed()) return; // 拡大表示中はキー操作によるページめくり等を無効化
 
   // 【ショートカット一覧】
@@ -1796,14 +1799,6 @@ function funcKey(evt) {
     showInspector();
   } else {
     closeQuickSpread();
-
-    // インスペクター表示中は閉じる
-    document.getElementById("inspector").style.display = "none";
-    while (document.getElementById("inspector").firstChild) {
-      document
-        .getElementById("inspector")
-        .removeChild(document.getElementById("inspector").firstChild);
-    }
   }
   if (evt.code == "ArrowLeft" && evt.shiftKey) leftIndex();
   else if (evt.code == "ArrowLeft" && evt.ctrlKey) {
@@ -2411,94 +2406,82 @@ async function quickSpredView() {
   }, 50);
 }
 
-function showInspector() {
-  // iキーを押すとインスペクターを表示
-  let inspector = document.getElementById("inspector");
-  const toggle = document.getElementById("inspectorToggleButton");
-  const willOpen = inspector.style.display !== "block";
-  toggle?.classList.toggle("pressed", willOpen);
-  toggle?.setAttribute("aria-pressed", String(willOpen));
-  let aspect = imagex / imagey;
-  aspect = Math.round(aspect * 100) / 100;
+let imageInspectorUI = null;
+
+function showInspector(forceVisible = null) {
+  if (!imageInspectorUI) {
+    const menu = document.getElementById("contents");
+    imageInspectorUI = window.ComistreamInspector.create({
+      menu,
+      hideMenu: () => { menu.style.display = "none"; },
+      restoreMenu: () => { menu.style.display = "block"; }
+    });
+  }
+  const visible = forceVisible === null ? !imageInspectorUI.isOpen() : Boolean(forceVisible);
+  if (!visible) {
+    imageInspectorUI.setVisible(false);
+    return;
+  }
+  const inspector = document.getElementById("inspector-content");
+  const scrollTop = inspector.scrollTop;
+  inspector.replaceChildren();
+  const aspect = Math.round((imagex / imagey) * 100) / 100;
   const preLoadCacheSize = preCaches.getSize();
   const networkSpeedKBps = preCaches.getBps();
-
-  if (inspector.style.display == "block") {
-    // インスペクター表示中はiキーでインスペクターを閉じる
-    inspector.style.opacity = "0";
-    setTimeout(function () {
-      inspector.style.display = "none";
-      while (inspector.firstChild) {
-        inspector.removeChild(inspector.firstChild);
-      }
-    }, 150); // 0.15秒後に実行
-  } else {
-    // page / maxPageスタイルで表示
-    // page / maxPageスタイルで表示
-    let pages = page + " / " + maxPage;
-    // 新しい<ul>要素を作成します
-    let list = document.createElement("ul");
-
-    // 項目を作成し、リストに追加します
-    const listItemArray = [
-      "imagex",
-      "imagey",
-      "req",
-      "virtratio",
-      "cutrate",
-      "direction",
-      "position",
-      "mode",
-      "autoLightSplitMode",
-      "autoSplit",
-      "als",
-      "autoLightSplitModeViewPosition",
-      "fixPage",
-      "prevPage",
-      "nextpage",
-    ];
-    for (let i = 0; i < listItemArray.length; i++) {
-      let listItem = document.createElement("li");
-      listItem.textContent =
-        listItemArray[i].toString() + ":" + window[listItemArray[i]];
-      list.appendChild(listItem);
-    }
-    // 関数スコープの変数追加
-    listItem = document.createElement("li");
-    listItem.textContent = "Page:" + pages;
-    list.prepend(listItem);
-
-    listItem = document.createElement("li");
-    listItem.textContent = "Aspect:" + aspect;
-    list.appendChild(listItem);
-
-    listItem = document.createElement("li");
-    listItem.textContent = "Preload pages:" + preLoadCacheSize;
-    list.appendChild(listItem);
-
-    listItem = document.createElement("li");
-    listItem.textContent = "File size:" + archiveFileMBytes + "MB";
-    list.appendChild(listItem);
-
-    listItem = document.createElement("li");
-    listItem.textContent = "Average page size:" + averagePageKBytes + "KB";
-    list.appendChild(listItem);
-
-    listItem = document.createElement("li");
+  const pages = page + " / " + maxPage;
+  const list = document.createElement("ul");
+  const listItemArray = [
+    "imagex",
+    "imagey",
+    "req",
+    "virtratio",
+    "cutrate",
+    "direction",
+    "position",
+    "mode",
+    "autoLightSplitMode",
+    "autoSplit",
+    "als",
+    "autoLightSplitModeViewPosition",
+    "fixPage",
+    "prevPage",
+    "nextpage",
+  ];
+  for (let i = 0; i < listItemArray.length; i++) {
+    let listItem = document.createElement("li");
     listItem.textContent =
-      "Network Speed:" + networkSpeedKBps.toLocaleString() + "Kbps";
+      listItemArray[i].toString() + ": " + window[listItemArray[i]];
     list.appendChild(listItem);
-
-    // リストを'inspector'要素に追加します
-    inspector.appendChild(list);
-
-    // 表示
-    inspector.style.opacity = "0";
-    inspector.style.display = "block";
-    setTimeout(function () {
-      inspector.style.opacity = "1";
-    }, 50); // 少し遅延させてから実行
   }
+  // 関数スコープの診断値を追加するルン。
+  let listItem = document.createElement("li");
+  listItem.textContent = "Page: " + pages;
+  list.prepend(listItem);
+
+  listItem = document.createElement("li");
+  listItem.textContent = "Aspect: " + aspect;
+  list.appendChild(listItem);
+
+  listItem = document.createElement("li");
+  listItem.textContent = "Preload Pages: " + preLoadCacheSize;
+  list.appendChild(listItem);
+
+  listItem = document.createElement("li");
+  listItem.textContent = "File Size: " + archiveFileMBytes + " MB";
+  list.appendChild(listItem);
+
+  listItem = document.createElement("li");
+  listItem.textContent = "Average Page Size: " + averagePageKBytes + " KB";
+  list.appendChild(listItem);
+
+  listItem = document.createElement("li");
+  listItem.textContent =
+    "Network Speed: " + networkSpeedKBps.toLocaleString("en-US") + " Kbps";
+  list.appendChild(listItem);
+
+  inspector.appendChild(list);
+  inspector.scrollTop = scrollTop;
+  imageInspectorUI.setVisible(true);
 }
 
 function getFullImageUrl(page, includeSplit = true) {

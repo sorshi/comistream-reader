@@ -155,6 +155,7 @@ test('page-position help supports hover, tap, outside dismissal and Escape', { s
     const keyCode = source.slice(keyStart, source.indexOf('function bindKeyboardShortcuts(', keyStart));
     await runBrowserFixture(`
         let menuVisible = true;
+        let epubInspectorUI = null;
         let pagePositionHelpPinned = false;
         let pagePositionHelpTimer = null;
         const $ = id => document.getElementById(id);

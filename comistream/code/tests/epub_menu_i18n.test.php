@@ -16,6 +16,14 @@ foreach (['ja', 'en', 'zh_TW', 'zh_HK'] as $lang) {
         throw new RuntimeException('EPUB translation data is missing.');
     }
     $translations = json_decode($matches[1], true, 512, JSON_THROW_ON_ERROR);
+    $closeLabel = htmlspecialchars($i18n->get('alt_close_button'), ENT_QUOTES, 'UTF-8');
+    if (!str_contains($html, '<dialog id="inspector"')
+        || !str_contains($html, 'id="inspector-close" type="button" aria-label="' . $closeLabel . '"')
+        || !str_contains($html, 'window.ComistreamInspector =')
+        || isset($translations['epub_inspector_title'])) {
+        throw new RuntimeException("Inspector markup or translation policy is incorrect: $lang");
+    }
+
     foreach (['epub_page_position', 'epub_section_progress'] as $key) {
         if (!isset($translations[$key]) || $translations[$key] === $key || $translations[$key] !== $i18n->get($key)) {
             throw new RuntimeException("EPUB translation is missing or incorrect: $lang / $key");

@@ -438,21 +438,11 @@ function calculateColumnLayout(viewportWidth, viewportHeight, isVertical, effect
 }
 
 function formatDateTime(timestamp) {
-    if (!Number.isFinite(timestamp) || timestamp <= 0) {
-        return t('epub_unknown', 'Unknown');
-    }
-    try {
-        return new Intl.DateTimeFormat(undefined, {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        }).format(new Date(timestamp));
-    } catch (error) {
-        console.warn(error);
-        return new Date(timestamp).toLocaleString();
-    }
+    // 診断日時はUI言語に依存しないUTC表記にするルン。
+    const date = new Date(timestamp);
+    return Number.isFinite(timestamp) && timestamp > 0 && Number.isFinite(date.getTime())
+        ? date.toISOString()
+        : 'Unknown';
 }
 
 function setStatusText(text, error = false) {
@@ -3774,7 +3764,7 @@ async function goPhysicalRight() {
 }
 
 function renderInspector(error = null, fallbackState = null) {
-    const inspector = $('inspector');
+    const inspector = $('inspector-content');
     if (!inspector) {
         return;
     }
@@ -3795,85 +3785,67 @@ function renderInspector(error = null, fallbackState = null) {
         list.appendChild(item);
     };
 
-    appendItem(t('epub_inspector_title', 'Title'), normalizeMetadataValue(metadata.title) || document.title);
-    appendItem(t('epub_inspector_author', 'Author'), normalizeMetadataValue(metadata.author));
+    appendItem('Title', normalizeMetadataValue(metadata.title, 'Unknown') || document.title);
+    appendItem('Author', normalizeMetadataValue(metadata.author, 'Unknown'));
     appendItem(
-        t('epub_inspector_language', 'Language'),
-        normalizeMetadataValue(metadata.language || view?.language?.canonical || view?.language?.locale?.baseName)
+        'Language',
+        normalizeMetadataValue(metadata.language || view?.language?.canonical || view?.language?.locale?.baseName, 'Unknown')
     );
-    appendItem(t('epub_inspector_progress', 'Progress'), formatPercent(location?.fraction ?? 0));
+    appendItem('Progress', formatPercent(location?.fraction ?? 0));
     appendItem(
-        t('epub_inspector_fraction', 'Fraction'),
+        'Fraction',
         String(Math.round(clamp(Number(location?.fraction) || 0, 0, 1) * 1000) / 1000)
     );
     appendItem(
-        t('epub_inspector_section', 'Section'),
-        sectionTotal > 0 ? `${sectionCurrent + 1} / ${sectionTotal}` : t('epub_unknown', 'Unknown')
+        'Section',
+        sectionTotal > 0 ? `${sectionCurrent + 1} / ${sectionTotal}` : 'Unknown'
     );
-    appendItem(t('epub_direction', 'Direction'), currentDirectionInfo.rtl
-        ? t('epub_direction_rtl', 'Right-to-Left')
-        : t('epub_direction_ltr', 'Left-to-Right'));
-    appendItem(t('epub_writing_mode', 'Writing'), currentDirectionInfo.vertical
-        ? t('epub_writing_vertical', 'Vertical')
-        : t('epub_writing_horizontal', 'Horizontal'));
-    appendItem(t('epub_override', 'Override'), `${formatDirectionLabel()} / ${formatWritingModeLabel()}`);
-    appendItem(t('epub_inspector_cfi', 'CFI'), String(location?.cfi || state?.cfi || t('epub_unknown', 'Unknown')));
+    appendItem('Direction', currentDirectionInfo.rtl
+        ? 'Right-to-Left'
+        : 'Left-to-Right');
+    appendItem('Writing', currentDirectionInfo.vertical
+        ? 'Vertical'
+        : 'Horizontal');
+    appendItem('Override', `${currentDirectionOverride} / ${currentWritingModeOverride}`);
+    appendItem('CFI', String(location?.cfi || state?.cfi || 'Unknown'));
     appendItem(
-        t('epub_inspector_renderer', 'Renderer'),
+        'Renderer',
         view?.isFixedLayout ? 'foliate-fxl' : `foliate-paginator (${currentFlowMode})`
     );
     appendItem(
-        t('epub_inspector_package_base', 'Package Base'),
-        packageBaseForInspector || t('epub_unknown', 'Unknown')
+        'Package Base',
+        packageBaseForInspector || 'Unknown'
     );
     appendItem(
-        t('epub_inspector_signature_expiration', 'Signature Expiration'),
-        signatureExpiration > 0 ? formatDateTime(signatureExpiration) : t('epub_unknown', 'Unknown')
+        'Signature Expiration',
+        signatureExpiration > 0 ? formatDateTime(signatureExpiration) : 'Unknown'
     );
     appendItem(
-        t('epub_inspector_last_saved', 'Last Saved'),
-        state?.updatedAt ? formatDateTime(Number(state.updatedAt)) : t('epub_unknown', 'Unknown')
+        'Last Saved',
+        state?.updatedAt ? formatDateTime(Number(state.updatedAt)) : 'Unknown'
     );
 
     if (error?.message) {
-        appendItem(t('epub_load_failed', 'Failed to load EPUB'), error.message);
+        appendItem('Failed to load EPUB', error.message);
     }
 
     inspector.appendChild(list);
 }
 
+let epubInspectorUI = null;
+
 function toggleInspector(forceVisible = null, error = null, fallbackState = null) {
-    const inspector = $('inspector');
-    const toggle = $('inspectorToggleButton');
-    if (!inspector) {
-        return;
+    if (!epubInspectorUI) {
+        epubInspectorUI = window.ComistreamInspector.create({
+            menu: $('epub-menu-panel'),
+            hideMenu: closeMenu,
+            restoreMenu: () => toggleMenu(true),
+            focusReader
+        });
     }
-    const isOpen = inspector.style.display === 'block';
-    const next = forceVisible === null ? !isOpen : Boolean(forceVisible);
-
-    if (!next) {
-        inspector.style.opacity = '0';
-        if (toggle) {
-            toggle.classList.remove('pressed');
-            toggle.setAttribute('aria-pressed', 'false');
-        }
-        window.setTimeout(() => {
-            inspector.style.display = 'none';
-            inspector.textContent = '';
-        }, 150);
-        return;
-    }
-
-    renderInspector(error, fallbackState);
-    inspector.style.opacity = '0';
-    inspector.style.display = 'block';
-    if (toggle) {
-        toggle.classList.add('pressed');
-        toggle.setAttribute('aria-pressed', 'true');
-    }
-    window.setTimeout(() => {
-        inspector.style.opacity = '1';
-    }, 50);
+    const next = forceVisible === null ? !epubInspectorUI.isOpen() : Boolean(forceVisible);
+    if (next) renderInspector(error, fallbackState);
+    epubInspectorUI.setVisible(next);
 }
 
 function updateFullScreenButton() {
@@ -4667,6 +4639,7 @@ function handleKeydown(event) {
     if (['Space', 'Enter'].includes(event.code) || [' ', 'Enter'].includes(event.key)) {
         if (event.target?.closest?.('.contents button')) return;
     }
+    if (epubInspectorUI?.handleKeydown(event)) return;
     if (event.defaultPrevented) {
         return;
     }
@@ -4709,7 +4682,7 @@ function handleKeydown(event) {
         event.preventDefault();
         event.stopPropagation();
         const inspector = $('inspector');
-        if (inspector?.style.display === 'block') {
+        if (inspector?.open) {
             toggleInspector(false);
         } else {
             toggleMenu();
@@ -5169,12 +5142,12 @@ function extractSignatureExpiration(url) {
     return 0;
 }
 
-function normalizeMetadataValue(value) {
+function normalizeMetadataValue(value, unknown = t('epub_unknown', 'Unknown')) {
     if (Array.isArray(value)) {
         const normalized = value
-            .map((item) => normalizeMetadataValue(item))
-            .filter((item) => item && item !== t('epub_unknown', 'Unknown'));
-        return normalized.length > 0 ? normalized.join(', ') : t('epub_unknown', 'Unknown');
+            .map((item) => normalizeMetadataValue(item, unknown))
+            .filter((item) => item && item !== unknown);
+        return normalized.length > 0 ? normalized.join(', ') : unknown;
     }
     if (value && typeof value === 'object') {
         const namedValue = value.name
@@ -5183,28 +5156,28 @@ function normalizeMetadataValue(value) {
             || value.value
             || value.text;
         if (namedValue !== undefined) {
-            return normalizeMetadataValue(namedValue);
+            return normalizeMetadataValue(namedValue, unknown);
         }
 
         for (const key of ['ja', 'ja-JP', 'en', 'zh', 'zh-TW', 'und']) {
             if (Object.prototype.hasOwnProperty.call(value, key)) {
-                const normalized = normalizeMetadataValue(value[key]);
-                if (normalized && normalized !== t('epub_unknown', 'Unknown')) {
+                const normalized = normalizeMetadataValue(value[key], unknown);
+                if (normalized && normalized !== unknown) {
                     return normalized;
                 }
             }
         }
 
         const firstValue = Object.values(value).find((item) => {
-            const normalized = normalizeMetadataValue(item);
-            return normalized && normalized !== t('epub_unknown', 'Unknown');
+            const normalized = normalizeMetadataValue(item, unknown);
+            return normalized && normalized !== unknown;
         });
         if (firstValue !== undefined) {
-            return normalizeMetadataValue(firstValue);
+            return normalizeMetadataValue(firstValue, unknown);
         }
     }
     if (value === null || value === undefined || value === '') {
-        return t('epub_unknown', 'Unknown');
+        return unknown;
     }
     return String(value);
 }

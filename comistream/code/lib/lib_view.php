@@ -16,6 +16,35 @@
  */
 
 
+function loadReaderInspectorJs(): string
+{
+    global $conf;
+    $path = $conf['comistream_tool_dir'] . '/code/reader_inspector.js';
+    if (!is_file($path)) {
+        errorExit('js_file_missing', 'reader_inspector.js missing');
+    }
+    $source = file_get_contents($path);
+    if ($source === false) {
+        errorExit('js_file_read_error', 'reader_inspector.js read failed');
+    }
+    return $source;
+}
+
+function generateReaderInspectorHTML(string $closeLabel): string
+{
+    // 閉じる操作は通常のUI言語、診断情報の見出しは英語にするルン。
+    $closeLabel = htmlspecialchars($closeLabel, ENT_QUOTES, 'UTF-8');
+    return <<<HTML
+<dialog id="inspector" class="inspector" aria-labelledby="inspector-title">
+    <div class="inspector-header">
+        <span id="inspector-title" lang="en">Inspector</span>
+        <button id="inspector-close" type="button" aria-label="{$closeLabel}"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div id="inspector-content" class="inspector-content" lang="en" tabindex="0"></div>
+</dialog>
+HTML;
+}
+
 ##### ベースhtml出力 #####################################################################
 
 /**
@@ -89,7 +118,7 @@ function generateHTML()
             writelog("ERROR generateHTML() failed to read comistream.js", 'view');
             errorExit('js_file_read_error', 'comistream.js read failed');
         }
-        $contents_js = $viewport_js . "\n" . $readerMarkerJs . "\n" . $reader_js;
+        $contents_js = $viewport_js . "\n" . $readerMarkerJs . "\n" . loadReaderInspectorJs() . "\n" . $reader_js;
         writelog("DEBUG JS file exist.");
     } else {
         writelog("ERROR JS not found:" . __DIR__);
@@ -255,6 +284,7 @@ function generateHTML()
     $tooltip_trimmingmode_trimming = htmlspecialchars($i18n->get('tooltip_trimmingmode_trimming'), ENT_QUOTES, 'UTF-8');
     $tooltip_trimmingmode_normal = htmlspecialchars($i18n->get('tooltip_trimmingmode_normal'), ENT_QUOTES, 'UTF-8');
     $tooltip_clock = htmlspecialchars($i18n->get('tooltip_clock'), ENT_QUOTES, 'UTF-8');
+    $inspectorHtml = generateReaderInspectorHTML($i18n->get('alt_close_button'));
     $tooltip_inspector = htmlspecialchars($i18n->get('tooltip_inspector'), ENT_QUOTES, 'UTF-8');
     $tooltip_language = htmlspecialchars($i18n->get('tooltip_language'), ENT_QUOTES, 'UTF-8');
 
@@ -424,7 +454,7 @@ function generateHTML()
     </div>
 </div>
 
-<div id="inspector" class="inspector"></div>
+$inspectorHtml
 
 </body>
 </html>
@@ -498,6 +528,7 @@ function generateEpubHTML(): string
         writelog("ERROR generateEpubHTML() epub_reader.js not found: {$epubJsPath}", 'view');
         errorExit('js_file_missing', 'epub_reader.js missing');
     }
+    $readerInspectorJs = loadReaderInspectorJs();
     $epubReaderJs = file_get_contents($epubJsPath);
     if ($epubReaderJs === false) {
         writelog("ERROR generateEpubHTML() failed to read epub_reader.js", 'view');
@@ -603,6 +634,7 @@ JS;
     $tooltipBack = htmlspecialchars($i18n->get('tooltip_back'), ENT_QUOTES, 'UTF-8');
     $tooltipFullscreen = htmlspecialchars($i18n->get('tooltip_fullscreen'), ENT_QUOTES, 'UTF-8');
     $tooltipClock = htmlspecialchars($i18n->get('tooltip_clock'), ENT_QUOTES, 'UTF-8');
+    $inspectorHtml = generateReaderInspectorHTML($i18n->get('alt_close_button'));
     $tooltipInspector = htmlspecialchars($i18n->get('tooltip_inspector'), ENT_QUOTES, 'UTF-8');
     $tooltipEpubPrevPage = htmlspecialchars($i18n->get('tooltip_epub_prev_page'), ENT_QUOTES, 'UTF-8');
     $tooltipEpubNextPage = htmlspecialchars($i18n->get('tooltip_epub_next_page'), ENT_QUOTES, 'UTF-8');
@@ -667,17 +699,6 @@ JS;
         'epub_loading_rendering' => $i18n->get('epub_loading_rendering'),
         'epub_load_failed' => $i18n->get('epub_load_failed'),
         'epub_offline_last_location' => $i18n->get('epub_offline_last_location'),
-        'epub_inspector_title' => $i18n->get('epub_inspector_title'),
-        'epub_inspector_author' => $i18n->get('epub_inspector_author'),
-        'epub_inspector_language' => $i18n->get('epub_inspector_language'),
-        'epub_inspector_progress' => $i18n->get('epub_inspector_progress'),
-        'epub_inspector_fraction' => $i18n->get('epub_inspector_fraction'),
-        'epub_inspector_section' => $i18n->get('epub_inspector_section'),
-        'epub_inspector_cfi' => $i18n->get('epub_inspector_cfi'),
-        'epub_inspector_renderer' => $i18n->get('epub_inspector_renderer'),
-        'epub_inspector_package_base' => $i18n->get('epub_inspector_package_base'),
-        'epub_inspector_signature_expiration' => $i18n->get('epub_inspector_signature_expiration'),
-        'epub_inspector_last_saved' => $i18n->get('epub_inspector_last_saved'),
         'epub_unknown' => $i18n->get('epub_unknown'),
         'reader_sync_forward' => $i18n->get('reader_sync_forward'),
         'reader_sync_changed' => $i18n->get('reader_sync_changed'),
@@ -1075,13 +1096,6 @@ JS;
                 transform: rotate(360deg);
             }
         }
-        #inspector {
-            overflow: auto;
-        }
-        #inspector li {
-            overflow-wrap: anywhere;
-            word-break: break-word;
-        }
         @media (max-width: 720px) {
             body.epub-fixed-layout .epub-nav-zone {
                 width: 34vw;
@@ -1219,7 +1233,7 @@ JS;
             </div>
         </div>
     </div>
-    <div id="inspector" class="inspector"></div>
+    {$inspectorHtml}
     <script>
         window.DEBUG_ENABLED = {$debugEnabledJson};
         window.DEBUG_CONSOLE_ENABLED = {$debugConsoleEnabledJson};
@@ -1265,6 +1279,7 @@ JS;
     </script>
     <script type="module">
 {$readerMarkerJs}
+{$readerInspectorJs}
 {$epubReaderJs}
     </script>
 </body>
