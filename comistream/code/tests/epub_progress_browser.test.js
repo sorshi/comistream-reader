@@ -5,7 +5,16 @@ const { runEpubBrowserFixture } = require('./epub_browser_fixture');
 const { router } = require('./reader_progress_http_fixture');
 const harness = `
 window.confirm = () => true;
-window.alert = () => {};
+let unsyncedAlerts = 0;
+window.alert = () => { unsyncedAlerts++; };
+let refreshGate = null;
+const createProgress = window.ComistreamReaderProgress.create;
+window.ComistreamReaderProgress.create = (options) => createProgress({ ...options,
+  fetch: async (...args) => {
+    if (!args[1]?.method && refreshGate) await refreshGate;
+    return fetch(...args);
+  }
+});
 (async () => {
   for (let count = 0; !viewInitialized && count < 100; count++) await new Promise(r => setTimeout(r, 100));
   if (!viewInitialized || !epubProgressManager) throw new Error('EPUB reader did not initialize');
@@ -21,8 +30,54 @@ window.alert = () => {};
   if (layoutState.state.revision !== saved.state.revision) throw new Error('Layout override saved progress');
   await fetch('comistream.php?mode=testRead');
   await epubProgressManager.refresh();
-  await navigate(() => goToBoundary(true));
-  await epubProgressManager.flush();
+  // 実際の描画が済んでいても移動処理が未完了なら、章頭の登録と保存を待つルン。
+  const settleNavigation = waitForNavigationSettled;
+  const historyBack = window.history.back;
+  let releaseNavigation, showChapter;
+  const chapterVisible = new Promise(resolve => { showChapter = resolve; });
+  const navigationGate = new Promise(resolve => { releaseNavigation = resolve; });
+  let leftReader = false;
+  waitForNavigationSettled = async (...args) => {
+    const settled = await settleNavigation(...args);
+    showChapter(); await navigationGate;
+    return settled;
+  };
+  window.history.pushState({}, '', window.location.href);
+  window.history.back = () => { leftReader = true; };
+  try {
+    const moving = navigate(() => goToTocHref('b.xhtml'));
+    await chapterVisible;
+    const closing = backListPage();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    if (leftReader) throw new Error('Reader left before TOC navigation settled');
+    releaseNavigation();
+    await Promise.all([moving, closing]);
+    if (!leftReader || epubProgressManager.getPending() || unsyncedAlerts) throw new Error('TOC exit did not finish saving');
+    const chapter = await fetch('comistream.php?mode=readingState&file=book.epub').then(r=>r.json());
+    if (chapter.state.locator !== currentLocation.cfi || chapter.state.current_page !== 2) throw new Error('Visible chapter position was not saved on exit');
+  } finally {
+    releaseNavigation(); waitForNavigationSettled = settleNavigation; window.history.back = historyBack;
+  }
+  // 復帰時の実API取得を保留し、終了時に確認と保存が順に完了することを確かめるルン。
+  let releaseRefresh;
+  refreshGate = new Promise(resolve => { releaseRefresh = resolve; });
+  const recordProgress = epubProgressManager.record;
+  try {
+    // 表紙への即時保存より先に復帰通知を入れ、未保存位置が必ず残る条件にするルン。
+    epubProgressManager.record = (...args) => {
+      window.dispatchEvent(new Event('focus'));
+      return recordProgress(...args);
+    };
+    await navigate(() => goToBoundary(true));
+    epubProgressManager.record = recordProgress;
+    if (!epubProgressManager.getPending()) throw new Error('Focus fixture did not retain pending progress');
+    let finished = false;
+    const closing = epubProgressManager.finish().then(result => { finished = true; return result; });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    if (finished || unsyncedAlerts) throw new Error('Focus refresh was treated as a save failure');
+    releaseRefresh();
+    if (!await closing || unsyncedAlerts) throw new Error('Focus refresh did not finish saving');
+  } finally { releaseRefresh(); refreshGate = null; epubProgressManager.record = recordProgress; }
   const cover = await fetch('comistream.php?mode=readingState&file=book.epub').then(r=>r.json());
   if (!cover.state.has_read || cover.state.locator !== currentLocation.cfi) throw new Error('Read EPUB backward position not saved');
   window.__progressNativeResult = {ok:true};

@@ -45,11 +45,18 @@ function readerProgressCfiParts(string $cfi): array
     $parts = $parse($range[0]);
     if (count($range) === 3) {
         // 範囲CFIの開始位置を使い、末尾側も対応構文か確認するルン。
-        $start = $parse($range[1]); $parse($range[2]);
-        $last = count($parts) - 1;
-        $parts[$last]['steps'] = array_merge($parts[$last]['steps'], $start[0]['steps']);
-        $parts[$last]['offset'] = $start[0]['offset'];
-        $parts = array_merge($parts, array_slice($start, 1));
+        // 空の相対経路は文書内の共通経路そのものを指すルン。
+        if (($range[1] === '' || $range[2] === '') && count($parts) < 2) {
+            throw new ReaderProgressException('unsupported_locator', 422);
+        }
+        $start = $range[1] === '' ? [] : $parse($range[1]);
+        if ($range[2] !== '') $parse($range[2]);
+        if ($start) {
+            $last = count($parts) - 1;
+            $parts[$last]['steps'] = array_merge($parts[$last]['steps'], $start[0]['steps']);
+            $parts[$last]['offset'] = $start[0]['offset'];
+            $parts = array_merge($parts, array_slice($start, 1));
+        }
     }
     return $parts;
 }

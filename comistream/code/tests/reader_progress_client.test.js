@@ -8,16 +8,22 @@ function fixture({ read = false, stored = null, fail = false } = {}) {
   const storage = new Map();
   const key = 'comistream_progress:v1:user:book';
   if (stored) storage.set(key, JSON.stringify(stored));
-  const requests = [], beacons = [], questions = [], timers = new Map(); let id = 0;
+  const requests = [], beacons = [], questions = [], alerts = [], errors = [], timers = new Map(); let id = 0;
+  let refreshGate = null, failRefresh = false;
   const c = progress.create({ writerId: 'writer_A_123456789', file: 'book.cbz', userKey: 'user', bookKey: 'book',
     storage: { getItem: (k) => storage.get(k), setItem: (k,v) => storage.set(k,v) },
     now: () => clock, timers: { setTimeout: (fn) => { timers.set(++id,fn); return id; }, clearTimeout: (i) => timers.delete(i) },
     compare: (a,b) => Math.sign(Number(a)-Number(b)), isStart: (v) => v === '1', getPosition: () => position,
     confirm: async (s) => { questions.push(s.locator); return decision; }, moveTo: async (v) => { position = v; },
+    onUnsynced: () => alerts.push('unsynced'), onError: (error) => errors.push(error.message),
     sendBeacon: (_,data) => { beacons.push(Object.fromEntries(data)); return true; },
     fetch: async (_, init) => {
       if (fail) throw new Error('offline');
-      if (!init.body) return { ok: true, status: 200, json: async () => ({ok:true,state:{...server}}) };
+      if (!init.body) {
+        if (refreshGate) await refreshGate;
+        if (failRefresh) throw new Error('refresh unavailable');
+        return { ok: true, status: 200, json: async () => ({ok:true,state:{...server}}) };
+      }
       const op = Object.fromEntries(init.body); requests.push(op);
       if (Number(op.expected_revision) !== server.revision && server.last_writer_id !== op.writer_id) return {
         ok:false,status:409,json:async()=>({ok:false,result:'conflict',state:{...server}}) };
@@ -28,7 +34,12 @@ function fixture({ read = false, stored = null, fail = false } = {}) {
       return {ok:true,status:200,json:async()=>({ok:true,result:'applied',state:{...server}})};
     }
   });
-  return { c, requests, beacons, questions, timers, storage, setPosition: (v)=>position=v,
+  return { c, requests, beacons, questions, alerts, errors, timers, storage, setPosition: (v)=>position=v,
+    pauseRefresh: () => {
+      let release;
+      refreshGate = new Promise(resolve => { release = resolve; });
+      return () => { refreshGate = null; release(); };
+    }, failRefresh: () => { failRefresh = true; },
     position:()=>position, decide:(v)=>decision=v, advance:()=>clock+=61000,
     server:()=>server, update:(patch)=>{server={...server,...patch};} };
 }
@@ -95,4 +106,70 @@ test('new movement after observing the same remote position uses the observed re
   f.c.record('20'); await f.c.flush();
   assert.equal(f.requests.length,1); assert.equal(f.requests[0].expected_revision,'1');
   assert.equal(f.server().locator,'20');
+});
+
+function focusReader(f) {
+  const listeners = new Map();
+  f.c.bindLifecycle({ addEventListener: (name, listener) => listeners.set(name, listener) }, null);
+  listeners.get('focus')();
+}
+
+test('finish waits for an in-flight focus refresh before saving', async () => {
+  const f=fixture(); await f.c.initialize(); f.c.record('20');
+  const release=f.pauseRefresh(); focusReader(f);
+  let finished=false;
+  const closing=f.c.finish().then(result => { finished=true; return result; });
+  try {
+    await new Promise(setImmediate);
+    assert.equal(finished,false);
+    assert.equal(f.requests.length,0); assert.deepEqual(f.alerts,[]);
+  } finally { release(); }
+  assert.equal(await closing,true);
+  assert.equal(f.server().locator,'20'); assert.equal(f.requests.length,1);
+  assert.equal(f.c.getPending(),null); assert.deepEqual(f.alerts,[]);
+});
+
+test('finish after a failed focus refresh preserves pending progress and warns', async () => {
+  const f=fixture(); await f.c.initialize(); f.c.record('20');
+  const release=f.pauseRefresh(); f.failRefresh(); focusReader(f);
+  const closing=f.c.finish(); release();
+  assert.equal(await closing,false);
+  assert.equal(f.requests.length,0); assert.equal(f.beacons.length,0);
+  assert.equal(f.c.getPending().locator,'20'); assert.deepEqual(f.alerts,['unsynced']);
+  assert.ok(f.errors.includes('refresh unavailable'));
+});
+
+test('finish after focus refresh does not overwrite a foreign read position', async () => {
+  const f=fixture({read:true}); await f.c.initialize(); f.c.record('10');
+  f.update({revision:1,locator:'20',last_writer_id:'writer_B'});
+  const release=f.pauseRefresh(); focusReader(f);
+  const closing=f.c.finish(); release();
+  assert.equal(await closing,false);
+  assert.equal(f.requests.length,1); assert.equal(f.beacons.length,0);
+  assert.equal(f.server().locator,'20'); assert.equal(f.c.getPending().locator,'10');
+  assert.deepEqual(f.questions,[]); assert.deepEqual(f.alerts,['unsynced']);
+});
+
+test('finish after focus refresh retains the unread forward merge rule', async () => {
+  const f=fixture(); await f.c.initialize(); f.c.record('25');
+  f.update({revision:1,locator:'20',last_writer_id:'writer_B'});
+  const release=f.pauseRefresh(); focusReader(f);
+  const closing=f.c.finish(); release();
+  assert.equal(await closing,true); assert.equal(f.requests.length,2);
+  assert.equal(f.server().locator,'25'); assert.equal(f.c.getPending(),null);
+  assert.deepEqual(f.alerts,[]);
+});
+
+test('finish keeps its deadline while focus refresh is stalled', async () => {
+  const f=fixture(); await f.c.initialize(); f.c.record('20');
+  const release=f.pauseRefresh(); focusReader(f);
+  const closing=f.c.finish();
+  try {
+    [...f.timers.values()].at(-1)();
+    assert.equal(await closing,false);
+    assert.equal(f.requests.length,0); assert.equal(f.c.getPending().locator,'20');
+    assert.deepEqual(f.alerts,['unsynced']);
+  } finally {
+    release(); await f.c.refresh(); await f.c.flush();
+  }
 });

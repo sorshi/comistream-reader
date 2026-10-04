@@ -78,6 +78,7 @@ let pagePositionHelpTimer = null;
 let pageTurnAnimationEnabled = true;
 let lastPageTurnAnimationAt = -Infinity;
 let pendingNavigationCount = 0;
+let readerClosing = false;
 let pageTurnAnimation = null;
 let pageTurnAnimationFrame = null;
 let currentTheme = 'paper';
@@ -1001,17 +1002,27 @@ function exitFullScreenIfNeeded() {
 }
 
 async function backListPage() {
-    if (typeof epubProgressManager !== 'undefined' && epubProgressManager) await epubProgressManager.finish();
-    persistCurrentLocation();
-    sendProgressBeacon();
-    exitFullScreenIfNeeded();
+    if (readerClosing) {
+        return;
+    }
+    readerClosing = true;
+    try {
+        // 目次移動で表示した位置が保存対象へ登録されてから閉じるルン。
+        await navigationChain;
+        if (typeof epubProgressManager !== 'undefined' && epubProgressManager) await epubProgressManager.finish();
+        persistCurrentLocation();
+        sendProgressBeacon();
+        exitFullScreenIfNeeded();
 
-    if (window.history.length > 1) {
-        window.history.back();
-    } else if (hasUsableBackReferrer()) {
-        window.location.href = document.referrer;
-    } else {
-        window.location.href = resolveBackListFallbackUrl();
+        if (window.history.length > 1) {
+            window.history.back();
+        } else if (hasUsableBackReferrer()) {
+            window.location.href = document.referrer;
+        } else {
+            window.location.href = resolveBackListFallbackUrl();
+        }
+    } finally {
+        readerClosing = false;
     }
 }
 
@@ -4265,6 +4276,9 @@ function isEditableTarget(target) {
 }
 
 async function navigate(action, { allowReadCompletion = true, recordProgress = true } = {}) {
+    if (readerClosing) {
+        return;
+    }
     const intentSeq = ++navigationIntentSeq;
     pendingNavigationCount++;
     if (pendingNavigationCount > 1) {

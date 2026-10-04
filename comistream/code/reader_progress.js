@@ -208,8 +208,17 @@
       });
     }
     async function finish() {
+      const saveAfterRefresh = async () => {
+        // 復帰時の確認が済むまで待ち、保存を試す前に未同期扱いしないルン。
+        if (!options.isGuest && pending && !pending.unbased && !conflict && !closed && needsCheck) {
+          try { await refresh(); }
+          catch (error) { options.onError?.(error); return false; }
+        }
+        // 取得後も既存のrevisionで送り、別端末との競合判定を保つルン。
+        return flush();
+      };
       let deadline;
-      const result = await Promise.race([flush(), new Promise((resolve) => {
+      const result = await Promise.race([saveAfterRefresh(), new Promise((resolve) => {
         deadline = timers.setTimeout(() => resolve(false), 2000);
       })]);
       timers.clearTimeout(deadline);

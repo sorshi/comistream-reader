@@ -66,10 +66,43 @@ expectProgress(readerProgressState($db,'reader','book')['locator']===$state['loc
 foreach ([['epubcfi(/6/2!/4/1:9)','epubcfi(/6/2!/4/1:10)',-1],
  ['epubcfi(/6/2[chapter^,1]!/4/1:10)','epubcfi(/6/2!/4/1:10)',0],
  ['epubcfi(/6/2!/4,/1:2,/1:8)','epubcfi(/6/2!/4/1:3)',-1],
+ ['epubcfi(/6/44!/4/2,,/1:14)','epubcfi(/6/44!/4/2)',0],
+ ['epubcfi(/6/44!/4/2,/1:0,)','epubcfi(/6/44!/4/2/1:0)',0],
+ ['epubcfi(/6/44!/4/2,,)','epubcfi(/6/44!/4/2)',0],
+ ['epubcfi(/6/44!/4/2/1:0,,)','epubcfi(/6/44!/4/2/1:0)',0],
+ ['epubcfi(/6/44!/4/2,,/1:14)','epubcfi(/6/44!/4/2/1:0)',-1],
  ['epubcfi(/6/10!/4/1:0)','epubcfi(/6/2!/4/1:0)',1]] as [$a,$b,$expected]) {
     expectProgress(compareReaderProgressCfi($a,$b)===$expected,'CFI comparison mismatch.');
 }
-foreach (['epubcfi(/6/2!/4/1:2~1)','epubcfi(/6/2!/4/1:2@1:1)','epubcfi(/6/2[broken)','epubcfi(/6/2,,)','bad'] as $bad) {
+// 章頭で相対経路が空になるFoliateの範囲CFIも、保存と復元に使えることを確認するルン。
+$chapterMetadata = ['total'=>27,'linear'=>array_fill(0,27,true)];
+foreach (['epubcfi(/6/44!/4/2,,/1:14)','epubcfi(/6/44!/4/2,/1:0,)',
+    'epubcfi(/6/44!/4/2,,)','epubcfi(/6/44!/4/2/1:0,,)'] as $chapterStart) {
+    foreach ([false,true] as $read) {
+        [$db,$state]=progressFixture('epub',$read);
+        $saved=saveReaderProgress($db,'reader','book',progressOperation($state,1,$chapterStart),$chapterMetadata);
+        expectProgress($saved['result']==='applied' && $saved['state']['locator']===$chapterStart,
+            'Chapter-start range CFI was not saved.');
+        expectProgress($saved['state']['revision']===1 && $saved['state']['current_page']===22,
+            'Chapter-start save lost revision or section.');
+        expectProgress($db->query('SELECT epub_cfi FROM book_history')->fetchColumn()===$chapterStart,
+            'Chapter-start CFI was not reflected in history.');
+        expectProgress(initializeReaderProgress($db,'reader','book','epub',27)['locator']===$chapterStart,
+            'Chapter-start CFI was not restored.');
+    }
+}
+foreach ([false,true] as $read) {
+    [$db,$state]=progressFixture('epub',$read);
+    $chapterStart='epubcfi(/6/44!/4/2,,/1:14)';
+    $furthest='epubcfi(/6/46!/4/2,,/1:14)';
+    $saved=saveReaderProgress($db,'reader','book',progressOperation($state,1,$chapterStart,
+        ['furthest'=>$furthest]),$chapterMetadata);
+    expectProgress($saved['state']['locator']===($read ? $chapterStart : $furthest),
+        'Chapter-start CFI changed unread or read resume policy.');
+}
+foreach (['epubcfi(/6/2!/4/1:2~1)','epubcfi(/6/2!/4/1:2@1:1)','epubcfi(/6/2[broken)',
+    'epubcfi(/6/2,,)','epubcfi(/6/44!,,)','epubcfi(/6/44!/4,,!)',
+    'epubcfi(/6/44!/4,,/)','epubcfi(/6/44!/4,!/2,)','bad'] as $bad) {
     try { readerProgressCfiParts($bad); throw new RuntimeException('Unsupported CFI accepted.'); }
     catch (ReaderProgressException $e) { expectProgress($e->status===422,'Wrong CFI status.'); }
 }
