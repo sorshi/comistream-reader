@@ -227,6 +227,8 @@ var pageModePreference = "single";
 var readerReady = false;
 var readerProgressManager = null;
 var readerNavigationPending = false;
+var readerNavigationPromise = null;
+var readerClosing = false;
 var readerLayoutPending = false;
 var readerRenderId = 0;
 var displayedStart = 1;
@@ -1175,20 +1177,24 @@ async function devicePageSync() {
 }
 
 async function loadPage(dir, { restore = false } = {}) {
+  if (readerClosing && !restore) { page = prevPage; return; }
   const targetPage = Math.max(1, Math.min(maxPage, parseInt(page, 10) || 1));
   if (readerProgressManager && !restore) {
     if (readerNavigationPending) { page = prevPage; return; }
     readerNavigationPending = true;
     page = prevPage;
-    try {
+    readerNavigationPromise = (async () => {
       if (!(await readerProgressManager.beforeNavigation())) return;
       page = targetPage;
       await loadPage(dir, { restore: true });
       const completed = !readerProgressManager.getState()?.has_read && dir >= 0 && displayedEnd >= maxPage;
       const locator = completed ? maxPage : page;
       readerProgressManager.record(String(locator), { completed, page: locator });
+    })();
+    try {
+      await readerNavigationPromise;
       return;
-    } finally { readerNavigationPending = false; }
+    } finally { readerNavigationPending = false; readerNavigationPromise = null; }
   }
   closeQuickSpread();
   page = Math.max(1, Math.min(maxPage, parseInt(page, 10) || 1));
@@ -1456,14 +1462,15 @@ async function restorePage() {
       totalUnits: maxPage, legacyLocator: readReaderStorage(file),
       compare: (a, b) => Math.sign(Number(a) - Number(b)),
       getPosition: () => String(prevPage), isStart: (locator) => locator === "1",
-      confirm: (state) => window.confirm((window.i18n[state.has_read ? "reader_sync_changed" : "reader_sync_forward"] ||
+      confirm: (state) => window.confirm((window.i18n.reader_sync_changed ||
         "Reading position changed to page %s on another device. Move there?").replace("%s", state.locator)),
       moveTo: async (locator) => { page = Number(locator); await loadPage(1, { restore: true }); },
       onError: (error) => debugLog("Reading position synchronization failed: " + error.message),
       onUnsynced: () => window.alert(window.i18n.reader_sync_unsaved || "Reading position is pending synchronization."),
     });
-    const state = await readerProgressManager.initialize();
-    if (state?.locator) page = Number(state.locator);
+    await readerProgressManager.initialize();
+    const restoreLocator = readerProgressManager.getRestoreLocator();
+    if (restoreLocator) page = Number(restoreLocator);
     readerProgressManager.bindLifecycle();
   } else if (page == 1) {
     page = parseInt(readReaderStorage(file) || page, 10);
@@ -1634,30 +1641,38 @@ function spread() {
 }
 
 async function backListPage() {
-  if (readerProgressManager) await readerProgressManager.finish();
-  // リーダーを閉じる前に確実にページ位置を保存するルン！
-  if (savePageTimer) {
-    clearTimeout(savePageTimer);
-    savePageTimer = null;
-  }
-  saveCurrentPage();
-  lastSaveTime = Date.now();
-  debugLog("saveCurrentPage() executed before closing reader");
+  if (readerClosing) return;
+  readerClosing = true;
+  try {
+    // 戻ったページの描画と位置登録が完了してから終了保存するルン。
+    if (readerNavigationPromise) await readerNavigationPromise;
+    if (readerProgressManager) await readerProgressManager.finish();
+    // リーダーを閉じる前に確実にページ位置を保存するルン！
+    if (savePageTimer) {
+      clearTimeout(savePageTimer);
+      savePageTimer = null;
+    }
+    saveCurrentPage();
+    lastSaveTime = Date.now();
+    debugLog("saveCurrentPage() executed before closing reader");
 
-  if (document.cancelFullScreen) {
-    document.cancelFullScreen();
-  } else if (document.mozCancelFullScreen) {
-    document.mozCancelFullScreen();
-  } else if (document.webkitCancelFullScreen) {
-    document.webkitCancelFullScreen();
-  } else if (document.msExitFullscreen) {
-    document.msExitFullscreen();
-  }
+    if (document.cancelFullScreen) {
+      document.cancelFullScreen();
+    } else if (document.mozCancelFullScreen) {
+      document.mozCancelFullScreen();
+    } else if (document.webkitCancelFullScreen) {
+      document.webkitCancelFullScreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
 
-  if (window.history.length > 1) {
-    window.history.back();
-  } else {
-    location.href = document.referrer;
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      location.href = document.referrer;
+    }
+  } finally {
+    readerClosing = false;
   }
 }
 
@@ -1985,17 +2000,24 @@ function renderBookSuggestion(container, title, status, color) {
 
 //続刊へ移動
 async function toNextBook(nextlocation) {
-  if (readerProgressManager) await readerProgressManager.finish();
-  // 次の本へ移動する前に確実にページ位置を保存するルン！
-  if (savePageTimer) {
-    clearTimeout(savePageTimer);
-    savePageTimer = null;
-  }
-  saveCurrentPage();
-  lastSaveTime = Date.now();
-  debugLog("saveCurrentPage() executed before moving to next book");
+  if (readerClosing) return;
+  readerClosing = true;
+  try {
+    if (readerNavigationPromise) await readerNavigationPromise;
+    if (readerProgressManager) await readerProgressManager.finish();
+    // 次の本へ移動する前に確実にページ位置を保存するルン！
+    if (savePageTimer) {
+      clearTimeout(savePageTimer);
+      savePageTimer = null;
+    }
+    saveCurrentPage();
+    lastSaveTime = Date.now();
+    debugLog("saveCurrentPage() executed before moving to next book");
 
-  location.replace(nextlocation);
+    location.replace(nextlocation);
+  } finally {
+    readerClosing = false;
+  }
 }
 
 //続刊リストのURL作成

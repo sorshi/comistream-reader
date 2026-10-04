@@ -25,7 +25,15 @@ const harness = `${source}
   await A.initialize(); await B.initialize();
   A.record('20'); expect(await A.flush(), 'A save failed');
   B.record('10'); await B.flush();
-  expect(B.getState().locator === '20', 'Unread progress moved backward');
+  expect(B.getPending()?.locator === '10', 'Unread conflict was not retained');
+  positions.B='10';
+  expect(!await B.beforeNavigation() && positions.B==='20', 'Foreign position was not adopted');
+  positions.A='3'; A.record('3'); expect(await A.finish(), 'Unread return save failed');
+  const returned=await reader('returned').initialize();
+  expect(!returned.has_read && returned.locator==='3', 'Unread preview return did not resume at the last position');
+  A.record('1'); expect(await A.finish(), 'Unread cover save failed');
+  const cover=await reader('cover').initialize();
+  expect(!cover.has_read && cover.locator==='1', 'Unread cover was not restored');
   await fetch(endpoint + '/?mode=testRead');
   const C=reader('C'); await C.initialize();
   C.record('30',{completed:true}); C.record('1'); await C.flush();
@@ -41,7 +49,7 @@ if ($mode === 'testClient') {
     echo '<!doctype html><meta charset="utf-8"><script>' . json_decode(${JSON.stringify(JSON.stringify(harness))}) . '</script>'; exit;
 }
 if ($mode === 'testRead')`);
-test('Chrome readers synchronize unread progress and completed cover through PHP', { skip: !chrome }, async () => {
+test('Chrome readers preserve the last unread position, conflicts, and completed cover through PHP', { skip: !chrome }, async () => {
   await withPhpFixture(browserRouter, async url => {
     await runEpubBrowserFixture(url + '/?mode=testClient');
   });

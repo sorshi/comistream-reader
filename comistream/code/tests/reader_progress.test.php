@@ -17,7 +17,7 @@ function progressFixture(string $format = 'archive', bool $read = false): array 
 function progressOperation(array $state, int $seq, string $locator, array $extra = []): array {
     return $extra + ['state_id'=>$state['state_id'],'expected_revision'=>$state['revision'],
         'policy_epoch'=>$state['policy_epoch'],'writer_id'=>'writer_A_123456789','seq'=>$seq,
-        'locator'=>$locator,'furthest'=>$locator];
+        'locator'=>$locator,'furthest'=>$locator,'resume_policy'=>'last_position'];
 }
 foreach ([[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]] as $order) {
     foreach ([false,true] as $read) {
@@ -25,7 +25,7 @@ foreach ([[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]] as $order) {
         $ops = [progressOperation($state,1,'20'),progressOperation($state,2,'10',['furthest'=>'20']),progressOperation($state,3,'1',['furthest'=>'20'])];
         foreach ($order as $index) saveReaderProgress($db,'reader','book',$ops[$index]);
         $saved = readerProgressState($db,'reader','book');
-        expectProgress($saved['locator'] === ($read ? '1':'20'),'Reordered operations lost the resume position.');
+        expectProgress($saved['locator'] === '1','Reordered operations lost the last resume position.');
     }
     [$db,$state] = progressFixture();
     $ops = [progressOperation($state,1,'30',['completion_locator'=>'30','completion_seq'=>1]),
@@ -58,11 +58,11 @@ expectProgress(readerProgressState($db,'reader','book')['revision']===0,'Invalid
 [$db,$state]=progressFixture('epub');
 saveReaderProgress($db,'reader','book',progressOperation($state,1,'epubcfi(/6/2!/4/1:20)'));
 saveReaderProgress($db,'reader','book',progressOperation($state,2,'epubcfi(/6/2!/4/1:9)'));
-expectProgress(readerProgressState($db,'reader','book')['locator']==='epubcfi(/6/2!/4/1:20)','CFI max used lexical ordering.');
+expectProgress(readerProgressState($db,'reader','book')['locator']==='epubcfi(/6/2!/4/1:9)','Backward EPUB movement was not saved.');
 $linear=['total'=>3,'linear'=>[true,true,false]];
 [$db,$state]=progressFixture('epub');
 saveReaderProgress($db,'reader','book',progressOperation($state,1,'epubcfi(/6/6!/4/1:5)'),$linear);
-expectProgress(readerProgressState($db,'reader','book')['locator']===$state['locator'],'Nonlinear note advanced unread.');
+expectProgress(readerProgressState($db,'reader','book')['locator']==='epubcfi(/6/6!/4/1:5)','Nonlinear note was not saved as the last position.');
 foreach ([['epubcfi(/6/2!/4/1:9)','epubcfi(/6/2!/4/1:10)',-1],
  ['epubcfi(/6/2[chapter^,1]!/4/1:10)','epubcfi(/6/2!/4/1:10)',0],
  ['epubcfi(/6/2!/4,/1:2,/1:8)','epubcfi(/6/2!/4/1:3)',-1],
@@ -97,9 +97,15 @@ foreach ([false,true] as $read) {
     $furthest='epubcfi(/6/46!/4/2,,/1:14)';
     $saved=saveReaderProgress($db,'reader','book',progressOperation($state,1,$chapterStart,
         ['furthest'=>$furthest]),$chapterMetadata);
-    expectProgress($saved['state']['locator']===($read ? $chapterStart : $furthest),
-        'Chapter-start CFI changed unread or read resume policy.');
+    expectProgress($saved['state']['locator']===$chapterStart,
+        'Earlier chapter-start position was replaced by the furthest position.');
 }
+// 旧タブの最大位置保存は新しい保存方式へ自動で載せ替えないルン。
+[$db,$state]=progressFixture();
+$legacy=progressOperation($state,1,'20'); unset($legacy['resume_policy']);
+try { saveReaderProgress($db,'reader','book',$legacy); throw new RuntimeException('Old resume policy accepted.'); }
+catch (ReaderProgressException $e) { expectProgress($e->status===409 && $e->reason==='reader_update_required','Wrong old policy rejection.'); }
+expectProgress(readerProgressState($db,'reader','book')['revision']===0,'Old policy changed saved progress.');
 foreach (['epubcfi(/6/2!/4/1:2~1)','epubcfi(/6/2!/4/1:2@1:1)','epubcfi(/6/2[broken)',
     'epubcfi(/6/2,,)','epubcfi(/6/44!,,)','epubcfi(/6/44!/4,,!)',
     'epubcfi(/6/44!/4,,/)','epubcfi(/6/44!/4,!/2,)','bad'] as $bad) {

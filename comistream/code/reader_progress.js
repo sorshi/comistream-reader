@@ -1,6 +1,7 @@
 /* 読書位置の共有と送信待ちを全Readerで管理するルン。 */
 (function readerProgressModule(global) {
   'use strict';
+  const RESUME_POLICY = 'last_position';
 
   function create(options) {
     const writer = options.writerId || global.crypto?.randomUUID?.() ||
@@ -31,7 +32,7 @@
       catch (_) { return null; }
     }
     function persist() {
-      try { storage?.setItem(key, JSON.stringify({ version: 1, state, pending })); }
+      try { storage?.setItem(key, JSON.stringify({ version: 2, state, pending })); }
       catch (_) { /* 保存領域が使えなくても閲覧は継続するルン。 */ }
     }
     function clearTimer() {
@@ -58,6 +59,7 @@
         const response = await fetcher(url, init);
         const payload = await response.json();
         if (!response.ok && response.status !== 409) throw new Error(payload.reason || 'Reading position unavailable');
+        if (payload.state && payload.state.resume_policy !== RESUME_POLICY) throw new Error('reader_update_required');
         return payload;
       } finally { timers.clearTimeout(timeout); }
     }
@@ -65,8 +67,10 @@
       const data = new FormData();
       data.append('mode', 'saveReadingState'); data.append('file', options.file);
       data.append('csrf_token', options.csrfToken || '');
+      // 旧タブの最大位置統合をサーバーで拒否できるよう、送信時に方式を付けるルン。
+      data.append('resume_policy', RESUME_POLICY);
       for (const [name, value] of Object.entries(operation)) {
-        if (value !== null && value !== undefined && name !== 'unbased') data.append(name, String(value));
+        if (value !== null && value !== undefined && !['unbased', 'legacy_policy', 'resume_policy'].includes(name)) data.append(name, String(value));
       }
       return data;
     }
@@ -90,7 +94,11 @@
     }
     async function initialize() {
       const local = readLocal();
-      if (local?.version === 1) pending = local.pending || null;
+      if (local?.version === 1 || local?.version === 2) {
+        pending = local.pending || null;
+        // 旧方式の未確認操作は、読者が選ぶまで再送しないルン。
+        if (pending && local.version === 1) pending = { ...pending, legacy_policy: true };
+      }
       if (options.isGuest) {
         state = local?.state || { state_id: 'guest', revision: 0, policy_epoch: 0,
           has_read: false, locator: options.legacyLocator || null, total_units: options.totalUnits || null };
@@ -102,7 +110,7 @@
           sequence = pending.writer_id === writer ? pending.seq : 0;
           if (pending.state_id === state.state_id && state.last_writer_id === pending.writer_id && state.last_writer_seq >= pending.seq) {
             pending = null;
-          } else if (!pending.unbased && samePolicy(pending, state)
+          } else if (!pending.unbased && !pending.legacy_policy && samePolicy(pending, state)
               && (pending.expected_revision === state.revision ||
                 (state.last_writer_id === pending.writer_id && pending.expected_revision >= state.writer_base_revision))) {
             await flush();
@@ -120,29 +128,27 @@
       const currentPending = carry || pending;
       if (pending && samePosition(pending.locator, locator) && !detail.completed) return;
       if (!pending && state && samePosition(state.locator, locator) && !detail.completed) return;
-      let furthest = detail.linear === false ? null : locator;
-      if (currentPending?.furthest && (furthest === null || compare(currentPending.furthest, furthest) > 0)) furthest = currentPending.furthest;
       const completion = detail.completed ? locator : currentPending?.completion_locator;
       const seq = ++sequence;
       if (options.isGuest) {
         const read = state.has_read || Boolean(completion);
         state = { ...state, has_read: read, revision: state.revision + 1,
-          locator: read ? locator : (furthest && (!state.locator || compare(furthest, state.locator) > 0) ? furthest : state.locator) };
+          locator };
         carry = null; persist(); return;
       }
       pending = { state_id: state?.state_id, policy_epoch: state?.policy_epoch,
         expected_revision: currentPending?.expected_revision ?? state?.revision,
-        writer_id: writer, seq, locator, furthest: furthest || locator,
+        writer_id: writer, seq, locator,
         completion_locator: completion || null,
         completion_seq: completion ? (detail.completed || currentPending?.writer_id !== writer ? seq : currentPending.completion_seq) : null,
         page: detail.page || 1, unbased: !state };
       carry = null; persist();
-      if (detail.immediate || detail.completed || (state?.has_read && options.isStart?.(locator))) void flush();
+      if (detail.immediate || detail.completed || options.isStart?.(locator)) void flush();
       else if (timer === null) timer = timers.setTimeout(() => { timer = null; void flush(); }, 5000);
     }
     async function flush(retry = true) {
       clearTimer();
-      if (options.isGuest || !pending || pending.unbased || conflict || needsCheck || closed) return !pending;
+      if (options.isGuest || !pending || pending.unbased || pending.legacy_policy || conflict || needsCheck || closed) return !pending;
       if (flight) { await flight; return pending && !conflict ? flush(retry) : !pending; }
       const snapshot = { ...pending };
       flight = request('saveReadingState', snapshot).then(async (payload) => {
@@ -151,10 +157,7 @@
         }
         remote = payload.state || null;
         conflict = true; needsCheck = true;
-        if (retry && remote && samePolicy(snapshot, remote) && !remote.has_read && !snapshot.completion_locator && pending?.seq === snapshot.seq) {
-          state = remote; pending = { ...pending, expected_revision: state.revision, seq: ++sequence };
-          conflict = false; needsCheck = false; lastCheck = now(); persist();
-        }
+        // 前後どちらの競合も、読者の確認なしで更新番号を付け替えないルン。
         return false;
       }).catch((error) => { options.onError?.(error); return false; }).finally(() => { flight = null; });
       const success = await flight;
@@ -163,7 +166,7 @@
       return success && !pending;
     }
     function beacon() {
-      if (options.isGuest || !pending || pending.unbased || conflict || needsCheck) return false;
+      if (options.isGuest || !pending || pending.unbased || pending.legacy_policy || conflict || needsCheck) return false;
       persist();
       return (options.sendBeacon || global.navigator?.sendBeacon?.bind(global.navigator))?.(options.endpoint || 'comistream.php', form(pending)) || false;
     }
@@ -176,8 +179,7 @@
         const changed = !state || !samePolicy(state, latest) || latest.revision > state.revision;
         const foreign = latest.last_writer_id !== writer;
         const shouldAsk = (conflict || (changed && foreign)) && latest.locator !== null &&
-          (!samePosition(latest.locator, position) || conflict) &&
-          (latest.has_read || conflict || compare(latest.locator, position) > 0);
+          (!samePosition(latest.locator, position) || conflict);
         if (shouldAsk) {
           clearTimer();
           const move = await options.confirm(latest);
@@ -210,7 +212,7 @@
     async function finish() {
       const saveAfterRefresh = async () => {
         // 復帰時の確認が済むまで待ち、保存を試す前に未同期扱いしないルン。
-        if (!options.isGuest && pending && !pending.unbased && !conflict && !closed && needsCheck) {
+        if (!options.isGuest && pending && !pending.unbased && !pending.legacy_policy && !conflict && !closed && needsCheck) {
           try { await refresh(); }
           catch (error) { options.onError?.(error); return false; }
         }
@@ -226,7 +228,8 @@
       return result;
     }
     return { initialize, record, flush, beacon, beforeNavigation, bindLifecycle, finish,
-      getState: () => state, getPending: () => pending, refresh, samePosition };
+      getState: () => state, getPending: () => pending,
+      getRestoreLocator: () => pending?.locator ?? state?.locator ?? null, refresh, samePosition };
   }
 
   const api = { create };

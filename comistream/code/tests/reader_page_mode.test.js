@@ -66,8 +66,7 @@ function reader({ preference = 'auto', width = 900, height = 600, wide = [], cou
     context.fetch = async (_url, init) => {
       if (init.body) {
         posts.push({ ...init.body.values });
-        remote = { ...remote, locator: remote.has_read || init.body.values.completion_locator
-          ? init.body.values.locator : String(Math.max(Number(remote.locator), Number(init.body.values.furthest))),
+        remote = { ...remote, locator: init.body.values.locator,
           has_read: remote.has_read || Boolean(init.body.values.completion_locator), revision: remote.revision + 1 };
       }
       return { ok: true, status: 200, json: async () => ({ ok: true, result: 'applied', state: { ...remote } }) };
@@ -251,7 +250,8 @@ test('クイック表示の遅延を取消し、続巻候補のoverlayを消さ�
 
 
 const initialProgress = (patch = {}) => ({ state_id: 'a'.repeat(32), revision: 0, policy_epoch: 0,
-  has_read: true, locator: '1', last_writer_id: null, last_writer_seq: 0, writer_base_revision: 0, ...patch });
+  has_read: true, locator: '1', last_writer_id: null, last_writer_seq: 0, writer_base_revision: 0,
+  resume_policy: 'last_position', ...patch });
 
 test('新方式ではサーバーの表紙を復元し、初期表示と回転で保存しない', async () => {
   const r = reader({ progressState: initialProgress(), count: 20 });
@@ -283,4 +283,40 @@ test('新方式の復帰確認は描画と保存より先に行う', async () =>
   await r.settle();
   r.c.page = 4; await r.c.loadPage(1); await r.settle();
   assert.equal(r.c.page, 1); assert.equal(r.posts.length, 0);
+});
+
+test('未読CBZは先のページを見て戻った読みかけ位置を保存する', async () => {
+  const r = reader({ preference:'single', progressState:initialProgress({ has_read:false, locator:'5' }), count:30 });
+  await r.c.restorePage();
+  r.c.page=20; await r.c.loadPage(1); await r.c.readerProgressManager.flush();
+  r.c.page=5; await r.c.loadPage(-1);
+  r.c.page=6; await r.c.loadPage(1); await r.c.readerProgressManager.finish();
+  assert.equal(r.c.readerProgressManager.getState().locator,'6');
+  assert.equal(r.c.readerProgressManager.getState().has_read,false);
+  assert.equal(r.posts.at(-1).resume_policy,'last_position');
+});
+
+test('CBZの終了と続刊移動は戻り位置の描画と保存を待つ', async () => {
+  for (const nextBook of [false,true]) {
+    const r=reader({ preference:'single', progressState:initialProgress({ has_read:false, locator:'20' }), count:30 });
+    await r.c.restorePage();
+    let shown, release, left=false;
+    const visible=new Promise(resolve=>{shown=resolve;});
+    const gate=new Promise(resolve=>{release=resolve;});
+    const render=r.c.renderReaderPage;
+    r.c.renderReaderPage=async(...args)=>{await render(...args); shown(); await gate;};
+    r.c.history={length:2,back:()=>{left=true;}};
+    r.c.location.replace=()=>{left=true;};
+    r.c.page=5; const moving=r.c.loadPage(-1); await visible;
+    const exit=()=>nextBook ? r.c.toNextBook('/next') : r.c.backListPage();
+    const closing=exit();
+    try {
+      await r.settle();
+      assert.equal(left,false); assert.equal(r.posts.length,0);
+      r.c.page=6; await r.c.loadPage(1); await exit();
+    } finally {release();}
+    await Promise.all([moving,closing]);
+    assert.equal(left,true); assert.equal(r.c.readerProgressManager.getState().locator,'5');
+    assert.equal(r.posts.length,1);
+  }
 });

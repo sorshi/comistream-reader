@@ -119,6 +119,7 @@ function readerProgressState(PDO $database, string $user, string $baseFile): ?ar
     foreach (['history_id','revision','policy_epoch','last_writer_seq','writer_base_revision','current_page'] as $key) $row[$key] = (int)$row[$key];
     $row['has_read'] = (int)$row['has_read'] === 1;
     $row['total_units'] = $row['total_units'] === null ? null : (int)$row['total_units'];
+    $row['resume_policy'] = 'last_position';
     return $row;
 }
 
@@ -219,6 +220,8 @@ function readerProgressSection(string $cfi, array $linear): int
 /** APIとテストが同じ原子的保存を使うルン。 */
 function saveReaderProgress(PDO $database, string $user, string $baseFile, array $input, ?array $metadata = null): array
 {
+    // 最大位置を自動統合する旧タブからの保存は、新しい位置を上書きさせないルン。
+    if (($input['resume_policy'] ?? null) !== 'last_position') throw new ReaderProgressException('reader_update_required', 409);
     $stateId = $input['state_id'] ?? '';
     $writer = $input['writer_id'] ?? '';
     if (!is_string($stateId) || !preg_match('/\A[a-f0-9]{32}\z/D', $stateId)
@@ -276,10 +279,6 @@ function saveReaderProgress(PDO $database, string $user, string $baseFile, array
         }
         $read = $state['has_read'] || $completion !== null;
         $saved = $locator;
-        if (!$read) {
-            $saved = $state['locator'];
-            if ($furthest !== null && ($saved === null || readerProgressCompare($format, $furthest, $saved) > 0)) $saved = $furthest;
-        }
         $statement = $database->prepare('UPDATE reader_progress SET locator=?, total_units=?, revision=revision+1, '
             . 'position_updated_at=CASE WHEN locator IS NOT ? THEN CURRENT_TIMESTAMP ELSE position_updated_at END, '
             . 'last_writer_id=?,last_writer_seq=?,writer_base_revision=?,last_operation_hash=? WHERE history_id=?');

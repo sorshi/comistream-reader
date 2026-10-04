@@ -28,6 +28,18 @@ window.ComistreamReaderProgress.create = (options) => createProgress({ ...option
   await epubProgressManager.flush();
   const layoutState = await fetch('comistream.php?mode=readingState&file=book.epub').then(r=>r.json());
   if (layoutState.state.revision !== saved.state.revision) throw new Error('Layout override saved progress');
+  // 未読でも先の章を確認して戻った位置を保存し、次の起動へ引き継ぐルン。
+  await navigate(() => goToTocHref('b.xhtml'));
+  await epubProgressManager.flush();
+  await navigate(() => goToTocHref('a.xhtml'));
+  if (!await epubProgressManager.finish()) throw new Error('Unread EPUB return was not saved');
+  const returned = await fetch('comistream.php?mode=readingState&file=book.epub').then(r=>r.json());
+  if (returned.state.has_read || returned.state.locator !== currentLocation.cfi || returned.state.current_page !== 1) throw new Error('Unread EPUB resume retained the preview chapter');
+  const resumed = window.ComistreamReaderProgress.create({
+    file:'book.epub', endpoint:'comistream.php', userKey:'resume-fixture', bookKey:'book.epub',
+    csrfToken:'fixture-token', compare:(a,b)=>a===b ? 0 : 1, getPosition:()=>currentLocation.cfi
+  });
+  if ((await resumed.initialize()).locator !== returned.state.locator) throw new Error('Unread EPUB return was not restored');
   await fetch('comistream.php?mode=testRead');
   await epubProgressManager.refresh();
   // 実際の描画が済んでいても移動処理が未完了なら、章頭の登録と保存を待つルン。

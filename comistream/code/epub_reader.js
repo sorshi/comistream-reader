@@ -547,7 +547,10 @@ function localStateKey() {
 }
 
 function getStoredLocation() {
-    if (typeof epubProgressManager !== 'undefined' && epubProgressManager) return epubProgressManager.getState()?.locator || (appConfig.isGuest ? null : savedCfi || null);
+    if (typeof epubProgressManager !== 'undefined' && epubProgressManager) {
+        return epubProgressManager.getRestoreLocator?.() ?? epubProgressManager.getState()?.locator
+            ?? (appConfig.isGuest ? null : savedCfi || null);
+    }
     const localState = getStoredState();
     const localUpdatedAt = Number(localState?.updatedAt) || 0;
     // DBの秒精度にそろえ、同じ秒ならサーバーで確定した位置を優先するルン。
