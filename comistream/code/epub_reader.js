@@ -1398,10 +1398,39 @@ function setRendererAttribute(name, value) {
         return;
     }
     if (value === null || value === undefined || value === '') {
-        view.renderer.removeAttribute?.(name);
+        if (view.renderer.hasAttribute(name)) {
+            view.renderer.removeAttribute(name);
+        }
         return;
     }
-    view.renderer.setAttribute(name, String(value));
+    const nextValue = String(value);
+    if (view.renderer.getAttribute(name) !== nextValue) {
+        view.renderer.setAttribute(name, nextValue);
+    }
+}
+
+function batchRendererUpdates(update, { renderAfter = true } = {}) {
+    const renderer = view?.renderer;
+    if (view?.isFixedLayout || typeof renderer?.render !== 'function') {
+        return update();
+    }
+    // 固定版Foliateは属性ごとに同期renderするので、設定反映中だけまとめるルン。
+    const ownRender = Object.getOwnPropertyDescriptor(renderer, 'render');
+    const render = renderer.render;
+    let renderRequested = false;
+    renderer.render = () => { renderRequested = true; };
+    try {
+        return update();
+    } finally {
+        if (ownRender) {
+            Object.defineProperty(renderer, 'render', ownRender);
+        } else {
+            delete renderer.render;
+        }
+        if (renderAfter && renderRequested) {
+            render.call(renderer);
+        }
+    }
 }
 
 function setPaginatedSwipeMinimumDistance(renderer, isFixedLayout, flowMode) {
@@ -2628,8 +2657,8 @@ async function waitForDocumentAssets(doc, timeoutMs = 1600) {
     ]);
 }
 
-function isNavigationReady() {
-    if (!viewInitialized || !view?.renderer) {
+function isRendererDocumentReady() {
+    if (!view?.renderer) {
         return false;
     }
 
@@ -2639,6 +2668,10 @@ function isNavigationReady() {
     }
 
     return contents.some((item) => hasUsableDocumentBody(item?.doc ?? item?.document));
+}
+
+function isNavigationReady() {
+    return viewInitialized && isRendererDocumentReady();
 }
 
 function isNavigationReadyForIndex(expectedIndex) {
@@ -2656,15 +2689,16 @@ function isNavigationReadyForIndex(expectedIndex) {
     });
 }
 
-async function waitForNavigationReady(timeoutMs = NAVIGATION_READY_TIMEOUT_MS) {
-    if (isNavigationReady()) {
+async function waitForNavigationReady(timeoutMs = NAVIGATION_READY_TIMEOUT_MS, { allowInitializing = false } = {}) {
+    const isReady = allowInitializing ? isRendererDocumentReady : isNavigationReady;
+    if (isReady()) {
         return true;
     }
 
     const startedAt = Date.now();
     return await new Promise((resolve) => {
         const tick = () => {
-            if (isNavigationReady()) {
+            if (isReady()) {
                 resolve(true);
                 return;
             }
@@ -3338,7 +3372,8 @@ async function reapplyInitialRestoreTarget(target, reason) {
     }
     try {
         await view.goTo(target);
-        await waitForNavigationReady();
+        // 復元が終わるまでviewInitializedはfalseなので、本文の準備状態を待つルン。
+        await waitForNavigationReady(NAVIGATION_READY_TIMEOUT_MS, { allowInitializing: true });
         await waitForDocumentAssets(getPreferredContentDoc());
         await waitAnimationFrame();
         await waitAnimationFrame();
@@ -3459,40 +3494,44 @@ function applyRendererPrefs() {
     lastRendererPrefsSignature = prefsSignature;
     const css = buildReaderCSS(currentFontScale);
 
-    if (typeof view.renderer.toggleAttribute === 'function') {
-        // paginated + multi-section preload は section を跨いだ primary 判定が不安定になりやすいルン。
-        // 安定動作を優先して、ページ送り中は現在 section ベースの遷移だけに絞るルン。
-        view.renderer.toggleAttribute('no-preload', disableSectionPreload);
-        configurePaginatedSectionIsolation(view.renderer, Boolean(view.isFixedLayout), currentFlowMode);
-        debugLog('applyRendererPrefs() preload mode', {
-            flow: currentFlowMode,
-            isFixedLayout: Boolean(view.isFixedLayout),
-            noPreload: disableSectionPreload
-        });
-    }
-    if (!view.isFixedLayout) {
-        setRendererAttribute('gap', '7%');
-        setRendererAttribute('margin-top', `${layout.marginPx}px`);
-        setRendererAttribute('margin-right', `${layout.marginPx}px`);
-        setRendererAttribute('margin-bottom', `${layout.marginPx}px`);
-        setRendererAttribute('margin-left', `${layout.marginPx}px`);
-        setRendererAttribute('max-inline-size', layout.maxInlineSize);
-        setRendererAttribute('max-block-size', layout.maxBlockSize);
-        setRendererAttribute('max-column-count', layout.maxColumnCount);
-        debugLog('applyRendererPrefs() layout', {
-            viewportWidth,
-            viewportHeight,
-            effectiveLayout,
-            effectiveFontSize: getEffectiveFontSizePx(currentFontScale),
-            layout,
-            fontScaleSource: currentFontScaleSource
-        });
-    }
-    view.renderer.setStyles?.(css);
-    for (const content of getRendererContents()) {
-        preparePaperImages(content?.doc ?? content?.document);
-    }
-    view.renderer.setAttribute('flow', currentFlowMode);
+    batchRendererUpdates(() => {
+        if (typeof view.renderer.toggleAttribute === 'function') {
+            // paginated + multi-section preload は section を跨いだ primary 判定が不安定になりやすいルン。
+            // 安定動作を優先して、ページ送り中は現在 section ベースの遷移だけに絞るルン。
+            view.renderer.toggleAttribute('no-preload', disableSectionPreload);
+            configurePaginatedSectionIsolation(view.renderer, Boolean(view.isFixedLayout), currentFlowMode);
+            debugLog('applyRendererPrefs() preload mode', {
+                flow: currentFlowMode,
+                isFixedLayout: Boolean(view.isFixedLayout),
+                noPreload: disableSectionPreload
+            });
+        }
+        if (!view.isFixedLayout) {
+            setRendererAttribute('gap', '7%');
+            setRendererAttribute('margin-top', `${layout.marginPx}px`);
+            setRendererAttribute('margin-right', `${layout.marginPx}px`);
+            setRendererAttribute('margin-bottom', `${layout.marginPx}px`);
+            setRendererAttribute('margin-left', `${layout.marginPx}px`);
+            setRendererAttribute('max-inline-size', layout.maxInlineSize);
+            setRendererAttribute('max-block-size', layout.maxBlockSize);
+            setRendererAttribute('max-column-count', layout.maxColumnCount);
+            debugLog('applyRendererPrefs() layout', {
+                viewportWidth,
+                viewportHeight,
+                effectiveLayout,
+                effectiveFontSize: getEffectiveFontSizePx(currentFontScale),
+                layout,
+                fontScaleSource: currentFontScaleSource
+            });
+        }
+        view.renderer.setStyles?.(css);
+        for (const content of getRendererContents()) {
+            preparePaperImages(content?.doc ?? content?.document);
+        }
+        setRendererAttribute('flow', currentFlowMode);
+        // CSSだけの変更も、最終状態で1回描画するルン。
+        if (!view.isFixedLayout) view.renderer.render?.();
+    });
     updateToolbarState();
 }
 
@@ -5140,7 +5179,8 @@ function bindViewLifecycleEvents() {
         event.preventDefault();
         void navigate(() => view.goTo(event.detail.href));
     });
-    view.addEventListener('load', (event) => {
+    // Foliateはload通知後に縦横を確定して初回描画するので、途中の再描画を抑えるルン。
+    view.addEventListener('load', (event) => batchRendererUpdates(() => {
         navigationEventSeq++;
         const doc = event.detail?.doc;
         doc?.addEventListener('pointerdown', hidePagePositionHelp, { passive: true });
@@ -5168,7 +5208,7 @@ function bindViewLifecycleEvents() {
             location: summarizeLocation(view?.lastLocation || currentLocation)
         });
         focusReader();
-    });
+    }, { renderAfter: false }));
 
     view.addEventListener('relocate', (event) => {
         navigationEventSeq++;
