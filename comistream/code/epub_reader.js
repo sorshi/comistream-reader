@@ -1668,18 +1668,6 @@ img, svg {
     max-inline-size: none !important;
     max-width: 100% !important;
     max-height: 100% !important;
-    width: auto !important;
-    height: auto !important;
-    block-size: auto !important;
-}
-body > img:only-child,
-body > svg:only-child,
-body > p:only-child > img:only-child,
-body > div:only-child > img:only-child,
-body > section:only-child > img:only-child {
-    display: block !important;
-    margin: auto !important;
-    object-fit: contain;
 }
 html[data-comistream-image-page] {
     writing-mode: horizontal-tb !important;
@@ -1703,6 +1691,7 @@ html[data-comistream-image-page] [data-comistream-page-media] {
     max-height: 100% !important;
     width: auto !important;
     height: auto !important;
+    block-size: auto !important;
     margin: auto !important;
     object-fit: contain !important;
 }
@@ -1859,6 +1848,11 @@ function hasUsableDocumentBody(doc) {
     return Boolean(doc?.body && doc.body.nodeType === Node.ELEMENT_NODE);
 }
 
+function isTextImage(media) {
+    // 外字やルビ内の画像は、原寸が大きくても本文の一部として扱うルン。
+    return Boolean(media?.matches?.('.gaiji, .gaiji-line, .gaiji-wide') || media?.closest?.('ruby'));
+}
+
 function preserveIllustrationInlineStyles(element, properties) {
     if (!element?.style) {
         return;
@@ -1956,6 +1950,7 @@ function applyIllustrationPageStyles(target, media) {
         'padding': '0'
     });
     applyImportantStyle(media, {
+        'block-size': 'auto',
         'display': 'block',
         'height': 'auto',
         'margin': 'auto',
@@ -2049,6 +2044,9 @@ function markImageOnlyPage(doc) {
     }
 
     const media = mediaNodes[0];
+    if (isTextImage(media)) {
+        return false;
+    }
     doc.documentElement.setAttribute('data-comistream-image-page', '1');
     doc.body.setAttribute('data-comistream-image-page', '1');
     media.setAttribute('data-comistream-page-media', '1');
@@ -2141,6 +2139,9 @@ function markOpeningIllustrationBreak(doc) {
     }
 
     const media = mediaNodes[0];
+    if (isTextImage(media)) {
+        return false;
+    }
     if (getNodeTextLengthBefore(doc.body, media) > ILLUSTRATION_MAX_TEXT_BEFORE_CHARS) {
         return false;
     }
