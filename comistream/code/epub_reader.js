@@ -121,6 +121,7 @@ let progressSavePending = false;
 let lastProgressSaveKey = '';
 let epubCompletionPending = false;
 let epubProgressManager = null;
+let epubEndController = null;
 let epubScrollSync = null;
 let forwardNavigationSeq = 0;
 let endNavigationSeq = 0;
@@ -1911,6 +1912,7 @@ function formatWritingModeLabel() {
 }
 
 function focusReader() {
+    if (typeof epubEndController !== 'undefined' && epubEndController?.isOpen()) return;
     if (typeof view?.focus === 'function') {
         view.focus();
     }
@@ -3692,6 +3694,7 @@ async function applyLayoutOverride() {
 }
 
 function toggleMenu(forceVisible = null) {
+    if (typeof epubEndController !== 'undefined' && epubEndController?.isOpen()) return;
     const next = forceVisible === null ? !menuVisible : Boolean(forceVisible);
     menuVisible = next;
     const panel = $('epub-menu-panel');
@@ -3769,6 +3772,9 @@ async function goNextPage() {
         return;
     }
     forwardNavigationSeq++;
+    if (typeof epubEndController !== 'undefined' && epubEndController && isEpubAtEndOfLinearReadingOrder()) {
+        return { endPanel: true };
+    }
     const beforeLocation = summarizeLocation();
     debugLog('goNextPage() start', beforeLocation);
     await view.next();
@@ -4326,10 +4332,12 @@ function isEditableTarget(target) {
 }
 
 async function navigate(action, { allowReadCompletion = true, recordProgress = true } = {}) {
-    if (readerClosing) {
+    const endUI = typeof epubEndController === 'undefined' ? null : epubEndController;
+    if (readerClosing || endUI?.isOpen()) {
         return;
     }
     const intentSeq = ++navigationIntentSeq;
+    const endGeneration = endUI?.getGeneration();
     pendingNavigationCount++;
     if (pendingNavigationCount > 1) {
         cancelPageTurnAnimation();
@@ -4338,6 +4346,7 @@ async function navigate(action, { allowReadCompletion = true, recordProgress = t
     let spinnerTimer = null;
     let spinnerShown = false;
     navigationChain = navigationChain.then(async () => {
+        if (endUI && (endUI.isOpen() || endUI.getGeneration() !== endGeneration)) return;
         if (recordProgress && typeof epubProgressManager !== 'undefined' && epubProgressManager && !(await epubProgressManager.beforeNavigation())) return;
         clearInitialRestorePin();
         const readyBeforeAction = await waitForNavigationReady();
@@ -4366,7 +4375,7 @@ async function navigate(action, { allowReadCompletion = true, recordProgress = t
         const targetInfo = normalizeNavigationTarget(actionResult);
         const forwardActionAlreadyAtEnd = forwardNavigationSeq !== beforeForwardNavigationSeq
             && isEpubAtEndOfLinearReadingOrder();
-        const settled = forwardActionAlreadyAtEnd || await waitForNavigationSettled(
+        const settled = (actionResult?.endPanel && isEpubAtEndOfLinearReadingOrder()) || forwardActionAlreadyAtEnd || await waitForNavigationSettled(
             beforeEventSeq,
             beforeLocation,
             {
@@ -4398,7 +4407,7 @@ async function navigate(action, { allowReadCompletion = true, recordProgress = t
         if (
             allowReadCompletion
             && isEpubAtEndOfLinearReadingOrder()
-            && (forwardNavigationSeq !== beforeForwardNavigationSeq
+            && (actionResult?.endPanel || forwardNavigationSeq !== beforeForwardNavigationSeq
                 || endNavigationSeq !== beforeEndNavigationSeq
                 || didNavigateForward(beforeLocation, summarizeLocation(view?.lastLocation || currentLocation)))
         ) {
@@ -4411,6 +4420,10 @@ async function navigate(action, { allowReadCompletion = true, recordProgress = t
         if (spinnerShown) {
             hideReaderLoading();
         }
+        if (actionResult?.endPanel && endUI && !readerClosing && isEpubAtEndOfLinearReadingOrder()) {
+            endUI.open();
+        }
+        endUI?.refresh();
         debugLog('navigate() end', {
             settled,
             synthesizedLocation,
@@ -4544,7 +4557,20 @@ function isEpubAtEndOfLinearReadingOrder(location = currentLocation) {
         && location.cfi !== ''
         && renderer?.atEnd === true
         && lastLinearIndex >= 0
-        && sectionIndex === lastLinearIndex;
+        && Number.isInteger(sectionIndex) && sectionIndex >= 0 && sectionIndex < sections.length
+        && sections[sectionIndex]?.linear !== 'no'
+        && (sectionIndex === lastLinearIndex || (view.isFixedLayout && isEpubSectionVisible(lastLinearIndex)));
+}
+
+function isEpubSectionVisible(index) {
+    return getRendererContents().some(content => {
+        if (content.index !== index) return false;
+        const doc = content.doc ?? content.document;
+        const rect = doc?.defaultView?.frameElement?.getBoundingClientRect();
+        return rect && rect.width > 0 && rect.height > 0
+            && rect.right > 0 && rect.bottom > 0
+            && rect.left < window.innerWidth && rect.top < window.innerHeight;
+    });
 }
 
 function markEpubCompletedIfAtEnd(reason) {
@@ -4672,6 +4698,7 @@ async function goToAdjacentSection(previous) {
         return;
     }
 
+    if (!previous && epubEndController && isEpubAtEndOfLinearReadingOrder()) return { endPanel: true };
     const currentIndex = getCurrentNavigationIndex();
     const marker = getAdjacentEpubMarker(previous);
     const tocTargets = getTocNavigationTargets();
@@ -4710,6 +4737,7 @@ async function goToAdjacentSection(previous) {
 }
 
 function handleKeydown(event) {
+    if (typeof epubEndController !== 'undefined' && epubEndController?.isOpen()) return;
     // 設定ボタンのSpace/Enterはブラウザ標準のクリックへ任せるルン。
     if (['Space', 'Enter'].includes(event.code) || [' ', 'Enter'].includes(event.key)) {
         if (event.target?.closest?.('.contents button')) return;
@@ -4942,6 +4970,7 @@ async function jumpToReflowPosition(index, anchor) {
 }
 
 function wireToolbar() {
+    initializeEpubEndNavigation();
     bindPagePositionHelp();
     const viewer = $('epub-viewer');
     setupViewerFallbackTapNavigation(viewer);
@@ -5348,6 +5377,7 @@ function bindViewLifecycleEvents() {
         preparePaperImages(doc);
         markMediaPageLayout(doc);
         setupTapNavigation(doc);
+        epubEndController?.bindGestures(doc);
         bindKeyboardShortcuts(doc);
         updateNavigationMode();
         const loadedIndex = event.detail?.index;
@@ -5408,6 +5438,7 @@ function bindViewLifecycleEvents() {
             deferred: !viewInitialized
         });
         if (viewInitialized) {
+            epubEndController?.refresh();
             if (epubProgressManager && currentFlowMode === 'scrolled' &&
                 Date.now() <= userScrollIntentUntil && pendingNavigationCount === 0) {
                 void Promise.resolve(epubScrollSync).then((permitted) => {
@@ -5518,6 +5549,7 @@ function bindRendererPagePositionEvents() {
     if (!renderer?.addEventListener) {
         return false;
     }
+    epubEndController?.bindGestures(renderer);
     let previousPageLocation = null;
     renderer.addEventListener('relocate', (event) => {
         const direction = getPageTurnDirection(previousPageLocation, event.detail);
@@ -5550,6 +5582,68 @@ function recordEpubUserPosition({ completed = false } = {}) {
         });
     } catch (error) {
         debugLog('Reading position could not be recorded', { message: error.message });
+    }
+}
+
+function initializeEpubEndNavigation() {
+    if (epubEndController || !window.ComistreamEpubEnd) return;
+    let savedNoSwipe = false;
+    let savedScrollLock = false;
+    epubEndController = window.ComistreamEpubEnd.create({
+        baseFile,
+        publicDir: appConfig.publicDir || '',
+        iconUrl: appConfig.bookIconUrl || '/theme/icons/book.png',
+        readerUrl: window.location.href,
+        isAtEnd: () => isNavigationReady() && isEpubAtEndOfLinearReadingOrder(),
+        getCfi: () => currentLocation?.cfi || '',
+        getDirection: () => ({ rtl: getNavigationIsRtl(), vertical: currentDirectionInfo.vertical }),
+        canSwipe: () => viewInitialized && currentFlowMode === 'paginated' && pendingNavigationCount === 0 && !readerClosing,
+        isEligibleTarget: isTapEligibleTarget,
+        requestOpen: () => navigate(() => isEpubAtEndOfLinearReadingOrder() ? { endPanel: true } : null),
+        onForwardSwipe: () => {
+            // snap通知より後に確定位置を読み、書籍末尾の実操作だけを記録するルン。
+            const intent = navigationIntentSeq;
+            const generation = epubEndController.getGeneration();
+            window.setTimeout(async () => {
+                if (readerClosing || epubEndController.isOpen() || pendingNavigationCount > 0
+                    || intent !== navigationIntentSeq || generation !== epubEndController.getGeneration()
+                    || !isEpubAtEndOfLinearReadingOrder()) return;
+                const permitted = epubProgressManager ? await epubProgressManager.beforeNavigation() : true;
+                if (permitted && intent === navigationIntentSeq && generation === epubEndController.getGeneration()
+                    && !readerClosing && !epubEndController.isOpen()) markEpubCompletedIfAtEnd('user-swipe');
+            }, 350);
+        },
+        onOpen: () => {
+            closeMenu();
+            hideReaderLoading();
+            cancelPageTurnAnimation();
+            savedNoSwipe = view.renderer.hasAttribute('no-swipe');
+            savedScrollLock = view.renderer.scrollLocked;
+            view.renderer.setAttribute('no-swipe', '');
+            if (view.isFixedLayout) view.renderer.scrollLocked = true;
+        },
+        onClose: () => {
+            if (!savedNoSwipe) view.renderer.removeAttribute('no-swipe');
+            if (view.isFixedLayout) view.renderer.scrollLocked = savedScrollLock;
+        },
+        onBack: backListPage,
+        onNavigate: toEpubSuggestedBook,
+        focusReader,
+        onError: error => debugLog('Related books unavailable', { message: error.message }),
+    });
+}
+
+async function toEpubSuggestedBook(href) {
+    if (readerClosing) return;
+    readerClosing = true;
+    try {
+        await navigationChain;
+        if (epubProgressManager) await epubProgressManager.finish();
+        persistCurrentLocation();
+        sendProgressBeacon();
+        window.location.replace(href);
+    } finally {
+        readerClosing = false;
     }
 }
 
@@ -5749,6 +5843,8 @@ async function init() {
     perf('initial relocate side effects scheduled');
     hideReaderLoading();
     perf('loading hidden');
+    epubEndController?.refresh();
+    void epubEndController?.startSuggestions();
     debugLog('init() completed', {
         location: summarizeLocation(view?.lastLocation || currentLocation),
         directionInfo: currentDirectionInfo

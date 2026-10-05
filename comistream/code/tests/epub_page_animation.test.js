@@ -26,6 +26,7 @@ function fixture({ rtl = false, fixed = false, flow = 'paginated', initialized =
         }
     };
     const context = vm.createContext({
+        epubEndController: null,
         $: () => button,
         performance: { now: () => now },
         localStorage,

@@ -39,6 +39,7 @@ function rendererFixture() {
     };
     const listeners = new Map();
     const context = vm.createContext({
+        epubEndController: null,
         view: { renderer, isFixedLayout: false, addEventListener: (type, fn) => listeners.set(type, fn) },
         currentFlowMode: 'paginated', currentFontScale: 1,
         currentFontScaleSource: 'auto', lastRendererPrefsSignature: '',

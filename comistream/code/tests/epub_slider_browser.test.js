@@ -164,6 +164,7 @@ test('real EPUB renderer seeks within sections without preloading or duplicate d
         const t = (_, fallback) => fallback;
         const REFLOW_SECTION_SLIDER_SPAN = 0.999999, SLIDER_MAX = 1000;
         const sectionIsolationRenderers = new WeakSet();
+        const epubEndController = null;
         let view, currentLocation, latestRendererPageLocation, currentFlowMode, lastViewRelocationCfi;
         let sliderDragActive = false, pendingSliderValue = null, sliderCommitScheduled = false;
         let menuVisible = true;

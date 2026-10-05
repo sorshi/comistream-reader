@@ -5,7 +5,7 @@ const { spawn } = require('node:child_process');
 const { chrome } = require('./browser_fixture');
 
 // 外部moduleの読み込みと描画を実時間で待つ専用ブラウザルン。
-async function runEpubBrowserFixture(url) {
+async function runEpubBrowserFixture(url, { screenshotPath, viewport } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'comistream-epub-browser-'));
   let child, socket;
   const waiting = new Map(); let id = 0;
@@ -38,11 +38,16 @@ async function runEpubBrowserFixture(url) {
     }
     const { targetId } = await call('Target.createTarget',{url});
     const { sessionId } = await call('Target.attachToTarget',{targetId,flatten:true});
+    if (viewport) await call('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor:1, mobile:false }, sessionId);
     for (let attempt = 0; attempt < 300; attempt++) {
       const result = await call('Runtime.evaluate',{expression:'window.__progressNativeResult || null',returnByValue:true},sessionId);
       const value = result.result?.value;
       if (value) {
         if (!value.ok) throw new Error(value.error);
+        if (screenshotPath) {
+          const shot = await call('Page.captureScreenshot', { format: 'png' }, sessionId);
+          fs.writeFileSync(screenshotPath, Buffer.from(shot.data, 'base64'));
+        }
         return;
       }
       await new Promise(resolve => setTimeout(resolve,100));
