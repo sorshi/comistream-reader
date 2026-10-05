@@ -1,7 +1,65 @@
 const test = require('node:test');
 const fs = require('node:fs');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { chrome, runBrowserFixture } = require('./browser_fixture');
 const css = fs.readFileSync(require.resolve('../comistream.css'), 'utf8');
+
+test('EPUB menu keeps settings compact and chapter touch targets separate in every language', { skip: !chrome }, async () => {
+    const pages = JSON.parse(execFileSync('php', ['-r', `
+        require_once $argv[1] . '/comistream/code/comistream_lib.php';
+        require_once $argv[1] . '/comistream/code/i18n.php';
+        $conf = ['comistream_tool_dir' => $argv[1] . '/comistream', 'epub_reader_package_base' => '/theme/bibi/test/'];
+        $bookName = $baseFile = $escapedFile = 'Sample.epub';
+        $user = 'guest';
+        $readerMarkerCsrfToken = '';
+        $i18n = I18n::getInstance();
+        $pages = [];
+        foreach (['ja', 'en', 'zh_TW', 'zh_HK'] as $lang) {
+            $i18n->setLang($lang);
+            $pages[$lang] = generateEpubHTML();
+        }
+        echo json_encode($pages);
+    `, path.resolve(__dirname, '../../..')], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }));
+    for (const [lang, html] of Object.entries(pages)) {
+        const style = html.match(/<style>[\s\S]*?<\/style>/)[0];
+        const panel = html.slice(html.indexOf('<div class="contents" id="epub-menu-panel">'), html.indexOf('<dialog id="epub-end-panel"'));
+        await runBrowserFixture(`
+            const panel = document.getElementById('epub-menu-panel');
+            panel.style.cssText = 'display:block;min-width:0;max-width:none';
+            document.getElementById('epub-page-position-setting').hidden = false;
+            document.getElementById('epub-page-position-info').hidden = false;
+            const toc = document.getElementById('epub-toc');
+            for (let depth = 0; depth <= 2; depth++) {
+                const button = document.createElement('button');
+                button.className = 'epub-toc-item epub-toc-depth-' + depth;
+                button.textContent = depth === 1 ? '長い章タイトル Long chapter title '.repeat(8) : 'Chapter ' + depth;
+                toc.appendChild(button);
+            }
+            for (const width of [300, 360, 390, 760]) {
+                panel.style.width = width + 'px';
+                panel.scrollTop = 0;
+                expect(panel.scrollWidth <= panel.clientWidth, '${lang}: Menu overflows at ' + width);
+                const settings = panel.querySelector('.epub-panel-grid');
+                expect(settings.getBoundingClientRect().height < (width < 400 ? 600 : 300), '${lang}: Settings take too much height at ' + width);
+                for (const button of settings.querySelectorAll('button')) {
+                    const rect = button.getBoundingClientRect();
+                    expect(rect.height >= 44, '${lang}: Settings touch target shrank');
+                    expect(button.scrollWidth <= button.clientWidth, '${lang}: Setting label is clipped');
+                }
+                for (const button of toc.children) {
+                    button.scrollIntoView({ block: 'center' });
+                    const rect = button.getBoundingClientRect();
+                    expect(rect.height >= 44, '${lang}: Chapter touch target is too small');
+                    expect(button.scrollWidth <= button.clientWidth, '${lang}: Chapter title is clipped');
+                    for (const y of [rect.top + 4, rect.bottom - 4]) {
+                        expect(document.elementFromPoint(rect.left + rect.width / 2, y) === button, '${lang}: Chapter touch area overlaps another element');
+                    }
+                }
+            }
+        `, style + panel);
+    }
+});
 
 test('EPUB flow labels keep the same toolbar rows at wrapping boundaries', { skip: !chrome }, async () => {
     const template = fs.readFileSync(require.resolve('../lib/lib_view.php'), 'utf8');

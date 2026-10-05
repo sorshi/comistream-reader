@@ -908,6 +908,10 @@ JS;
             display: block;
             clear: both;
         }
+        .contents .epub-toolbar :is(.reader-utility-actions, .reader-mode-actions) {
+            /* CBZの操作列と同じように、個々のボタンで折り返すルン。 */
+            display: contents;
+        }
         .epub-toolbar-close {
             vertical-align: middle;
             margin-right: 4px;
@@ -932,24 +936,28 @@ JS;
             margin-bottom: 12px;
         }
         .epub-panel-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            align-items: start;
-            gap: 20px 24px;
-            margin-top: 12px;
+            /* CBZと同じ操作高さを保ち、設定を横に詰めて折り返すルン。 */
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px 12px;
+            margin-top: 8px;
         }
         .epub-setting-row {
             display: flex;
             align-items: center;
-            gap: 8px;
-            min-height: 32px;
+            gap: 6px;
+            max-width: 100%;
+            min-width: 0;
             flex-wrap: wrap;
         }
         .epub-setting-label {
-            flex-basis: 100%;
-            min-width: 72px;
             color: #b7bec8;
             font-size: 0.78em;
+        }
+        #epub-menu-panel .epub-theme-toggle-group {
+            display: inline-flex;
+            width: auto;
         }
         .epub-setting-value {
             font-size: 0.9em;
@@ -961,6 +969,7 @@ JS;
             min-height: 30px;
             margin: 0;
             float: none;
+            font-size: 0.8em;
         }
         .epub-book-heading {
             white-space: pre-line;
@@ -1031,17 +1040,21 @@ JS;
         #epub-toc {
             display: flex;
             flex-direction: column;
-            gap: 2px;
+            gap: 6px;
         }
         .epub-toc-item {
             width: 100%;
+            box-sizing: border-box;
+            min-height: 44px;
             border: 1px solid rgba(255, 255, 255, 0.18);
             border-radius: 4px;
-            padding: 4px 8px;
+            padding: 10px 12px;
             background: rgba(255, 255, 255, 0.06);
             color: #fff;
             text-align: left;
-            line-height: 1.25;
+            font: inherit;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
             cursor: pointer;
         }
         .epub-toc-item:hover {
@@ -1121,9 +1134,6 @@ JS;
             body.epub-fixed-layout .epub-nav-zone {
                 width: 34vw;
                 min-width: 64px;
-            }
-            .epub-panel-grid {
-                grid-template-columns: 1fr;
             }
             .epub-slider-row {
                 flex-wrap: wrap;
