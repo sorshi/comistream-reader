@@ -43,6 +43,7 @@ function fixture({ rtl = false, fixed = false, flow = 'paginated', initialized =
         view: { renderer, isFixedLayout: fixed },
         viewInitialized: initialized,
         currentFlowMode: flow,
+        lastViewRelocationCfi: '',
         pageTurnAnimation: null,
         pageTurnAnimationFrame: null,
         EPUB_PAGE_TURN_DURATION_MS: 100,

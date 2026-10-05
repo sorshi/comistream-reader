@@ -21,6 +21,25 @@ window.ComistreamReaderProgress.create = (options) => createProgress({ ...option
   const initial = await fetch('comistream.php?mode=readingState&file=book.epub').then(r=>r.json());
   if (initial.state.revision !== 0) throw new Error('Initial render saved progress');
   await navigate(() => goNextPage());
+  const slider = document.getElementById('epub-slider');
+  const screenValue = slider.value;
+  const screenCfi = currentLocation.cfi;
+  if (slider.step !== 'any' || Number(screenValue) <= 1 || Number(screenValue) >= 2) throw new Error('Reflow slider did not advance within the section');
+  if (parseFloat(document.getElementById('progress').style.width) <= 0) throw new Error('Progress bar did not follow the screen');
+  // スライダの確定でも通常の移動・保存処理を通り、同じ画面のCFIへ戻れることを確かめるルン。
+  await navigate(() => goPreviousPage());
+  slider.value = screenValue;
+  slider.dispatchEvent(new Event('input'));
+  slider.dispatchEvent(new Event('change'));
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  await navigationChain;
+  if (currentLocation.cfi !== screenCfi) throw new Error('Reflow slider did not restore the selected screen CFI');
+  slider.value = screenValue;
+  slider.dispatchEvent(new Event('input'));
+  slider.dispatchEvent(new Event('change'));
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  await navigationChain;
+  if (currentLocation.cfi !== screenCfi) throw new Error('Selecting the same screen reset its saved CFI');
   await epubProgressManager.flush();
   const saved = await fetch('comistream.php?mode=readingState&file=book.epub').then(r=>r.json());
   if (!saved.state.locator || !saved.state.locator.startsWith('epubcfi(') || saved.state.revision < 1) throw new Error('Actual renderer CFI not saved');

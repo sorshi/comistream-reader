@@ -13,6 +13,9 @@ test('reflow menu progress identifies book sections without changing saved progr
     const scope = vm.createContext({
         view: { isFixedLayout: false, book: { sections: Array(27).fill({}) } },
         currentLocation: { section: { current: 14 }, sectionFraction: 0.5 },
+        latestRendererPageLocation: null,
+        currentFlowMode: 'paginated',
+        REFLOW_SECTION_SLIDER_SPAN: 0.999999,
         clamp: (value, min, max) => Math.min(Math.max(value, min), max),
         t: (key, fallback) => key === 'epub_section_progress' ? '%s番目の区切り（全%s）' : fallback
     });
@@ -21,7 +24,8 @@ test('reflow menu progress identifies book sections without changing saved progr
     assert.equal(progress.statusProgressText, '15番目の区切り（全27）');
     assert.equal(progress.currentPage, 15);
     assert.equal(progress.totalPages, 27);
-    assert.equal(progress.sliderValue, 15);
+    assert.equal(progress.sliderValue, 15 + 0.5 * scope.REFLOW_SECTION_SLIDER_SPAN);
+    assert.equal(progress.sliderMax, 28);
     assert.equal(scope.getLocationProgressMetrics({ section: { current: 0 } }).statusProgressText, '1番目の区切り（全27）');
     assert.equal(scope.getLocationProgressMetrics({ section: { current: 26 } }).statusProgressText, '27番目の区切り（全27）');
     scope.view.isFixedLayout = true;

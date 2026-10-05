@@ -30,6 +30,7 @@ const MIN_FONT_SCALE = 0.8;
 const MAX_FONT_SCALE = 2.0;
 const FONT_STEP = 0.1;
 const SLIDER_MAX = 1000;
+const REFLOW_SECTION_SLIDER_SPAN = 0.999999;
 const NAVIGATION_READY_TIMEOUT_MS = 1600;
 const LAYOUT_RESIZE_DEBOUNCE_MS = 250;
 const PAGE_POSITION_SETTLE_DELAY_MS = 140;
@@ -99,6 +100,9 @@ let layoutDirectionInfo = {
 };
 let layoutDirectionLocked = false;
 let sliderDragActive = false;
+let pendingSliderValue = null;
+let sliderCommitScheduled = false;
+let lastViewRelocationCfi = '';
 let clockTimer = null;
 let viewInitialized = false;
 let navigationChain = Promise.resolve();
@@ -2958,10 +2962,8 @@ function getLocationProgressMetrics(location = currentLocation) {
             0,
             Math.max(0, sectionTotal - 1)
         );
-        const sectionFraction = clamp(Number(location?.sectionFraction) || 0, 0, 1);
-        const progressRatio = sectionTotal > 1
-            ? clamp((sectionIndex + sectionFraction) / sectionTotal, 0, 1)
-            : 0;
+        const sectionFraction = getReflowSectionFraction(location);
+        const progressRatio = clamp((sectionIndex + sectionFraction) / sectionTotal, 0, 1);
         const currentPage = clamp(sectionIndex + 1, 1, sectionTotal);
 
         return {
@@ -2969,8 +2971,11 @@ function getLocationProgressMetrics(location = currentLocation) {
             currentPage,
             totalPages: sectionTotal,
             sliderMin: 1,
-            sliderMax: sectionTotal,
-            sliderValue: currentPage,
+            sliderMax: sectionTotal + 1,
+            sliderValue: sectionIndex === sectionTotal - 1 && sectionFraction === 1
+                ? sectionTotal + 1
+                : currentPage + sectionFraction * REFLOW_SECTION_SLIDER_SPAN,
+            sliderStep: 'any',
             progressRatio,
             statusProgressText: t('epub_section_progress', 'Section %s of %s')
                 .replace('%s', String(currentPage))
@@ -2994,9 +2999,77 @@ function getLocationProgressMetrics(location = currentLocation) {
         sliderMin: 1,
         sliderMax: displayTotal,
         sliderValue: currentPage,
+        sliderStep: '1',
         progressRatio: fraction,
         statusProgressText: `${currentPage}/${displayTotal}`
     };
+}
+
+function getReflowRendererLocation(location = currentLocation) {
+    const rendered = latestRendererPageLocation;
+    if (!rendered || rendered.index !== getLocationSectionIndex(location)
+        || rendered.flowMode !== currentFlowMode
+        || (rendered.cfi && location?.cfi && rendered.cfi !== location.cfi)) {
+        return null;
+    }
+    return rendered;
+}
+
+function getReflowSectionFraction(location = currentLocation) {
+    const rendered = getReflowRendererLocation(location);
+    const fraction = Number(rendered?.fraction);
+    if (!rendered || !Number.isFinite(fraction)) {
+        if (Number.isFinite(location?.sectionFraction)) return clamp(location.sectionFraction, 0, 1);
+        // CFI復帰中は本文位置の割合を使い、全冊のレイアウトは追加しないルン。
+        const sections = view?.book?.sections || [];
+        const index = getLocationSectionIndex(location);
+        let total = 0;
+        let before = 0;
+        let currentSize = 0;
+        sections.forEach((section, sectionIndex) => {
+            const size = section?.linear !== 'no' ? Math.max(0, Number(section?.size) || 0) : 0;
+            total += size;
+            if (sectionIndex < index) before += size;
+            if (sectionIndex === index) currentSize = size;
+        });
+        return currentSize > 0 && Number.isFinite(location?.fraction)
+            ? clamp((location.fraction * total - before) / currentSize, 0, 1)
+            : 0;
+    }
+    if (rendered.index === getBookSectionCount() - 1 && view?.renderer?.atEnd) {
+        return 1;
+    }
+    if (currentFlowMode === 'scrolled') return clamp(fraction, 0, 1);
+    const size = Number(rendered.size);
+    const columns = Number(rendered.columnCount);
+    if (!Number.isFinite(size) || size <= 0 || !Number.isInteger(columns) || columns < 1) return 0;
+    // 通知は全列数、移動先は全列数-1が分母なので、同じ画面へ戻れる割合に直すルン。
+    const lastColumnFraction = 1 - size / columns;
+    return lastColumnFraction > 0 ? clamp(fraction / lastColumnFraction, 0, 1) : 0;
+}
+
+function getReflowSliderTarget(value) {
+    const sectionTotal = Math.max(1, getBookSectionCount());
+    const offset = clamp(Number(value) - 1, 0, sectionTotal);
+    const index = Math.min(Math.floor(offset), sectionTotal - 1);
+    // 区切り末尾と次の区切り先頭が同じ値にならないよう、ごく小さい隙間を置くルン。
+    return { index, anchor: clamp((offset - index) / REFLOW_SECTION_SLIDER_SPAN, 0, 1) };
+}
+
+function getEpubSliderReadout(value) {
+    if (view?.isFixedLayout) return String(value);
+    const target = getReflowSliderTarget(value);
+    const rendered = getReflowRendererLocation();
+    if (currentFlowMode === 'paginated' && rendered?.index === target.index) {
+        const columns = Number(rendered.columnCount);
+        const size = Number(rendered.size);
+        if (Number.isInteger(columns) && columns > 0 && size > 0 && Number.isFinite(size)) {
+            const textColumns = Math.round(columns / size);
+            const page = Math.floor(Math.round(target.anchor * Math.max(0, textColumns - 1)) / columns) + 1;
+            return `${target.index + 1}–${page}`;
+        }
+    }
+    return `${target.index + 1} · ${Math.round(target.anchor * 100)}%`;
 }
 
 function calculateSectionPagePosition(location) {
@@ -3263,16 +3336,17 @@ function updateProgressUI(location = currentLocation) {
     const chapter = location?.tocItem?.label || '';
 
     if (progress) {
-        progress.style.width = `${Math.round(metrics.progressRatio * 100)}%`;
+        progress.style.width = `${metrics.progressRatio * 100}%`;
     }
     if (slider && !sliderDragActive) {
         slider.min = String(metrics.sliderMin);
         slider.max = String(metrics.sliderMax);
-        slider.step = '1';
+        slider.step = metrics.sliderStep;
         slider.value = String(metrics.sliderValue);
     }
-    if (sliderValue) {
-        sliderValue.textContent = String(metrics.sliderValue);
+    if (sliderValue && !sliderDragActive) {
+        sliderValue.textContent = getEpubSliderReadout(metrics.sliderValue);
+        slider?.setAttribute('aria-valuetext', `${metrics.statusProgressText} · ${sliderValue.textContent}`);
     }
 
     const progressText = chapter
@@ -3538,6 +3612,7 @@ function applyRendererPrefs() {
         return;
     }
     lastRendererPrefsSignature = prefsSignature;
+    latestRendererPageLocation = null;
     const css = buildReaderCSS(currentFontScale);
 
     batchRendererUpdates(() => {
@@ -4803,29 +4878,67 @@ function commitSliderPosition() {
         return;
     }
     sliderDragActive = false;
-    const min = Number(slider.min);
-    const max = Number(slider.max);
-    const value = Number(slider.value);
+    if (pendingSliderValue === null) return;
+    const value = pendingSliderValue;
+    pendingSliderValue = null;
+    if (!Number.isFinite(value)) return;
     if (!view?.isFixedLayout) {
-        const sectionTotal = Math.max(1, getBookSectionCount());
-        const sectionIndex = clamp(
-            Math.round(clamp(value, min, max) - 1),
-            0,
-            Math.max(0, sectionTotal - 1)
-        );
-        void navigate(async () => {
-            await view.goTo(sectionIndex);
-            return {
-                target: sectionIndex,
-                expectedIndex: sectionIndex
-            };
-        });
+        const { index, anchor } = getReflowSliderTarget(value);
+        void navigate(() => jumpToReflowPosition(index, anchor));
         return;
     }
+    const min = Number(slider.min);
+    const max = Number(slider.max);
     const targetFraction = max > min
         ? (clamp(value, min, max) - min) / (max - min)
         : 0;
     void navigate(() => jumpToFraction(targetFraction));
+}
+
+function scheduleSliderCommit() {
+    if (sliderCommitScheduled) return;
+    sliderCommitScheduled = true;
+    // changeとpointerupとtouchendを同じフレームでまとめ、本文を一度だけ描画するルン。
+    window.requestAnimationFrame(() => {
+        sliderCommitScheduled = false;
+        commitSliderPosition();
+    });
+}
+
+function handleEpubSliderKeydown(event) {
+    if (view?.isFixedLayout) return;
+    const code = event.code || event.key;
+    let action;
+    if (code === 'ArrowLeft') action = goPhysicalLeft;
+    else if (code === 'ArrowRight') action = goPhysicalRight;
+    else if (code === 'ArrowUp' || code === 'PageUp') action = goPreviousPage;
+    else if (code === 'ArrowDown' || code === 'PageDown') action = goNextPage;
+    else if (code === 'Home') action = () => jumpToReflowSliderBoundary(false);
+    else if (code === 'End') action = () => jumpToReflowSliderBoundary(true);
+    else return;
+    event.preventDefault();
+    sliderDragActive = false;
+    pendingSliderValue = null;
+    void navigate(action).then(() => {
+        if (menuVisible) $('epub-slider')?.focus({ preventScroll: true });
+    });
+}
+
+async function jumpToReflowSliderBoundary(atEnd) {
+    const index = atEnd ? Math.max(0, getBookSectionCount() - 1) : 0;
+    return jumpToReflowPosition(index, atEnd ? 1 : 0);
+}
+
+async function jumpToReflowPosition(index, anchor) {
+    await view.renderer.goTo({ index, anchor });
+    const location = view.lastLocation || currentLocation;
+    const cfi = getLocationSectionIndex(location) === index ? location?.cfi : undefined;
+    if (cfi) view.history?.pushState(cfi);
+    // 同じ画面を選び直しても、復旧処理が区切り先頭のCFIで上書きしないようにするルン。
+    return {
+        target: cfi,
+        expectedIndex: index
+    };
 }
 
 function wireToolbar() {
@@ -4924,24 +5037,32 @@ function wireToolbar() {
 
     const slider = $('epub-slider');
     if (slider) {
+        slider.addEventListener('keydown', handleEpubSliderKeydown);
         slider.addEventListener('pointerdown', () => {
             sliderDragActive = true;
         });
         slider.addEventListener('pointerup', () => {
-            commitSliderPosition();
+            scheduleSliderCommit();
         });
         slider.addEventListener('touchend', () => {
-            commitSliderPosition();
+            scheduleSliderCommit();
         }, { passive: true });
         slider.addEventListener('change', () => {
-            commitSliderPosition();
+            scheduleSliderCommit();
         });
         slider.addEventListener('input', () => {
             sliderDragActive = true;
+            pendingSliderValue = Number(slider.value);
             const sliderValue = $('epub-slider-value');
             if (sliderValue) {
-                sliderValue.textContent = slider.value;
+                sliderValue.textContent = getEpubSliderReadout(slider.value);
+                slider.setAttribute('aria-valuetext', sliderValue.textContent);
             }
+        });
+        slider.addEventListener('pointercancel', () => {
+            sliderDragActive = false;
+            pendingSliderValue = null;
+            updateProgressUI();
         });
     }
 }
@@ -5019,6 +5140,14 @@ function initializeEpubReaderMarkers() {
         getMarkerSliderValue: (marker, range) => {
             if (!view?.isFixedLayout) {
                 const sectionIndex = Number(marker.sectionIndex);
+                const fraction = Number(marker.progressFraction);
+                const offset = fraction * getBookSectionCount() - sectionIndex;
+                if (Number.isInteger(sectionIndex) && marker.progressFraction !== null
+                    && Number.isFinite(offset) && offset >= -0.000001 && offset <= 1.000001) {
+                    return sectionIndex === getBookSectionCount() - 1 && offset >= 1
+                        ? getBookSectionCount() + 1
+                        : sectionIndex + 1 + clamp(offset, 0, 1) * REFLOW_SECTION_SLIDER_SPAN;
+                }
                 return Number.isInteger(sectionIndex)
                     ? sectionIndex + 1
                     : (marker.pageNumber === null
@@ -5243,6 +5372,7 @@ function bindViewLifecycleEvents() {
     }, { renderAfter: false }));
 
     view.addEventListener('relocate', (event) => {
+        lastViewRelocationCfi = event.detail?.cfi || '';
         navigationEventSeq++;
         relocationEventSeq++;
         const initialRestoreActive = initialRestoreReconcileUntil > Date.now();
@@ -5396,7 +5526,12 @@ function bindRendererPagePositionEvents() {
         if (direction && ['page', 'snap', 'navigation'].includes(event.detail?.reason)) {
             animatePageTurn(direction > 0);
         }
-        schedulePagePositionUpdate(event.detail);
+        schedulePagePositionUpdate({
+            ...event.detail,
+            flowMode: currentFlowMode,
+            columnCount: renderer.columnCount,
+            cfi: lastViewRelocationCfi
+        });
     });
     renderer.addEventListener('stabilized', () => {
         schedulePagePositionUpdate();
