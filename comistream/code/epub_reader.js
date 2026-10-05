@@ -4331,9 +4331,10 @@ function isEditableTarget(target) {
     return Boolean(element.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]'));
 }
 
-async function navigate(action, { allowReadCompletion = true, recordProgress = true } = {}) {
+async function navigate(action, { allowReadCompletion = true, recordProgress = true, skipIfBusy = false } = {}) {
     const endUI = typeof epubEndController === 'undefined' ? null : epubEndController;
-    if (readerClosing || endUI?.isOpen()) {
+    // 長押しのリピートは描画待ち中に積まず、キーを離した後の連続送りを防ぐルン。
+    if (readerClosing || endUI?.isOpen() || (skipIfBusy && pendingNavigationCount > 0)) {
         return;
     }
     const intentSeq = ++navigationIntentSeq;
@@ -4807,79 +4808,79 @@ function handleKeydown(event) {
     if (code === 'ArrowLeft' && event.shiftKey) {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goToAdjacentSection(true));
+        void navigate(() => goToAdjacentSection(true), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'ArrowRight' && event.shiftKey) {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goToAdjacentSection(false));
+        void navigate(() => goToAdjacentSection(false), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'ArrowLeft' && event.ctrlKey) {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goToBoundary(false));
+        void navigate(() => goToBoundary(false), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'ArrowRight' && event.ctrlKey) {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goToBoundary(true));
+        void navigate(() => goToBoundary(true), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'ArrowLeft') {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goPhysicalLeft());
+        void navigate(() => goPhysicalLeft(), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'ArrowRight') {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goPhysicalRight());
+        void navigate(() => goPhysicalRight(), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'ArrowDown') {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goNextPage());
+        void navigate(() => goNextPage(), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'ArrowUp') {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goPreviousPage());
+        void navigate(() => goPreviousPage(), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'Period' || key === '>') {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goToBoundary(true));
+        void navigate(() => goToBoundary(true), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'Comma' || key === '<') {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goToBoundary(false));
+        void navigate(() => goToBoundary(false), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'Home') {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goToBoundary(true));
+        void navigate(() => goToBoundary(true), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'End') {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goToBoundary(false));
+        void navigate(() => goToBoundary(false), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'Space' || key === ' ') {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goNextPage());
+        void navigate(() => goNextPage(), { skipIfBusy: event.repeat });
     }
 }
 
@@ -4947,7 +4948,7 @@ function handleEpubSliderKeydown(event) {
     event.preventDefault();
     sliderDragActive = false;
     pendingSliderValue = null;
-    void navigate(action).then(() => {
+    void navigate(action, { skipIfBusy: event.repeat }).then(() => {
         if (menuVisible) $('epub-slider')?.focus({ preventScroll: true });
     });
 }
