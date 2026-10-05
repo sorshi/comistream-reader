@@ -241,7 +241,7 @@ test('クイック表示の遅延を取消し、続巻候補のoverlayを消さ�
   releases.forEach(resolve => resolve(false));
   await pending;
   assert.notEqual(r.element('modal').style.display, 'block');
-  r.element('suggest').classList.contains = name => name === 'suggest-active';
+  r.element('suggest').open = true;
   r.element('modal').style.display = 'block';
   r.element('overlay').style.display = 'block';
   r.c.closeQuickSpread();

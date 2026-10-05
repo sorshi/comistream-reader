@@ -1,7 +1,9 @@
 const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { chrome, literal, runBrowserFixture } = require('./browser_fixture');
+const panels = chrome ? JSON.parse(execFileSync('php', [path.join(__dirname, 'reader_end_panel.test.php'), '--fixture-json'], { encoding: 'utf8' })) : null;
 
 test('readerの続刊名は文字列になり、リンクはreader URLと保存処理を維持する', { skip: !chrome }, async () => {
   const source = fs.readFileSync(path.join(__dirname, '../comistream.js'), 'utf8');
@@ -15,7 +17,7 @@ test('readerの続刊名は文字列になり、リンクはreader URLと保存�
     const saved = { count: 0 }, suggest = document.getElementById('suggest');
     location.pathname = '/cgi-bin/comistream.php';
     location.replace = (href) => { window.nextLocation = href; };
-    window.savePageTimer = null; window.lastSaveTime = 0; window.readerProgressManager = null;
+    window.readerClosing = false; window.readerNavigationPromise = null; window.savePageTimer = null; window.lastSaveTime = 0; window.readerProgressManager = null;
     globalThis.saveCurrentPage = () => { saved.count++; };
     globalThis.debugLog = () => {};
     globalThis.fetch = async () => ({ ok: true, json: async () => ({
@@ -38,7 +40,7 @@ test('readerの続刊名は文字列になり、リンクはreader URLと保存�
       } catch (error) { window.pwned++; }
       window.testDone = true;
     }, () => { window.pwned++; window.testDone = true; });
-  `, '<div id="suggest"></div>');
+  `, panels.cbz);
 });
 
 test('recommendation endpoint failure still displays the book title as text', { skip: !chrome }, async () => {
@@ -60,5 +62,5 @@ test('recommendation endpoint failure still displays the book title as text', { 
       } catch (_) { window.pwned++; }
       window.testDone = true;
     }, () => { window.pwned++; window.testDone = true; });
-  `, '<div id="suggest"></div>');
+  `, panels.cbz);
 });

@@ -391,6 +391,7 @@ window.addEventListener(
 window.addEventListener(
   "touchstart",
   function (evt) {
+    if (document.getElementById("suggest")?.open) return;
     const touches = evt.touches;
     if (touches.length > 1) {
       isPinching = true;
@@ -422,6 +423,7 @@ window.addEventListener(
 window.addEventListener(
   "touchend",
   function (evt) {
+    if (document.getElementById("suggest")?.open) return;
     if (isPinching) {
       if (evt.touches.length === 0) {
         isPinching = false;
@@ -509,6 +511,7 @@ window.addEventListener(
 window.addEventListener(
   "touchmove",
   function (evt) {
+    if (document.getElementById("suggest")?.open) return;
     // isPinching中も2本指スワイプは判定したいので、条件を変更
     // if (isZoomed()) return; // 拡大中のスワイプを許可するためコメントアウト
 
@@ -680,14 +683,8 @@ window.onclick = function (event) {
   var overlay = document.getElementById("overlay");
   var modal = document.getElementById("modal");
   if (event.target == overlay) {
-    // サジェストパネルアニメーション中はsuggest側のハンドラで処理するルン！
-    var suggest = document.getElementById("suggest");
-    if (
-      suggest &&
-      suggest.classList.contains("suggest-animating")
-    ) {
-      return;
-    }
+    // 巻末パネル表示中はクイック見開きへ操作を渡さないルン。
+    if (document.getElementById("suggest")?.open) return;
     closeQuickSpread();
   }
 };
@@ -796,182 +793,65 @@ function rightIndex() {
   else nextIndex();
 }
 
-// サジェストパネルのアニメーションタイマー管理用ルン！
-let suggestAnimTimers = [];
+let suggestRestoreFocus = null;
+let suggestPanelAnimation = null;
 
-// iOS Safari (WebKit) では、-webkit-overflow-scrolling:touchコンテナ内でCSS transitionが
-// 進行中の場合、clickイベントの生成が遅延されるルン。
-// そのためclickに依存せず、touchendで直接ボタン操作を処理するルン！
-// "all": 全クリックブロック, "button-only": 戻るボタンのみ許可, null: ガード無効
-let suggestClickGuardMode = null;
-let suggestBackTouchMoved = false;
-let suggestBackHandledByTouch = false;
-
-function suggestClickGuard(e) {
-  if (suggestClickGuardMode === "all") {
-    e.preventDefault();
-    e.stopPropagation();
-  } else if (suggestClickGuardMode === "button-only") {
-    if (e.target.closest(".button")) {
-      if (suggestBackHandledByTouch) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    } else {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  }
-}
-
-function onSuggestBackTouchStart(e) {
-  suggestBackTouchMoved = false;
-  e.preventDefault();
-}
-
-function onSuggestBackTouchMove() {
-  suggestBackTouchMoved = true;
-}
-
-function onSuggestBackTouchEnd() {
-  if (!suggestBackTouchMoved) {
-    suggestBackHandledByTouch = true;
-    setTimeout(() => { suggestBackHandledByTouch = false; }, 500);
-    backListPage();
-  }
-}
-
-function clearSuggestTimers() {
-  suggestAnimTimers.forEach((id) => clearTimeout(id));
-  suggestAnimTimers = [];
-}
-
-// カーテンコールアニメーションでサジェストパネルを表示するルン！
 function showSuggestPanel() {
-  const suggestElement = document.getElementById("suggest");
-  const overlayElement = document.getElementById("overlay");
-  if (!suggestElement || !overlayElement) {
-    debugLog("Suggest or Overlay element not found!");
-    return;
-  }
-
-  // 既に開いている場合は何もしない
-  if (
-    suggestElement.classList.contains("suggest-animating") ||
-    suggestElement.classList.contains("suggest-active")
-  ) {
-    return;
-  }
-
-  clearSuggestTimers();
-
-  const itemCount = suggestElement.querySelectorAll("p").length;
-
-  // Phase 1: オーバーレイを右→左にカーテンスワイプ (0~240ms)
-  overlayElement.style.display = "block";
-  overlayElement.classList.add("suggest-curtain");
-  requestAnimationFrame(() => {
-    overlayElement.classList.add("suggest-open");
-  });
-
-  // Phase 2: 240ms後にパネルをバウンスポップ (240~520ms)
-  // キャプチャフェーズのガードでアニメーション中の誤タップを防止するルン！
-  suggestClickGuardMode = "all";
-  suggestElement.addEventListener("click", suggestClickGuard, true);
-  suggestAnimTimers.push(
-    setTimeout(() => {
-      suggestElement.classList.add("suggest-animating");
-      suggestElement.style.display = "block";
-      requestAnimationFrame(() => {
-        suggestElement.classList.add("suggest-active");
-      });
-    }, 240)
-  );
-
-  // Phase 3: 520ms後にリンク行をスタガーフェードイン
-  // 「戻る」ボタンはsuggestリストより先に表示＆操作可能にするルン！
-  // iOS Safari対策: touchendで直接backListPage()を呼ぶルン
-  suggestAnimTimers.push(
-    setTimeout(() => {
-      const bookItems = suggestElement.querySelectorAll("p");
-      const backButton = suggestElement.querySelector(".button");
-      if (backButton) {
-        backButton.style.transitionDelay = "0ms";
-        backButton.addEventListener("touchstart", onSuggestBackTouchStart, { passive: false });
-        backButton.addEventListener("touchmove", onSuggestBackTouchMove, { passive: true });
-        backButton.addEventListener("touchend", onSuggestBackTouchEnd, { passive: true });
+  const panel = document.getElementById("suggest");
+  if (!panel || panel.open) return;
+  suggestRestoreFocus = document.activeElement;
+  closeQuickSpread();
+  const contents = document.getElementById("contents");
+  if (contents) contents.style.display = "none";
+  if (!panel.dataset.suggestBound) {
+    panel.dataset.suggestBound = "1";
+    let backdropPressed = false;
+    const outside = (event) => {
+      const rect = panel.getBoundingClientRect();
+      return event.clientX < rect.left || event.clientX > rect.right
+        || event.clientY < rect.top || event.clientY > rect.bottom;
+    };
+    panel.addEventListener("pointerdown", (event) => {
+      backdropPressed = event.target === panel && outside(event);
+    });
+    panel.addEventListener("pointercancel", () => { backdropPressed = false; });
+    panel.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      hideSuggestPanel();
+    });
+    panel.addEventListener("click", (event) => {
+      if (backdropPressed && event.target === panel && outside(event)) hideSuggestPanel();
+      backdropPressed = false;
+    });
+    panel.addEventListener("close", () => {
+      if (panel.open) return;
+      suggestPanelAnimation?.cancel();
+      if (suggestRestoreFocus?.isConnected && !suggestRestoreFocus.disabled
+        && suggestRestoreFocus.getClientRects().length) {
+        suggestRestoreFocus.focus({ preventScroll: true });
       }
-      bookItems.forEach((item, i) => {
-        item.style.transitionDelay = i * 20 + "ms";
-      });
-      suggestElement.classList.add("suggest-stagger");
-      suggestClickGuardMode = "button-only";
-    }, 520)
-  );
-
-  // Phase 4: 全スタガー完了後に全リンクの操作を許可
-  const totalTime = 520 + itemCount * 20 + 160;
-  suggestAnimTimers.push(
-    setTimeout(() => {
-      suggestClickGuardMode = null;
-      suggestElement.removeEventListener("click", suggestClickGuard, true);
-    }, totalTime)
-  );
-
-  // オーバーレイクリックで閉じるイベントリスナー
-  overlayElement.onclick = () => {
-    hideSuggestPanel();
-  };
+    });
+  }
+  panel.showModal();
+  document.getElementById("suggest-return")?.focus({ preventScroll: true });
+  // EPUBと同じ演出を使い、本文復帰と一覧への終了は表示直後から操作できるルン。
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    suggestPanelAnimation = panel.animate([
+      { opacity: 0, transform: "scale(0.85)" },
+      { opacity: 1, transform: "scale(1)" },
+    ], { duration: 280, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" });
+  }
 }
 
-// カーテンコールアニメーションでサジェストパネルを閉じるルン！
 function hideSuggestPanel() {
-  clearSuggestTimers();
-
-  const suggestElement = document.getElementById("suggest");
-  const overlayElement = document.getElementById("overlay");
-  if (!suggestElement || !overlayElement) return;
-
-  overlayElement.onclick = null;
-
-  // クリックガードを解除するルン
-  suggestClickGuardMode = null;
-  suggestElement.removeEventListener("click", suggestClickGuard, true);
-
-  // 子要素のtransition-delayをリセットして即座にフェードアウト
-  suggestElement.querySelectorAll("p").forEach((item) => {
-    item.style.transitionDelay = "";
-  });
-  const backButton = suggestElement.querySelector(".button");
-  if (backButton) {
-    backButton.style.transitionDelay = "";
-    backButton.removeEventListener("touchstart", onSuggestBackTouchStart);
-    backButton.removeEventListener("touchmove", onSuggestBackTouchMove);
-    backButton.removeEventListener("touchend", onSuggestBackTouchEnd);
-  }
-  suggestBackTouchMoved = false;
-  suggestBackHandledByTouch = false;
-
-  // 閉じるアニメーション: パネルをフェードアウト、オーバーレイをスワイプバック
-  suggestElement.classList.remove(
-    "suggest-active",
-    "suggest-stagger"
-  );
-  suggestElement.classList.add("suggest-closing");
-  overlayElement.classList.remove("suggest-open");
-
-  // アニメーション完了後にクリーンアップ
-  suggestAnimTimers.push(
-    setTimeout(() => {
-      suggestElement.classList.remove("suggest-animating", "suggest-closing");
-      suggestElement.style.display = "none";
-      overlayElement.classList.remove("suggest-curtain");
-      overlayElement.style.display = "none";
-    }, 280)
-  );
+  const panel = document.getElementById("suggest");
+  if (!panel?.open) return;
+  suggestPanelAnimation?.cancel();
+  panel.close();
 }
 
 async function next() {
+  if (document.getElementById("suggest")?.open) return;
   if (readerRenderPending) return;
   const imageElement = document.getElementById("image");
   if (
@@ -1023,6 +903,7 @@ async function next() {
 }
 
 function back() {
+  if (document.getElementById("suggest")?.open) return;
   if (readerRenderPending) return;
   const imageElement = document.getElementById("image");
   if (
@@ -1060,6 +941,7 @@ function back() {
 }
 
 async function nextIndex() {
+  if (document.getElementById("suggest")?.open) return;
   if (readerRenderPending) return false;
   const jumpStops = getChapterJumpStops();
   const pageStopFinder = window.ComistreamReaderMarkers?.findAdjacentPageStop;
@@ -1096,6 +978,7 @@ async function nextIndex() {
 }
 
 function backIndex() {
+  if (document.getElementById("suggest")?.open) return;
   if (readerRenderPending) return false;
   const jumpStops = getChapterJumpStops();
   const pageStopFinder = window.ComistreamReaderMarkers?.findAdjacentPageStop;
@@ -1767,6 +1650,7 @@ function funcKey(evt) {
   if (['Space', 'Enter'].includes(evt.code) || evt.keyCode === 32 || evt.keyCode === 13) {
     if (evt.target?.closest?.('.contents button')) return;
   }
+  if (document.getElementById("suggest")?.open) return;
   if (evt.defaultPrevented || imageInspectorUI?.handleKeydown(evt)) return;
   if (isZoomed()) return; // 拡大表示中はキー操作によるページめくり等を無効化
 
@@ -1886,111 +1770,30 @@ function toggleTrimmingFile() {
 
 //読み終えたときに続刊、関連書籍を表示するためのデータを取得
 async function sugguestbook() {
-  debugLog("sugguestbook(); start fetch");
-  const suggestElement = document.getElementById("suggest");
-  if (!suggestElement) {
-    debugLog("sugguestbook(); suggest element not found");
-    return;
-  }
-  // 既存の内容をクリア (もし必要なら)
-  // suggestElement.innerHTML = '';
-
+  const title = document.getElementById("suggest-book-title");
+  if (title) title.textContent = baseFile;
+  const books = document.getElementById("suggest-books");
+  if (!books) return;
   try {
-    const response = await fetch(
-      `/suggest.php?booktitle=${encodeURIComponent(baseFile)}`,
-      {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-        },
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
+    const response = await fetch(`/suggest.php?booktitle=${encodeURIComponent(baseFile)}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    if (response.status === 404) return;
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const data = await response.json();
-
-    // 新しい巻
-    Object.keys(data.title.new).forEach(function (key) {
-      addnextbooklist(key, data.title.new[key]);
-    });
-
-    // 現在読んでいる本
-    renderBookSuggestion(suggestElement, baseFile, '　now reading', '#5674b9');
-
-    // 古い巻
-    Object.keys(data.title.old).forEach(function (key) {
-      addnextbooklist(key, data.title.old[key]);
-    });
-
-    // 同じ作者の本
-    Object.keys(data.author).forEach(function (key) {
-      addnextbooklist(key, data.author[key]);
-    });
-  } catch (error) {
-    debugLog("Fetch errored: " + error);
-    if (suggestElement) {
-      renderBookSuggestion(suggestElement, baseFile, '　no suggest', 'red');
+    books.replaceChildren();
+    books.hidden = true;
+    for (const group of [data?.title?.new, data?.title?.old, data?.author]) {
+      if (!group || typeof group !== "object" || Array.isArray(group)) continue;
+      for (const [title, path] of Object.entries(group)) {
+        if (typeof path === "string") addnextbooklist(title, path);
+      }
     }
+  } catch (error) {
+    // 拡張がない場合もEPUBと同じ巻末UIを維持するルン。
+    debugLog("Related books unavailable: " + error.message);
   }
-
-  /* 元の$.ajaxコード
-  $.ajax({
-    type: "GET",
-    url: "/suggest.php",
-    dataType: "json",
-    data: { booktitle: baseFile },
-  })
-    .done(function (data) {
-      var data_stringify = JSON.stringify(data);
-      var data_json = JSON.parse(data_stringify);
-      Object.keys(data_json.title.new).forEach(function (key) {
-        addnextbooklist(key, data_json.title.new[key]);
-      });
-      $("#suggest").append(
-        '<p><img src="' +
-          themeDir +
-          '/theme/icons/book.png" /><b>' +
-          baseFile +
-          '</b><span style="color:#5674b9">　now reading</span></p>'
-      );
-      Object.keys(data_json.title.old).forEach(function (key) {
-        addnextbooklist(key, data_json.title.old[key]);
-      });
-      Object.keys(data_json.author).forEach(function (key) {
-        addnextbooklist(key, data_json.author[key]);
-      });
-    })
-    .fail((jqXHR, textStatus, errorThrown) => {
-      debugLog("Ajax errored");
-      debugLog("jqXHR          : " + jqXHR.status); // HTTPステータスを表示
-      debugLog("textStatus     : " + textStatus); // タイムアウト、パースエラーなどのエラー情報を表示
-      debugLog("errorThrown    : " + errorThrown.message); // 例外情報を表示
-      $("#suggest").append(
-        '<p><img src="' +
-          themeDir +
-          '/theme/icons/book.png" /><b>' +
-          baseFile +
-          '</b><span style="color:red">　no suggest</span></p>'
-      );
-    });
-  */
-}
-
-function renderBookSuggestion(container, title, status, color) {
-  const row = document.createElement('p');
-  const icon = document.createElement('img');
-  icon.src = themeDir + '/theme/icons/book.png';
-  icon.alt = '';
-  const label = document.createElement('b');
-  label.textContent = title;
-  const state = document.createElement('span');
-  state.style.color = color;
-  state.textContent = status;
-  row.append(icon, label, state);
-  container.appendChild(row);
 }
 
 //続刊へ移動
@@ -2038,7 +1841,7 @@ function addnextbooklist(nexttitle, nextlocation) {
   const nextUrl = new URL(location.pathname, location.origin);
   nextUrl.searchParams.set('file', relativePath);
   nextUrl.searchParams.set('mode', 'open');
-  const suggestElement = document.getElementById("suggest");
+  const suggestElement = document.getElementById("suggest-books");
   if (suggestElement) {
     const row = document.createElement('p');
     const icon = document.createElement('img');
@@ -2053,6 +1856,7 @@ function addnextbooklist(nexttitle, nextlocation) {
     });
     row.append(icon, link);
     suggestElement.appendChild(row);
+    suggestElement.hidden = false;
   }
 }
 
@@ -2360,8 +2164,7 @@ function closeQuickSpread() {
   modal.style.opacity = "0";
   const overlay = document.getElementById("overlay");
   const suggest = document.getElementById("suggest");
-  if (!suggest || (!suggest.classList.contains("suggest-active") &&
-      !suggest.classList.contains("suggest-animating"))) {
+  if (!suggest?.open) {
     overlay.style.display = "none";
     overlay.style.opacity = "0";
   }
@@ -2370,8 +2173,7 @@ function closeQuickSpread() {
 async function quickSpredView() {
   if (!readerReady || readerRenderPending || mode !== 1) return;
   const suggest = document.getElementById("suggest");
-  if (suggest && (suggest.classList.contains("suggest-active") ||
-      suggest.classList.contains("suggest-animating"))) return;
+  if (suggest?.open) return;
   const modal = document.getElementById("modal");
   if (modal.style.display === "block") {
     closeQuickSpread();

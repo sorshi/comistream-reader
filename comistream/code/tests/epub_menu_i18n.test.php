@@ -22,7 +22,7 @@ foreach (['ja', 'en', 'zh_TW', 'zh_HK'] as $lang) {
             throw new RuntimeException("EPUB end navigation translation is missing: $lang / $key");
         }
     }
-    if (!str_contains($html, '<dialog id="epub-end-panel" aria-modal="true" aria-labelledby="epub-end-title">')
+    if (!str_contains($html, '<dialog id="epub-end-panel" class="reader-end-panel" aria-modal="true" aria-labelledby="epub-end-title">')
         || !str_contains($html, 'global.ComistreamEpubEnd = api;')) {
         throw new RuntimeException("EPUB end navigation markup or script is missing: $lang");
     }

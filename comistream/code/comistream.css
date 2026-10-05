@@ -591,15 +591,7 @@ input[type="range"]::-moz-range-thumb {
   transition: opacity 0.15s;
 }
 
-/* サジェスト用カーテンコールアニメーション: オーバーレイの右→左スワイプ */
-.overlay.suggest-curtain {
-  clip-path: inset(0 0 0 100%);
-  transition: clip-path 240ms ease-out;
-}
 
-.overlay.suggest-curtain.suggest-open {
-  clip-path: inset(0 0 0 0);
-}
 
 .modal {
   display: none;
@@ -835,94 +827,73 @@ input[type="range"]::-moz-range-thumb {
   stroke: #fff; /* アイコンの色 */
 }
 
-/* 続刊・関連書籍表示用のスタイル */
+/* 画像書籍とEPUBの巻末パネルを同じ見た目に揃えるルン。 */
+.reader-end-panel {
+  width: min(70vw, 720px);
+  min-width: min(300px, calc(100vw - 40px));
+  max-width: calc(100vw - 40px);
+  max-height: calc(80dvh - env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  padding: 20px;
+  border: 0;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.67);
+  color: white;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
 #suggest {
-  display: none; /* 初期状態は非表示 */
-  position: fixed; /* 画面に固定 */
-  z-index: 2; /* オーバーレイより手前 */
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%); /* 上下左右中央揃え */
-  min-width: 300px; /* 最小幅 */
-  max-width: 70%; /* 最大幅 */
-  max-height: 80%; /* 最大高さ */
-  background-color: rgba(0, 0, 0, 0.67); /* 背景色 (contentsに合わせる) */
-  color: white; /* 文字色 */
-  padding: 20px; /* 内側の余白 */
-  border-radius: 20px; /* 角丸 (contentsに合わせる) */
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5); /* 影をつける */
-  overflow: auto; /* 内容が多い場合にスクロール */
-  -webkit-overflow-scrolling: touch; /* iOSでのスムーズスクロール */
+  margin: auto;
 }
-
-#suggest p {
-  margin: 0.8em 0; /* 段落間の余白 */
+.reader-end-panel::backdrop {
+  background: rgba(0, 0, 0, 0.7);
+  animation: reader-end-curtain 240ms ease-out;
 }
-
-#suggest img {
-  vertical-align: middle; /* 画像とテキストの縦位置を合わせる */
-  margin-right: 8px; /* 画像の右側の余白 */
-  width: 16px; /* アイコンサイズ調整 (必要なら) */
-  height: 16px; /* アイコンサイズ調整 (必要なら) */
+.reader-end-panel h2 {
+  margin: 0 0 12px;
+  font-size: 1.2em;
 }
-
-#suggest a {
-  color: #a9d1ff; /* リンクの色 */
+.reader-end-book-title {
+  overflow-wrap: anywhere;
+}
+.reader-end-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+.reader-end-actions .button {
+  float: none;
+  min-height: 44px;
+}
+.reader-end-books p {
+  margin: 0.8em 0;
+  overflow-wrap: anywhere;
+}
+.reader-end-books img {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.reader-end-books a {
+  color: #a9d1ff;
   text-decoration: none;
 }
-
-#suggest a:hover {
-  color: #ffffff;
+.reader-end-books a:hover {
+  color: #fff;
   text-decoration: underline;
 }
-
-/* タッチデバイス向けのhover効果無効化 */
+@keyframes reader-end-curtain {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-end-panel::backdrop { animation: none; }
+}
 @media (hover: none) {
-  #suggest a:hover {
-    text-decoration: none;
-    color: #a9d1ff; /* ホバー色を通常色と同じにする */
-  }
-}
-
-/* カーテンコールアニメーション: パネルの初期状態（スケール0・透明） */
-#suggest.suggest-animating {
-  opacity: 0;
-  transform: translate(-50%, -50%) scale(0);
-  transition: opacity 280ms cubic-bezier(0.34, 1.56, 0.64, 1),
-              transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-/* カーテンコールアニメーション: パネルのバウンスポップ表示 */
-#suggest.suggest-active {
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
-}
-
-/* カーテンコールアニメーション: 閉じるときのフェードアウト */
-#suggest.suggest-closing {
-  opacity: 0;
-  transform: translate(-50%, -50%) scale(0.95);
-  transition: opacity 200ms ease-in, transform 200ms ease-in;
-}
-
-/* アニメーション中の子要素: 初期状態は透明＋少し下にずらす */
-#suggest.suggest-animating p,
-#suggest.suggest-animating > .button {
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 160ms ease-out, transform 160ms ease-out;
-}
-
-/* .buttonはfloat:rightのため、transform付きのp要素とスタッキングコンテキストが競合するルン */
-#suggest.suggest-animating > .button {
-  z-index: 1;
-}
-
-/* スタガーフェードイン: 子要素を順番に表示 */
-#suggest.suggest-stagger p,
-#suggest.suggest-stagger > .button {
-  opacity: 1;
-  transform: translateY(0);
+  .reader-end-books a:hover { color: #a9d1ff; text-decoration: none; }
 }
 
 /* 大きなページサイズ通知用のスタイル */

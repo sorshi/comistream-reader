@@ -217,6 +217,10 @@ function generateHTML()
     $alt_quick_spread_right = htmlspecialchars($i18n->get('alt_quick_spread_right'), ENT_QUOTES, 'UTF-8');
     $readerMarkersLabel = htmlspecialchars($i18n->get('reader_markers'), ENT_QUOTES, 'UTF-8');
     $readerMarkerAddLabel = htmlspecialchars($i18n->get('reader_marker_add'), ENT_QUOTES, 'UTF-8');
+    $endTitle = htmlspecialchars($i18n->get('epub_end_title'), ENT_QUOTES, 'UTF-8');
+    $endBackLabel = htmlspecialchars($i18n->get('epub_end_back'), ENT_QUOTES, 'UTF-8');
+    $endReturnLabel = htmlspecialchars($i18n->get('epub_end_return'), ENT_QUOTES, 'UTF-8');
+    $endBookTitle = htmlspecialchars((string)$baseFile, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
     // $pageTitleは既にget_book_title()内でエスケープ済みルン！
     // $bookNameはHTMLタグ（<small>、<a>など）を含む前提で処理されてるから、
@@ -441,10 +445,15 @@ function generateHTML()
     </div>
 </div>
 
-<div id="suggest" hidden >
-    <input type="hidden" autofocus="autofocus" />
-        <span class="button" onclick="backListPage();">{$i18n->get('back')}</span>
-</div>
+<dialog id="suggest" class="reader-end-panel" aria-modal="true" aria-labelledby="suggest-title">
+    <h2 id="suggest-title">{$endTitle}</h2>
+    <div id="suggest-book-title" class="reader-end-book-title">{$endBookTitle}</div>
+    <div class="reader-end-actions">
+        <button id="suggest-return" class="button button-mode" type="button" onclick="hideSuggestPanel();">{$endReturnLabel}</button>
+        <button id="suggest-back" class="button button-close" type="button" onclick="backListPage();">{$endBackLabel}</button>
+    </div>
+    <div id="suggest-books" class="reader-end-books" hidden></div>
+</dialog>
 
 <div id="overlay" class="overlay"></div>
 <div id="modal" class="modal">
@@ -1048,44 +1057,7 @@ JS;
         .epub-status-error {
             color: #ffd2d2;
         }
-        #epub-end-panel {
-            width: min(70vw, 720px);
-            min-width: min(300px, calc(100vw - 40px));
-            max-width: calc(100vw - 40px);
-            max-height: calc(80dvh - env(safe-area-inset-bottom, 0px));
-            box-sizing: border-box;
-            margin: auto;
-            padding: 20px;
-            border: 0;
-            border-radius: 20px;
-            background: rgba(0, 0, 0, 0.67);
-            color: white;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
-            overflow: auto;
-            -webkit-overflow-scrolling: touch;
-        }
-        #epub-end-panel::backdrop {
-            background: rgba(0, 0, 0, 0.7);
-            animation: epub-end-curtain 240ms ease-out;
-        }
-        #epub-end-panel h2 { margin: 0 0 12px; font-size: 1.2em; }
-        #epub-end-book-title { overflow-wrap: anywhere; }
-        .epub-end-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
-        .epub-end-actions .button { float: none; min-height: 44px; }
-        #epub-end-books p { margin: 0.8em 0; overflow-wrap: anywhere; }
-        #epub-end-books img { width: 16px; height: 16px; margin-right: 8px; vertical-align: middle; }
-        #epub-end-books a { color: #a9d1ff; text-decoration: none; }
-        #epub-end-books a:hover { color: #fff; text-decoration: underline; }
-        @keyframes epub-end-curtain {
-            from { opacity: 0; transform: translateX(100%); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-            #epub-end-panel::backdrop { animation: none; }
-        }
-        @media (hover: none) {
-            #epub-end-books a:hover { color: #a9d1ff; text-decoration: none; }
-        }
+        #epub-end-panel { margin: auto; }
         #epub-loading-overlay {
             position: fixed;
             inset: 0;
@@ -1284,14 +1256,14 @@ JS;
             </div>
         </div>
     </div>
-    <dialog id="epub-end-panel" aria-modal="true" aria-labelledby="epub-end-title">
+    <dialog id="epub-end-panel" class="reader-end-panel" aria-modal="true" aria-labelledby="epub-end-title">
         <h2 id="epub-end-title">{$endTitle}</h2>
-        <div id="epub-end-book-title"></div>
-        <div class="epub-end-actions">
+        <div id="epub-end-book-title" class="reader-end-book-title"></div>
+        <div class="reader-end-actions">
             <button id="epub-end-return" class="button button-mode" type="button">{$endReturnLabel}</button>
             <button id="epub-end-back" class="button button-close" type="button">{$endBackLabel}</button>
         </div>
-        <div id="epub-end-books" hidden></div>
+        <div id="epub-end-books" class="reader-end-books" hidden></div>
     </dialog>
     {$inspectorHtml}
     <script>
