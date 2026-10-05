@@ -6,7 +6,8 @@ const source = fs.readFileSync(require.resolve('../epub_reader.js'), 'utf8');
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 
 function fixture() {
-    let generation = 0, opened = false, opens = 0, pageTurns = 0, completed = 0;
+    let generation = 0, opened = false, opens = 0, pageTurns = 0, previousTurns = 0, completed = 0;
+    const confirmations = [];
     const context = vm.createContext({
         console, readerClosing: false, viewInitialized: true, currentFlowMode: 'paginated', currentLocation: { cfi: 'before', section: { current: 0 }, fraction: 0.9 },
         navigationLoadingFeedback: { begin: () => () => {} },
@@ -19,14 +20,16 @@ function fixture() {
         navigationIntentSeq: 0, pendingNavigationCount: 0, navigationChain: Promise.resolve(),
         forwardNavigationSeq: 0, endNavigationSeq: 0, navigationEventSeq: 0, relocationEventSeq: 0, rendererVisibilityGuardSeq: 0,
         NAVIGATION_SPINNER_DELAY_MS: 450, NAVIGATION_SETTLE_TIMEOUT_MS: 2600,
-        window: { setTimeout: () => 1, clearTimeout() {} },
+        window: { setTimeout: () => 1, clearTimeout() {}, confirm: message => { confirmations.push(message); return false; } },
+        t: (key, fallback) => key === 'reader_start_confirm' ? '先頭ページです。リーダーを閉じますか？' : fallback,
         isNavigationReady: () => true, waitForNavigationReady: async () => true, waitForNavigationSettled: async () => true,
         normalizeNavigationTarget: () => ({}), stabilizeRendererVisibility: async () => false,
         ensureLocationForNavigationTarget: () => false, getRendererDiagnostics: () => ({}),
         getAdjacentLinearSectionIndex: () => null,
+        goToAdjacentSpineSection: async () => null,
         getLocationSectionIndexOrNull: value => value.section,
         ...Object.fromEntries(['debugLog', 'cancelPageTurnAnimation', 'clearInitialRestorePin', 'scheduleRendererVisibilityGuard',
-            'focusReader', 'hideReaderLoading', 'recordEpubUserPosition'].map(name => [name, () => {}]))
+            'focusReader', 'hideReaderLoading', 'recordEpubUserPosition', 'ensureRendererVisible'].map(name => [name, () => {}]))
     });
     context.summarizeLocation = (location = context.currentLocation) => ({ cfi: location.cfi, section: location.section.current, fraction: location.fraction });
     context.markEpubCompletedIfAtEnd = () => { completed++; };
@@ -36,12 +39,107 @@ function fixture() {
         context.currentLocation = { cfi: 'last', section: { current: 0 }, fraction: 1 };
         context.view.lastLocation = context.currentLocation;
     };
+    context.view.prev = async () => {
+        previousTurns++;
+        context.view.renderer.atStart = true;
+        context.currentLocation = { cfi: 'first', section: { current: 0 }, fraction: 0 };
+        context.view.lastLocation = context.currentLocation;
+    };
+    vm.runInContext(section('function isEpubAtStartOfLinearReadingOrder(', 'function didNavigateForward('), context);
     vm.runInContext(section('function didNavigateForward(', 'function markEpubCompletedIfAtEnd('), context);
     vm.runInContext(section('async function navigate(', 'async function jumpToFraction('), context);
-    vm.runInContext(section('async function goNextPage(', 'async function goPhysicalLeft('), context);
-    return { context, close() { opened = false; generation++; }, opens: () => opens,
+    vm.runInContext(section('async function goPreviousPage(', 'async function goPhysicalLeft('), context);
+    return { context, confirmations, close() { opened = false; generation++; }, opens: () => opens,
+        previousTurns: () => previousTurns,
         pageTurns: () => pageTurns, completed: () => completed };
 }
+
+test('entering the first screen stays readable; another backward operation confirms closing without waiting for relocation', async () => {
+    const f = fixture();
+    const c = f.context;
+    await c.navigate(() => c.goPreviousPage());
+    assert.deepEqual(f.confirmations, []);
+    assert.equal(f.previousTurns(), 1);
+    c.waitForNavigationSettled = () => assert.fail('The start boundary must not wait for a relocation');
+    await c.navigate(() => c.goPreviousPage());
+    assert.deepEqual(f.confirmations, ['先頭ページです。リーダーを閉じますか？']);
+    assert.equal(f.previousTurns(), 1);
+    assert.equal(c.currentLocation.cfi, 'first');
+    assert.equal(c.pendingNavigationCount, 0);
+    assert.equal(f.completed(), 0);
+});
+
+test('accepting the start confirmation drains navigation and saves before leaving without repeated confirmation', async () => {
+    const f = fixture();
+    const c = f.context;
+    await c.navigate(() => c.goPreviousPage());
+    const events = [];
+    let confirmations = 0;
+    c.window.confirm = () => { confirmations++; return true; };
+    c.window.history = { length: 2, back: () => events.push('back') };
+    c.epubProgressManager.finish = async () => events.push('save');
+    c.persistCurrentLocation = () => events.push('persist');
+    c.sendProgressBeacon = () => events.push('beacon');
+    c.exitFullScreenIfNeeded = () => {};
+    vm.runInContext(section('async function backListPage(', '/**\n * foliate-js epub.js'), c);
+    await Promise.all([
+        c.navigate(() => c.goPreviousPage()),
+        c.navigate(() => c.goPreviousPage())
+    ]);
+    await new Promise(setImmediate);
+    assert.deepEqual(events, ['save', 'persist', 'beacon', 'back']);
+    assert.equal(confirmations, 1);
+    assert.equal(c.pendingNavigationCount, 0);
+    assert.equal(c.readerClosing, false);
+});
+
+test('start detection requires the first linear section and the renderer start, independent of rounded progress', () => {
+    const f = fixture();
+    const c = f.context;
+    c.view.book.sections = [{ linear: 'no' }, {}, {}];
+    c.view.renderer.atStart = true;
+    c.currentLocation = { cfi: 'first', section: { current: 1 }, fraction: 0.03 };
+    assert.equal(c.isEpubAtStartOfLinearReadingOrder(), true);
+    c.currentLocation.section.current = 2;
+    assert.equal(c.isEpubAtStartOfLinearReadingOrder(), false);
+    c.currentLocation.section.current = 0;
+    assert.equal(c.isEpubAtStartOfLinearReadingOrder(), false);
+    c.currentLocation.section.current = 1;
+    c.view.renderer.atStart = false;
+    c.currentLocation.fraction = 0;
+    assert.equal(c.isEpubAtStartOfLinearReadingOrder(), false);
+    c.view.renderer.atStart = true;
+    c.viewInitialized = false;
+    assert.equal(c.isEpubAtStartOfLinearReadingOrder(), false);
+    c.viewInitialized = true;
+    c.currentLocation.cfi = '';
+    assert.equal(c.isEpubAtStartOfLinearReadingOrder(), false);
+});
+
+test('remote position restoration consumes the start request without confirming', async () => {
+    const f = fixture();
+    const c = f.context;
+    c.view.renderer.atStart = true;
+    c.epubProgressManager.beforeNavigation = async () => false;
+    await c.navigate(() => c.goPreviousPage());
+    assert.deepEqual(f.confirmations, []);
+    assert.equal(f.previousTurns(), 0);
+});
+
+test('fixed-layout start requires the first linear section to be visible in the current spread', () => {
+    const f = fixture();
+    const c = f.context;
+    c.view.isFixedLayout = true;
+    c.view.book.sections = [{ linear: 'no' }, {}, {}];
+    c.view.renderer.atStart = true;
+    c.currentLocation = { cfi: 'spread', section: { current: 2 } };
+    c.window.innerWidth = 800; c.window.innerHeight = 600;
+    let rect = { width: 400, height: 600, left: 0, top: 0, right: 400, bottom: 600 };
+    c.getRendererContents = () => [{ index: 1, doc: { defaultView: { frameElement: { getBoundingClientRect: () => rect } } } }];
+    assert.equal(c.isEpubAtStartOfLinearReadingOrder(), true);
+    rect = { ...rect, left: -400, right: 0 };
+    assert.equal(c.isEpubAtStartOfLinearReadingOrder(), false);
+});
 
 test('entering the last screen keeps reading; one further forward operation opens the end panel', async () => {
     const f = fixture();

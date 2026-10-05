@@ -47,6 +47,44 @@ function fixture(fetch, onError = () => {}) {
     return create({ ...options, document: { getElementById: () => null }, isAtEnd: () => false, fetch, onError });
 }
 
+test('backward swipes confirm only when starting and staying at the first page, with one eligible finger', () => {
+    for (const [direction, dx, dy] of [
+        [{ rtl: false, vertical: false }, 60, 0],
+        [{ rtl: true, vertical: true }, -60, 0],
+        [{ rtl: true, vertical: true }, 0, 60]
+    ]) {
+        const listeners = new Map();
+        let atStart = true, cfi = 'first', selected = false, eligible = true, ready = true, requests = 0;
+        const target = {
+            addEventListener: (type, listener) => listeners.set(type, listener),
+            getSelection: () => ({ isCollapsed: !selected })
+        };
+        const controller = create({ ...options, document: { getElementById: () => null },
+            isAtEnd: () => false, isAtStart: () => atStart, getCfi: () => cfi,
+            canSwipe: () => ready, isEligibleTarget: () => eligible, getDirection: () => direction,
+            requestStart: () => { requests++; }, onForwardSwipe: () => assert.fail('Backward swipe counted as forward')
+        });
+        controller.bindGestures(target);
+        controller.bindGestures(target);
+        const touch = (type, x = 0, y = 0, count = 1) => {
+            const point = { identifier: 1, clientX: 100 + x, clientY: 100 + y };
+            listeners.get(type)({ target, touches: type === 'touchend' ? [] : Array(count).fill(point), changedTouches: [point] });
+        };
+        touch('touchstart'); touch('touchend', dx / 2, dy / 2);
+        touch('touchstart', 0, 0, 2); touch('touchend', dx, dy);
+        touch('touchstart'); touch('touchcancel'); touch('touchend', dx, dy);
+        selected = true; touch('touchstart'); touch('touchend', dx, dy); selected = false;
+        eligible = false; touch('touchstart'); touch('touchend', dx, dy); eligible = true;
+        ready = false; touch('touchstart'); touch('touchend', dx, dy); ready = true;
+        touch('touchstart'); cfi = 'other'; touch('touchend', dx, dy); cfi = 'first';
+        atStart = false; touch('touchstart'); atStart = true; touch('touchend', dx, dy);
+        touch('touchstart'); atStart = false; touch('touchend', dx, dy); atStart = true;
+        assert.equal(requests, 0);
+        touch('touchstart'); touch('touchend', dx, dy);
+        assert.equal(requests, 1);
+    }
+});
+
 test('404 is silent, skips JSON parsing and is requested only once per reader', async () => {
     let calls = 0;
     const controller = fixture(async (url, init) => {

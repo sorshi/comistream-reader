@@ -134,6 +134,7 @@ function navigationFixture({ start = 0, end = 800, viewSize = 800.8, fraction = 
         currentLocation: location,
         currentFlowMode: 'paginated',
         forwardNavigationSeq: 0,
+        isEpubAtStartOfLinearReadingOrder: () => false,
         waitForNavigationReady: async () => true,
         summarizeLocation: (value = location) => value,
         debugLog: () => {},

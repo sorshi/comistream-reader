@@ -243,6 +243,7 @@ return [
     'music_queue' => '播放佇列',
     'music_playback_speed' => '播放速度',
     'reader_sync_forward' => '另一部裝置已閱讀到第%s頁。要移動嗎？',
+    'reader_start_confirm' => '已到達第一頁。要關閉閱讀器嗎？',
     'reader_sync_changed' => '另一部裝置已將閱讀位置改為第%s頁。要移動嗎？',
     'reader_sync_epub' => '另一部裝置已更新閱讀位置。要移動到第%s節的儲存位置嗎？',
     'reader_sync_unsaved' => '閱讀位置尚未同步。請確認連線，並在此裝置重新開啟書籍。',

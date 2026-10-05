@@ -242,6 +242,7 @@ return [
     'music_folder_play' => 'このフォルダ以下の音楽を再生',
     'music_queue' => '再生キュー',
     'music_playback_speed' => '再生速度',
+    'reader_start_confirm' => '先頭ページです。リーダーを閉じますか？',
     'reader_sync_forward' => '別の端末で%sページまで進んでいます。移動しますか？',
     'reader_sync_changed' => '別の端末で読書位置が%sページに変更されています。移動しますか？',
     'reader_sync_epub' => '別の端末で読書位置が更新されています。区切り%sの保存位置へ移動しますか？',

@@ -25,6 +25,11 @@ function readerEndPanelFixture(string $lang, string $title): array
     I18n::getInstance()->setLang($lang);
     $panels = [];
     foreach (['cbz' => ['suggest', generateHTML()], 'epub' => ['epub-end-panel', generateEpubHTML()]] as $format => [$id, $html]) {
+        $startLabel = I18n::getInstance()->get('reader_start_confirm');
+        if ($startLabel === 'reader_start_confirm'
+            || !str_contains($html, '"reader_start_confirm":' . json_encode($startLabel, JSON_UNESCAPED_UNICODE))) {
+            throw new RuntimeException("First-page confirmation translation missing: $format / $lang");
+        }
         if (!preg_match('~<dialog id="' . $id . '".*?</dialog>~s', $html, $match)) {
             throw new RuntimeException("End dialog missing: $format / $lang");
         }

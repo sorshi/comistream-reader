@@ -115,6 +115,27 @@ test('横向きで初期化し、回転の往復で位置・保存回数・自�
   assert.equal(r.storage.get('readerPageModePreference'), 'auto');
 });
 
+test('画像リーダーは先頭からさらに戻ると先頭の文言で確認し、承諾時だけ閉じる', async () => {
+  for (const preference of ['single', 'spread']) {
+    const r = reader({ preference });
+    r.c.page = 3;
+    const confirmations = [];
+    let accepted = false, closes = 0;
+    r.c.confirm = message => { confirmations.push(message); return accepted; };
+    r.c.backListPage = () => { closes++; };
+    await r.c.restorePage(); await r.settle();
+    while (r.c.displayedStart > 1) { r.c.back(); await r.settle(); }
+    assert.deepEqual(confirmations, []);
+    r.c.back();
+    assert.deepEqual(confirmations, ['先頭ページです。リーダーを閉じますか？']);
+    assert.equal(closes, 0);
+    accepted = true;
+    r.c.back();
+    assert.equal(closes, 1);
+    assert.equal(r.c.displayedStart, 1);
+  }
+});
+
 test('縦横混在でも両方向で全ページを辿り、表紙・巻末・補正・綴じを保持する', async () => {
   for (const count of [1, 8, 9]) for (const correction of [0, 1]) for (const direction of ['left', 'right']) {
     const r = reader({ wide: [3, 4, 7], count });

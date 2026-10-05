@@ -158,7 +158,8 @@
                     || !options.isEligibleTarget(event.target)) return;
                 const point = event.touches[0];
                 touch = { id: point.identifier, x: point.clientX, y: point.clientY,
-                    atEnd: options.isAtEnd(), generation, cfi: options.getCfi(), direction: options.getDirection() };
+                    atEnd: options.isAtEnd(), atStart: options.isAtStart?.() === true,
+                    generation, cfi: options.getCfi(), direction: options.getDirection() };
             }, { passive: true });
             target.addEventListener('touchmove', event => {
                 if (event.touches.length !== 1 || selectionActive()) touch = null;
@@ -169,12 +170,18 @@
                 touch = null;
                 const point = Array.from(event.changedTouches).find(item => item.identifier === start?.id);
                 if (!start || !point || event.touches.length || isOpen() || start.generation !== generation
-                    || !options.canSwipe() || selectionActive()
-                    || !isForwardSwipe(point.clientX - start.x, point.clientY - start.y, start.direction)) return;
-                if (start.atEnd && options.isAtEnd() && start.cfi === options.getCfi()) {
-                    void options.requestOpen();
-                } else {
-                    options.onForwardSwipe?.();
+                    || !options.canSwipe() || selectionActive()) return;
+                const dx = point.clientX - start.x;
+                const dy = point.clientY - start.y;
+                if (isForwardSwipe(dx, dy, start.direction)) {
+                    if (start.atEnd && options.isAtEnd() && start.cfi === options.getCfi()) {
+                        void options.requestOpen();
+                    } else {
+                        options.onForwardSwipe?.();
+                    }
+                } else if (start.atStart && options.isAtStart?.() && start.cfi === options.getCfi()
+                    && isForwardSwipe(-dx, -dy, start.direction)) {
+                    void options.requestStart?.();
                 }
             }, { passive: true });
         }

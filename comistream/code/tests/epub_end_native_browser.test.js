@@ -7,6 +7,8 @@ const library = JSON.stringify(require.resolve('../comistream_lib.php'));
 function harness(notFound, fixed, portrait) {
     return `
 let suggestionRequests = 0, resolveSuggestions;
+const startConfirmations = [];
+window.confirm = message => { startConfirmations.push(message); return false; };
 const originalFetch = window.fetch.bind(window);
 window.fetch = (url, options) => {
     if (String(url).startsWith('/suggest.php?')) {
@@ -19,6 +21,28 @@ window.fetch = (url, options) => {
 (async () => {
     for (let i = 0; !viewInitialized && i < 150; i++) await waitTimeout(100);
     if (!viewInitialized) throw new Error('Reader initialization timed out');
+    await navigate(() => goToBoundary(true), { allowReadCompletion:false, recordProgress:false });
+    if (!isEpubAtStartOfLinearReadingOrder() || startConfirmations.length) throw new Error('First-page jump did not keep reading');
+    const firstCfi = currentLocation.cfi;
+    document.getElementById('epub-prev-page').click();
+    await navigationChain;
+    if (startConfirmations.length !== 1) throw new Error('First-page button confirmation failed: ' + JSON.stringify(startConfirmations));
+    document.dispatchEvent(new KeyboardEvent('keydown', { code:'ArrowUp', key:'ArrowUp', bubbles:true, cancelable:true }));
+    await navigationChain;
+    if (startConfirmations.length !== 2) throw new Error('First-page key confirmation failed: ' + JSON.stringify(startConfirmations));
+    const firstContent = getRendererContents().find(item => item.index === getCurrentNavigationIndex());
+    const firstTarget = (firstContent.doc ?? firstContent.document).body;
+    for (const type of ['touchstart', 'touchmove', 'touchend']) {
+        const point = new Touch({ identifier:2, target:firstTarget, clientX:type === 'touchstart' ? 150 : getNavigationIsRtl() ? 70 : 230,
+            clientY:100, screenX:150, screenY:100 });
+        firstTarget.dispatchEvent(new TouchEvent(type, {
+            bubbles:true, cancelable:true, touches:type === 'touchend' ? [] : [point],
+            targetTouches:type === 'touchend' ? [] : [point], changedTouches:[point]
+        }));
+    }
+    await navigationChain;
+    if (startConfirmations.length !== 3 || startConfirmations.some(message => message !== '先頭ページです。リーダーを閉じますか？')
+        || currentLocation.cfi !== firstCfi) throw new Error('First-page native swipe confirmation failed: ' + JSON.stringify({ startConfirmations, firstCfi, currentCfi:currentLocation.cfi, atStart:isEpubAtStartOfLinearReadingOrder(), pendingNavigationCount }));
     if (document.getElementById('epub-end-menu-button')) throw new Error('Removed end navigation menu button is present');
     if (suggestionRequests !== 1) throw new Error('Suggestions did not start once after initial rendering');
     if (${fixed} && ${portrait}) {

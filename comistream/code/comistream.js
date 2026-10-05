@@ -933,7 +933,7 @@ function back() {
           " mode:" +
           mode
       );
-      if (window.confirm("最終ページです。リーダーを閉じますか？")) {
+      if (window.confirm(window.i18n?.reader_start_confirm || "先頭ページです。リーダーを閉じますか？")) {
         backListPage();
       }
     }
