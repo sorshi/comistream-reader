@@ -34,7 +34,7 @@ foreach (['ja', 'en', 'zh_TW', 'zh_HK'] as $lang) {
         throw new RuntimeException("Inspector markup or translation policy is incorrect: $lang");
     }
 
-    foreach (['epub_page_position', 'epub_section_progress'] as $key) {
+    foreach (['epub_page_position', 'epub_section_progress', 'toc_cover', 'last_page'] as $key) {
         if (!isset($translations[$key]) || $translations[$key] === $key || $translations[$key] !== $i18n->get($key)) {
             throw new RuntimeException("EPUB translation is missing or incorrect: $lang / $key");
         }

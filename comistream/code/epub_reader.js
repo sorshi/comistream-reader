@@ -5126,6 +5126,17 @@ function renderTocItems(items, depth = 0) {
     }
 }
 
+function renderTocBoundaryItem(atStart) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'epub-toc-item epub-toc-depth-0';
+    button.textContent = atStart ? t('toc_cover', 'Cover') : t('last_page', 'Last Page');
+    button.addEventListener('click', () => {
+        void navigate(() => goToBoundary(atStart));
+    });
+    $('epub-toc').appendChild(button);
+}
+
 function renderToc(book) {
     const tocContainer = $('epub-toc');
     if (!tocContainer) {
@@ -5133,7 +5144,22 @@ function renderToc(book) {
     }
     tocContainer.textContent = '';
     const items = Array.isArray(book?.toc) ? book.toc : [];
+    const sections = Array.isArray(book?.sections) ? book.sections : [];
+    const linearIndices = sections
+        .map((section, index) => section?.linear !== 'no' ? index : null)
+        .filter(index => index !== null);
+    // 子階層の目次も調べて、読書順の先頭・末尾に足りない項目だけ補うルン。
+    const tocIndices = new Set(flattenTocItems(items)
+        .map(({ item }) => resolveNavigationIndex(item?.href || ''))
+        .filter(index => index !== null));
+    const hasLinearSections = linearIndices.length > 0;
+    if (hasLinearSections && !tocIndices.has(linearIndices[0])) {
+        renderTocBoundaryItem(true);
+    }
     renderTocItems(items, 0);
+    if (hasLinearSections && !tocIndices.has(linearIndices.at(-1))) {
+        renderTocBoundaryItem(false);
+    }
 }
 
 async function goToMarkerCfi(marker) {

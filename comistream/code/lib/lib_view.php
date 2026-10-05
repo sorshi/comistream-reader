@@ -680,6 +680,8 @@ JS;
         'epub_flow_paginated' => $i18n->get('epub_flow_paginated'),
         'epub_flow_scrolled' => $i18n->get('epub_flow_scrolled'),
         'epub_toc' => $i18n->get('epub_toc'),
+        'toc_cover' => $i18n->get('toc_cover'),
+        'last_page' => $i18n->get('last_page'),
         'epub_progress' => $i18n->get('epub_progress'),
         'epub_jump_to_progress' => $i18n->get('epub_jump_to_progress'),
         'epub_prev_page' => $i18n->get('epub_prev_page'),
