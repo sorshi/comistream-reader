@@ -5,10 +5,11 @@ const { spawn } = require('node:child_process');
 const { chrome } = require('./browser_fixture');
 
 // 外部moduleの読み込みと描画を実時間で待つ専用ブラウザルン。
-async function runEpubBrowserFixture(url, { screenshotPath, viewport } = {}) {
+async function runEpubBrowserFixture(url, { screenshotPath, viewport, verifyFrames } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'comistream-epub-browser-'));
   let child, socket;
   const waiting = new Map(); let id = 0;
+  const frames = [];
   try {
     child = spawn(chrome, ['--headless', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
       '--disable-background-networking', '--disable-extensions', '--disable-sync',
@@ -27,6 +28,11 @@ async function runEpubBrowserFixture(url, { screenshotPath, viewport } = {}) {
       const message = JSON.parse(event.data);
       const handler = waiting.get(message.id);
       if (handler) { waiting.delete(message.id); handler(message); }
+      if (message.method === 'Page.screencastFrame') {
+        const at = Date.now();
+        if (!frames.length || at - frames.at(-1).at >= 100) frames.push({ at, data: message.params.data });
+        void call('Page.screencastFrameAck', { sessionId: message.params.sessionId }, message.sessionId).catch(() => {});
+      }
     });
     function call(method, params = {}, sessionId) {
       return new Promise((resolve,reject) => {
@@ -39,11 +45,20 @@ async function runEpubBrowserFixture(url, { screenshotPath, viewport } = {}) {
     const { targetId } = await call('Target.createTarget',{url});
     const { sessionId } = await call('Target.attachToTarget',{targetId,flatten:true});
     if (viewport) await call('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor:1, mobile:false }, sessionId);
+    if (verifyFrames) await call('Page.startScreencast', { format: 'png', everyNthFrame: 1 }, sessionId);
     for (let attempt = 0; attempt < 300; attempt++) {
       const result = await call('Runtime.evaluate',{expression:'window.__progressNativeResult || null',returnByValue:true},sessionId);
       const value = result.result?.value;
       if (value) {
         if (!value.ok) throw new Error(value.error);
+        if (verifyFrames) {
+          // main thread停止中の実フレームを、再開後に画素で検証するルン。
+          const verified = await call('Runtime.evaluate', {
+            expression: `(${verifyFrames.toString()})(${JSON.stringify(value)}, ${JSON.stringify(frames)})`,
+            awaitPromise: true, returnByValue: true
+          }, sessionId);
+          if (verified.exceptionDetails) throw new Error(verified.exceptionDetails.exception?.description || verified.exceptionDetails.text);
+        }
         if (screenshotPath) {
           const shot = await call('Page.captureScreenshot', { format: 'png' }, sessionId);
           fs.writeFileSync(screenshotPath, Buffer.from(shot.data, 'base64'));

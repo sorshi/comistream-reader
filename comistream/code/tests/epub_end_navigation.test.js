@@ -9,6 +9,7 @@ function fixture() {
     let generation = 0, opened = false, opens = 0, pageTurns = 0, completed = 0;
     const context = vm.createContext({
         console, readerClosing: false, viewInitialized: true, currentFlowMode: 'paginated', currentLocation: { cfi: 'before', section: { current: 0 }, fraction: 0.9 },
+        navigationLoadingFeedback: { begin: () => () => {} },
         view: { book: { sections: [{}] }, renderer: { atEnd: false } },
         epubEndController: {
             isOpen: () => opened, getGeneration: () => generation,

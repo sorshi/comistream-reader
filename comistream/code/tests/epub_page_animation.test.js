@@ -226,6 +226,7 @@ test('navigation queue counters drain after skipped or failed navigation', async
     for (const fails of [false, true]) {
         const context = vm.createContext({
             navigationIntentSeq: 0,
+            navigationLoadingFeedback: { begin: () => () => {} },
             pendingNavigationCount: 0,
             readerClosing: false,
             navigationChain: Promise.resolve(),
@@ -257,6 +258,7 @@ test('remote EPUB restore consumes the triggering navigation before renderer act
     const context = vm.createContext({
         navigationIntentSeq: 0, pendingNavigationCount: 0, readerClosing: false, navigationChain: Promise.resolve(),
         epubProgressManager: { beforeNavigation: async () => false },
+        navigationLoadingFeedback: { begin: () => () => {} },
         debugLog() {}, summarizeLocation: () => ({}), cancelPageTurnAnimation() {},
     });
     const start = source.indexOf('async function navigate(');

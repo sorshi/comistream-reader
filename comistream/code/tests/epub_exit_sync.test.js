@@ -13,6 +13,7 @@ function fixture() {
     const settlement = new Promise(resolve => { release = resolve; });
     const context = vm.createContext({
         console, readerClosing: false, currentLocation: { cfi: recorded }, view: {},
+        navigationLoadingFeedback: { begin: () => () => {} },
         navigationIntentSeq: 0, pendingNavigationCount: 0, navigationChain: Promise.resolve(),
         forwardNavigationSeq: 0, endNavigationSeq: 0, navigationEventSeq: 0,
         relocationEventSeq: 0, rendererVisibilityGuardSeq: 0,

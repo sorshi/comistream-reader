@@ -14,6 +14,7 @@ function fixture() {
     let releaseAction;
     const context = vm.createContext({
         navigationIntentSeq: 0, pendingNavigationCount: 0, readerClosing: false, navigationChain: Promise.resolve(),
+        navigationLoadingFeedback: { begin: () => () => {} },
         forwardNavigationSeq: 0, endNavigationSeq: 0, navigationEventSeq: 0, relocationEventSeq: 0, rendererVisibilityGuardSeq: 0,
         NAVIGATION_SPINNER_DELAY_MS: 1000, NAVIGATION_SETTLE_TIMEOUT_MS: 1000,
         view: { isFixedLayout: false }, currentLocation: {}, epubInspectorUI: null,
@@ -147,6 +148,7 @@ test('repeats are dropped before progress synchronization or renderer readiness 
 test('browser key repeats stop without queued turns after release in the document and EPUB iframe', { skip: !chrome }, async () => {
     await runBrowserFixture(`
         let navigationIntentSeq = 0, pendingNavigationCount = 0, readerClosing = false, navigationChain = Promise.resolve();
+        const navigationLoadingFeedback = { begin: () => () => {} };
         let forwardNavigationSeq = 0, endNavigationSeq = 0, navigationEventSeq = 0, relocationEventSeq = 0, rendererVisibilityGuardSeq = 0;
         const NAVIGATION_SPINNER_DELAY_MS = 1000, NAVIGATION_SETTLE_TIMEOUT_MS = 1000;
         const view = {}, currentLocation = {}, epubInspectorUI = null;

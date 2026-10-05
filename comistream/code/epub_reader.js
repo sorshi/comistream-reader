@@ -135,6 +135,8 @@ let initialRestoreReconcileUntil = 0;
 let initialRestorePinnedLocation = null;
 const illustrationStyleSnapshots = new WeakMap();
 const sectionIsolationRenderers = new WeakSet();
+const loadingFeedbackRenderers = new WeakSet();
+const navigationLoadingFeedback = createNavigationLoadingFeedback();
 
 const appConfig = window.epubReaderConfig || {};
 const i18n = window.epubReaderI18n || {};
@@ -499,6 +501,94 @@ function hideReaderLoading() {
     // 起動完了・失敗時に取り除き、遅れて読み込まれても章移動では再表示しないルン。
     $('epub-loading-cover')?.remove();
     setReaderLoading(false);
+}
+
+function createNavigationLoadingFeedback() {
+    const operations = new Set();
+    let revealAnimation = null;
+    let revealTimer = null;
+    let paintReady = null;
+    let shown = false;
+    const show = () => {
+        shown = true;
+        setReaderLoading(true, t('epub_loading_rendering', 'Rendering content...'));
+    };
+    return {
+        begin() {
+            // 起動中の表示はinitに任せ、本文を開いた後の待機だけを管理するルン。
+            if (!viewInitialized) return () => {};
+            const operation = {};
+            operations.add(operation);
+            if (operations.size === 1) {
+                const overlay = $('epub-loading-overlay');
+                if (typeof overlay?.animate === 'function') {
+                    // 遅延と表示はcompositorへ渡し、main threadが描画中でも動かすルン。
+                    // 完了時は即座に隠して、次章の上へフェードの残像を出さないルン。
+                    overlay.style.transition = 'none';
+                    revealAnimation = overlay.animate([{ opacity: 0 }, { opacity: 1 }], {
+                        delay: NAVIGATION_SPINNER_DELAY_MS,
+                        duration: 180,
+                        easing: 'ease',
+                        fill: 'both'
+                    });
+                    show();
+                    overlay.setAttribute('aria-hidden', 'true');
+                    revealTimer = window.setTimeout(() => overlay.setAttribute('aria-hidden', 'false'), NAVIGATION_SPINNER_DELAY_MS);
+                } else {
+                    revealTimer = window.setTimeout(show, NAVIGATION_SPINNER_DELAY_MS);
+                }
+            }
+            return () => {
+                if (!operations.delete(operation) || operations.size) return;
+                window.clearTimeout(revealTimer);
+                revealTimer = null;
+                if (shown) hideReaderLoading();
+                revealAnimation?.cancel();
+                revealAnimation = null;
+                paintReady = null;
+                shown = false;
+            };
+        },
+        async prepareSectionLoad() {
+            if (!revealAnimation) return;
+            // 透明な待機画面のアニメーションを描画系へ渡してから、章の解析を始めるルン。
+            // 遅延時間そのものは待たず、短い読み込みなら表示前に取り消すルン。
+            if (!paintReady) paintReady = (async () => {
+                await waitAnimationFrame();
+                await waitAnimationFrame();
+            })();
+            await paintReady;
+        }
+    };
+}
+
+function setupRendererLoadingFeedback() {
+    const renderer = view?.renderer;
+    if (!renderer || loadingFeedbackRenderers.has(renderer)) return;
+    loadingFeedbackRenderers.add(renderer);
+    // Foliate自身が送るスワイプも、描画処理の完了まで待機表示を保持するルン。
+    for (const name of ['prev', 'next', 'goTo', 'snap']) {
+        const original = renderer[name];
+        if (typeof original !== 'function') continue;
+        renderer[name] = async function (...args) {
+            const finish = navigationLoadingFeedback.begin();
+            try {
+                return await original.apply(this, args);
+            } finally {
+                finish();
+            }
+        };
+    }
+    for (const section of view.book?.sections || []) {
+        const original = section.load;
+        if (typeof original !== 'function') continue;
+        section.load = async function (...args) {
+            if (viewInitialized && currentFlowMode === 'paginated') {
+                await navigationLoadingFeedback.prepareSectionLoad();
+            }
+            return original.apply(this, args);
+        };
+    }
 }
 
 function getBookDisplayMetadata() {
@@ -4349,10 +4439,10 @@ async function navigate(action, { allowReadCompletion = true, recordProgress = t
         cancelPageTurnAnimation();
     }
     debugLog('navigate() queued', summarizeLocation());
-    let spinnerTimer = null;
-    let spinnerShown = false;
+    let finishLoading = null;
     navigationChain = navigationChain.then(async () => {
         if (endUI && (endUI.isOpen() || endUI.getGeneration() !== endGeneration)) return;
+        finishLoading = navigationLoadingFeedback.begin();
         if (recordProgress && typeof epubProgressManager !== 'undefined' && epubProgressManager && !(await epubProgressManager.beforeNavigation())) return;
         clearInitialRestorePin();
         const readyBeforeAction = await waitForNavigationReady();
@@ -4369,10 +4459,6 @@ async function navigate(action, { allowReadCompletion = true, recordProgress = t
         const beforeEventSeq = navigationEventSeq;
         const beforeRelocationSeq = relocationEventSeq;
         const navigationGuardSeq = ++rendererVisibilityGuardSeq;
-        spinnerTimer = window.setTimeout(() => {
-            spinnerShown = true;
-            setReaderLoading(true, t('epub_loading_rendering', 'Rendering content...'));
-        }, NAVIGATION_SPINNER_DELAY_MS);
         debugLog('navigate() start', {
             location: beforeLocation,
             eventSeq: beforeEventSeq
@@ -4422,10 +4508,8 @@ async function navigate(action, { allowReadCompletion = true, recordProgress = t
         if (recordProgress && typeof epubProgressManager !== 'undefined' && epubProgressManager &&
             currentLocation?.cfi !== beforeLocation.cfi) recordEpubUserPosition();
         scheduleRendererVisibilityGuard('navigate-end', targetInfo);
-        window.clearTimeout(spinnerTimer);
-        if (spinnerShown) {
-            hideReaderLoading();
-        }
+        finishLoading();
+        finishLoading = null;
         if (actionResult?.endPanel && endUI && !readerClosing && isEpubAtEndOfLinearReadingOrder()) {
             endUI.open();
         }
@@ -4447,13 +4531,8 @@ async function navigate(action, { allowReadCompletion = true, recordProgress = t
             message: error?.message || String(error),
             diagnostics: getRendererDiagnostics()
         });
-        if (spinnerTimer !== null) {
-            window.clearTimeout(spinnerTimer);
-        }
-        if (spinnerShown) {
-            hideReaderLoading();
-        }
     }).finally(() => {
+        finishLoading?.();
         pendingNavigationCount--;
     });
 
@@ -5751,6 +5830,7 @@ async function init() {
     } else {
         await view.open(epubUrl);
     }
+    setupRendererLoadingFeedback();
     bindRendererPagePositionEvents();
     perf('view.open completed', {
         fixedLayout: Boolean(view?.isFixedLayout),
