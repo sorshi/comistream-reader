@@ -217,6 +217,7 @@ function generateHTML()
     $alt_quick_spread_right = htmlspecialchars($i18n->get('alt_quick_spread_right'), ENT_QUOTES, 'UTF-8');
     $readerMarkersLabel = htmlspecialchars($i18n->get('reader_markers'), ENT_QUOTES, 'UTF-8');
     $readerMarkerAddLabel = htmlspecialchars($i18n->get('reader_marker_add'), ENT_QUOTES, 'UTF-8');
+    $tocLabel = htmlspecialchars($i18n->get('epub_toc'), ENT_QUOTES, 'UTF-8');
     $endTitle = htmlspecialchars($i18n->get('epub_end_title'), ENT_QUOTES, 'UTF-8');
     $endBackLabel = htmlspecialchars($i18n->get('epub_end_back'), ENT_QUOTES, 'UTF-8');
     $endReturnLabel = htmlspecialchars($i18n->get('epub_end_return'), ENT_QUOTES, 'UTF-8');
@@ -441,6 +442,7 @@ function generateHTML()
             <div id="image-marker-list" class="reader-marker-list"></div>
         </div>
         <hr>
+        <div class="reader-toc-heading">{$tocLabel}</div>
         <div class="toclist">$contents</div>
     </div>
 </div>
@@ -1004,14 +1006,6 @@ JS;
             opacity: 0.5;
             cursor: default;
         }
-        .epub-section-heading {
-            margin-bottom: 8px;
-            color: #ddd;
-            font-size: 0.82em;
-            font-weight: bold;
-            letter-spacing: 0.03em;
-            text-transform: uppercase;
-        }
         .epub-slider-row {
             display: flex;
             align-items: center;
@@ -1036,29 +1030,6 @@ JS;
         #epub-slider-value {
             min-width: 52px;
             text-align: right;
-        }
-        #epub-toc {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        .epub-toc-item {
-            width: 100%;
-            box-sizing: border-box;
-            min-height: 44px;
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            border-radius: 4px;
-            padding: 10px 12px;
-            background: rgba(255, 255, 255, 0.06);
-            color: #fff;
-            text-align: left;
-            font: inherit;
-            line-height: 1.35;
-            overflow-wrap: anywhere;
-            cursor: pointer;
-        }
-        .epub-toc-item:hover {
-            background: rgba(255, 255, 255, 0.12);
         }
         .epub-toc-item:disabled {
             opacity: 0.55;
@@ -1259,7 +1230,7 @@ JS;
             </div>
             <hr>
             <div class="epub-panel-section">
-                <div class="epub-section-heading">{$tocLabel}</div>
+                <div class="reader-toc-heading">{$tocLabel}</div>
                 <div id="epub-toc" class="toclist"></div>
             </div>
         </div>

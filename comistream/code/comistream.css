@@ -136,6 +136,9 @@ td.center {
 }
 
 .toclist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   -webkit-touch-callout: default;
   -webkit-user-select: text;
   -moz-user-select: text;
@@ -151,16 +154,40 @@ td.center {
   user-select: text;
 }
 
-.toclink:hover {
+/* 章ジャンプは画像書籍・PDF・EPUBで同じ見た目と操作高さに揃えるルン。 */
+.toclink,
+.epub-toc-item {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  text-align: left;
+  font: inherit;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
   cursor: pointer;
-  text-decoration: underline;
+}
+
+.toclink:hover,
+.epub-toc-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.reader-toc-heading {
+  margin-bottom: 8px;
+  color: #ddd;
+  font-size: 0.82em;
+  font-weight: bold;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 /* タッチデバイス向けのhover効果無効化 */
 @media (hover: none) {
-  .toclink:hover {
-    text-decoration: none;
-  }
   .button-mode:hover {
     background-color: #f0f0f0;
   }

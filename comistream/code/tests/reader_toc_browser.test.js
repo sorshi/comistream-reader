@@ -5,6 +5,72 @@ const { execFileSync } = require('node:child_process');
 const { chrome, runBrowserFixture } = require('./browser_fixture');
 const css = fs.readFileSync(require.resolve('../comistream.css'), 'utf8');
 
+test('CBZ chapter rows match EPUB appearance and keep full-row page jumps', { skip: !chrome }, async () => {
+    const html = execFileSync('php', ['-r', `
+        require_once $argv[1] . '/comistream/code/comistream_lib.php';
+        $conf = ['comistream_tool_dir' => $argv[1] . '/comistream', 'epub_reader_package_base' => '/theme/bibi/test/'];
+        $bookName = $baseFile = $escapedFile = 'Sample.epub';
+        $user = 'guest';
+        $readerMarkerCsrfToken = '';
+        echo generateEpubHTML();
+    `, path.resolve(__dirname, '../../..')], { encoding: 'utf8' });
+    const style = html.match(/<style>[\s\S]*?<\/style>/)[0];
+    const source = fs.readFileSync(require.resolve('../comistream.js'), 'utf8');
+    const start = source.indexOf('function navigateToTocPage(');
+    const navigation = source.slice(start, source.indexOf('function index(', start));
+    await runBrowserFixture(`
+        let page = 1;
+        const maxPage = 100;
+        const jumps = [];
+        function loadPage() { jumps.push(page); }
+        ${navigation}
+        const panel = document.querySelector('.contents');
+        const imageToc = document.getElementById('image-toc');
+        const epubToc = document.getElementById('epub-toc');
+        const labels = ['表紙', 'Chapter '.repeat(15), '長い章名' + 'A'.repeat(100)];
+        for (const [index, label] of labels.entries()) {
+            const row = document.createElement('div');
+            row.className = 'toclink';
+            row.textContent = label;
+            row.onclick = () => navigateToTocPage(index + 1);
+            imageToc.appendChild(row);
+            const button = document.createElement('button');
+            button.className = 'epub-toc-item';
+            button.textContent = label;
+            epubToc.appendChild(button);
+        }
+        for (const width of [300, 390, 760]) {
+            panel.style.width = width + 'px';
+            for (let index = 0; index < labels.length; index++) {
+                imageToc.style.display = 'flex';
+                epubToc.style.display = 'none';
+                const row = imageToc.children[index];
+                row.scrollIntoView({ block: 'center' });
+                const rect = row.getBoundingClientRect();
+                expect(rect.height >= 44, 'CBZ touch target is too small at ' + width);
+                expect(row.scrollWidth <= row.clientWidth, 'CBZ chapter text is clipped');
+                expect(panel.scrollWidth <= panel.clientWidth, 'CBZ TOC overflows');
+                for (const y of [rect.top + 4, rect.bottom - 4]) {
+                    const target = document.elementFromPoint(rect.right - 4, y);
+                    expect(target === row, 'CBZ row edge is not a touch target');
+                    target.click();
+                    expect(jumps.at(-1) === index + 1, 'CBZ row edge jumps to the wrong page');
+                }
+                const appearance = getComputedStyle(row);
+                const properties = ['padding', 'border', 'borderRadius', 'backgroundColor', 'color', 'fontSize', 'lineHeight'];
+                const values = properties.map(key => appearance[key]);
+                imageToc.style.display = 'none';
+                epubToc.style.display = 'flex';
+                const button = epubToc.children[index];
+                expect(button.getBoundingClientRect().height === rect.height, 'CBZ and EPUB row heights differ');
+                const reference = getComputedStyle(button);
+                expect(properties.every((key, i) => reference[key] === values[i]), 'CBZ and EPUB row appearance differs');
+            }
+            expect(getComputedStyle(imageToc).rowGap === getComputedStyle(epubToc).rowGap, 'CBZ and EPUB row spacing differs');
+        }
+    `, style + '<div class="contents" style="display:block;position:relative;min-width:0;max-width:none;height:300px"><div id="image-toc" class="toclist"></div><div id="epub-toc" class="toclist" hidden></div></div>');
+});
+
 test('EPUB menu keeps settings compact and chapter touch targets separate in every language', { skip: !chrome }, async () => {
     const pages = JSON.parse(execFileSync('php', ['-r', `
         require_once $argv[1] . '/comistream/code/comistream_lib.php';
