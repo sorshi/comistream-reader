@@ -1775,6 +1775,10 @@ html[data-comistream-image-page] [data-comistream-page-media] {
     margin: auto !important;
     object-fit: contain !important;
 }
+/* SVGの幅を確定し、WebKitのFlexbox内でauto寸法がゼロになるのを防ぐルン。 */
+html[data-comistream-image-page] svg[data-comistream-page-media][viewBox] {
+    width: 100% !important;
+}
 html[data-comistream-illustration-break-page] [data-comistream-illustration-break] {
     -webkit-column-break-after: always !important;
     break-after: column !important;
