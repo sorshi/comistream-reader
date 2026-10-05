@@ -67,7 +67,6 @@ return [
     'epub_writing_horizontal' => 'Horizontal',
     'epub_writing_vertical' => 'Vertical',
     'epub_end_title' => 'End of book',
-    'epub_end_menu' => 'Show end navigation',
     'epub_end_back' => 'Back to list',
     'epub_end_return' => 'Back to reading',
     'epub_status_loading' => 'Loading...',

@@ -67,7 +67,6 @@ return [
     'epub_writing_horizontal' => '横書き',
     'epub_writing_vertical' => '縦書き',
     'epub_end_title' => '最終ページです',
-    'epub_end_menu' => '巻末ナビゲーションを表示',
     'epub_end_back' => '一覧へ戻る',
     'epub_end_return' => '本文に戻る',
     'epub_status_loading' => '読み込み中...',

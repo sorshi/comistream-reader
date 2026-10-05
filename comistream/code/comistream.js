@@ -1839,8 +1839,8 @@ function addnextbooklist(nexttitle, nextlocation) {
   }
   const relativePath = fullPath.slice(publicPrefix.length);
   const nextUrl = new URL(location.pathname, location.origin);
-  nextUrl.searchParams.set('file', relativePath);
-  nextUrl.searchParams.set('mode', 'open');
+  // 空白は%20にして、PHPが保持するファイル名の+と区別するルン。
+  nextUrl.search = 'file=' + encodeURIComponent(relativePath) + '&mode=open';
   const suggestElement = document.getElementById("suggest-books");
   if (suggestElement) {
     const row = document.createElement('p');

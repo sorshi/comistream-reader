@@ -16,7 +16,7 @@ foreach (['ja', 'en', 'zh_TW', 'zh_HK'] as $lang) {
         throw new RuntimeException('EPUB translation data is missing.');
     }
     $translations = json_decode($matches[1], true, 512, JSON_THROW_ON_ERROR);
-    foreach (['title', 'menu', 'back', 'return'] as $key) {
+    foreach (['title', 'back', 'return'] as $key) {
         $label = $i18n->get('epub_end_' . $key);
         if ($label === 'epub_end_' . $key || !str_contains($html, htmlspecialchars($label, ENT_QUOTES, 'UTF-8'))) {
             throw new RuntimeException("EPUB end navigation translation is missing: $lang / $key");
@@ -25,6 +25,9 @@ foreach (['ja', 'en', 'zh_TW', 'zh_HK'] as $lang) {
     if (!str_contains($html, '<dialog id="epub-end-panel" class="reader-end-panel" aria-modal="true" aria-labelledby="epub-end-title">')
         || !str_contains($html, 'global.ComistreamEpubEnd = api;')) {
         throw new RuntimeException("EPUB end navigation markup or script is missing: $lang");
+    }
+    if (str_contains($html, 'epub-end-menu-button')) {
+        throw new RuntimeException("Removed EPUB end navigation menu button is still present: $lang");
     }
     $closeLabel = htmlspecialchars($i18n->get('alt_close_button'), ENT_QUOTES, 'UTF-8');
     if (!str_contains($html, '<dialog id="inspector"')

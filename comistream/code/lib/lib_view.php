@@ -778,7 +778,6 @@ JS;
     $fullscreenLabel = htmlspecialchars($i18n->get('windowed'), ENT_QUOTES, 'UTF-8');
     $backLabel = htmlspecialchars($i18n->get('back'), ENT_QUOTES, 'UTF-8');
     $endTitle = htmlspecialchars($i18n->get('epub_end_title'), ENT_QUOTES, 'UTF-8');
-    $endMenuLabel = htmlspecialchars($i18n->get('epub_end_menu'), ENT_QUOTES, 'UTF-8');
     $endBackLabel = htmlspecialchars($i18n->get('epub_end_back'), ENT_QUOTES, 'UTF-8');
     $endReturnLabel = htmlspecialchars($i18n->get('epub_end_return'), ENT_QUOTES, 'UTF-8');
     $statusLoadingLabel = htmlspecialchars($i18n->get('epub_status_loading'), ENT_QUOTES, 'UTF-8');
@@ -1179,7 +1178,6 @@ JS;
             <div class="epub-panel-section">
                 <div class="bookName epub-book-heading" id="epub-book-heading">{$bookName}</div>
                 <div id="epub-status">{$statusLoadingLabel}</div>
-                <button id="epub-end-menu-button" class="button button-mode" type="button" disabled>{$endMenuLabel}</button>
                 <div class="epub-position-summary">
                     <div id="epub-page-position-status" class="epub-page-position-menu" role="status" aria-live="off">{$pagePositionLoading}</div>
                     <button type="button" class="reader-help-button" id="epub-page-position-info" aria-label="{$pagePositionHelpLabel}" aria-controls="epub-page-position-help" aria-describedby="epub-page-position-help" aria-expanded="false" hidden><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg></button>

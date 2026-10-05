@@ -67,7 +67,6 @@ return [
     'epub_writing_horizontal' => '橫排',
     'epub_writing_vertical' => '直排',
     'epub_end_title' => '已到達最後一頁',
-    'epub_end_menu' => '顯示書末導覽',
     'epub_end_back' => '返回列表',
     'epub_end_return' => '返回閱讀',
     'epub_status_loading' => '載入中...',

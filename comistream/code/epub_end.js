@@ -17,8 +17,8 @@
                 const url = new URL(readerUrl);
                 url.search = '';
                 url.hash = '';
-                url.searchParams.set('file', relative);
-                url.searchParams.set('mode', 'open');
+                // 空白は%20にして、PHPが保持するファイル名の+と区別するルン。
+                url.search = 'file=' + encodeURIComponent(relative) + '&mode=open';
                 seen.add(path);
                 candidates.push({ title, href: url.href });
             }
@@ -35,7 +35,6 @@
         const doc = options.document || global.document;
         const panel = doc.getElementById('epub-end-panel');
         const list = doc.getElementById('epub-end-books');
-        const menuButton = doc.getElementById('epub-end-menu-button');
         const returnButton = doc.getElementById('epub-end-return');
         const backButton = doc.getElementById('epub-end-back');
         let generation = 0;
@@ -46,9 +45,6 @@
         const boundTargets = new WeakSet();
 
         function isOpen() { return Boolean(panel?.open); }
-        function refresh() {
-            if (menuButton) menuButton.disabled = !options.isAtEnd();
-        }
         function close() {
             if (!isOpen()) return;
             generation++;
@@ -80,7 +76,6 @@
         });
         returnButton?.addEventListener('click', close);
         backButton?.addEventListener('click', () => { void options.onBack(); });
-        menuButton?.addEventListener('click', () => { void options.requestOpen(); });
         // ダイアログのボタンとTab操作はブラウザに任せ、Readerのキー操作へ渡さないルン。
         panel?.addEventListener('keydown', event => event.stopPropagation());
         const title = doc.getElementById('epub-end-book-title');
@@ -184,8 +179,7 @@
             }, { passive: true });
         }
 
-        refresh();
-        return { open, close, isOpen, refresh, bindGestures, startSuggestions, getGeneration: () => generation };
+        return { open, close, isOpen, bindGestures, startSuggestions, getGeneration: () => generation };
     }
 
     const api = { create, normalizeSuggestions, isForwardSwipe };

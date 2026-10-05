@@ -3772,7 +3772,8 @@ async function goNextPage() {
         return;
     }
     forwardNavigationSeq++;
-    if (typeof epubEndController !== 'undefined' && epubEndController && isEpubAtEndOfLinearReadingOrder()) {
+    if (typeof epubEndController !== 'undefined' && epubEndController
+        && currentFlowMode === 'paginated' && isEpubAtEndOfLinearReadingOrder()) {
         return { endPanel: true };
     }
     const beforeLocation = summarizeLocation();
@@ -4424,7 +4425,6 @@ async function navigate(action, { allowReadCompletion = true, recordProgress = t
         if (actionResult?.endPanel && endUI && !readerClosing && isEpubAtEndOfLinearReadingOrder()) {
             endUI.open();
         }
-        endUI?.refresh();
         debugLog('navigate() end', {
             settled,
             synthesizedLocation,
@@ -4699,7 +4699,8 @@ async function goToAdjacentSection(previous) {
         return;
     }
 
-    if (!previous && epubEndController && isEpubAtEndOfLinearReadingOrder()) return { endPanel: true };
+    if (!previous && epubEndController && currentFlowMode === 'paginated'
+        && isEpubAtEndOfLinearReadingOrder()) return { endPanel: true };
     const currentIndex = getCurrentNavigationIndex();
     const marker = getAdjacentEpubMarker(previous);
     const tocTargets = getTocNavigationTargets();
@@ -5465,7 +5466,6 @@ function bindViewLifecycleEvents() {
             deferred: !viewInitialized
         });
         if (viewInitialized) {
-            epubEndController?.refresh();
             if (epubProgressManager && currentFlowMode === 'scrolled' &&
                 Date.now() <= userScrollIntentUntil && pendingNavigationCount === 0) {
                 void Promise.resolve(epubScrollSync).then((permitted) => {
@@ -5621,12 +5621,12 @@ function initializeEpubEndNavigation() {
         publicDir: appConfig.publicDir || '',
         iconUrl: appConfig.bookIconUrl || '/theme/icons/book.png',
         readerUrl: window.location.href,
-        isAtEnd: () => isNavigationReady() && isEpubAtEndOfLinearReadingOrder(),
+        isAtEnd: () => currentFlowMode === 'paginated' && isNavigationReady() && isEpubAtEndOfLinearReadingOrder(),
         getCfi: () => currentLocation?.cfi || '',
         getDirection: () => ({ rtl: getNavigationIsRtl(), vertical: currentDirectionInfo.vertical }),
         canSwipe: () => viewInitialized && currentFlowMode === 'paginated' && pendingNavigationCount === 0 && !readerClosing,
         isEligibleTarget: isTapEligibleTarget,
-        requestOpen: () => navigate(() => isEpubAtEndOfLinearReadingOrder() ? { endPanel: true } : null),
+        requestOpen: () => navigate(() => currentFlowMode === 'paginated' && isEpubAtEndOfLinearReadingOrder() ? { endPanel: true } : null),
         onForwardSwipe: () => {
             // snap通知より後に確定位置を読み、書籍末尾の実操作だけを記録するルン。
             const intent = navigationIntentSeq;
@@ -5870,7 +5870,6 @@ async function init() {
     perf('initial relocate side effects scheduled');
     hideReaderLoading();
     perf('loading hidden');
-    epubEndController?.refresh();
     void epubEndController?.startSuggestions();
     debugLog('init() completed', {
         location: summarizeLocation(view?.lastLocation || currentLocation),

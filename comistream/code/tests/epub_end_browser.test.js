@@ -2,7 +2,7 @@ const test = require('node:test');
 const fs = require('node:fs');
 const { chrome, literal, runBrowserFixture } = require('./browser_fixture');
 const source = fs.readFileSync(require.resolve('../epub_end'), 'utf8');
-const body = `<button id="origin">Reader</button><button id="epub-end-menu-button" disabled>End</button>
+const body = `<button id="origin">Reader</button>
 <dialog id="epub-end-panel" aria-modal="true" aria-labelledby="epub-end-title">
 <h2 id="epub-end-title">End of book</h2><div id="epub-end-book-title"></div>
 <button id="epub-end-return">Reading</button><button id="epub-end-back">List</button>
@@ -24,7 +24,7 @@ test('modal end navigation stays usable during delayed loading and safely adds c
         });
         const loading = controller.startSuggestions();
         expect(!controller.open(), 'An intermediate chapter opened the panel');
-        atEnd = true; controller.refresh(); origin.focus(); controller.open();
+        atEnd = true; origin.focus(); controller.open();
         expect(panel.matches(':modal') && document.activeElement.id === 'epub-end-return', 'Modal focus did not move to reading button');
         expect(document.getElementById('epub-end-books').hidden, 'Loading created placeholder rows');
         controller.startSuggestions();

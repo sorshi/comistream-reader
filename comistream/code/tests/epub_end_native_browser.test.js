@@ -19,6 +19,7 @@ window.fetch = (url, options) => {
 (async () => {
     for (let i = 0; !viewInitialized && i < 150; i++) await waitTimeout(100);
     if (!viewInitialized) throw new Error('Reader initialization timed out');
+    if (document.getElementById('epub-end-menu-button')) throw new Error('Removed end navigation menu button is present');
     if (suggestionRequests !== 1) throw new Error('Suggestions did not start once after initial rendering');
     if (${fixed} && ${portrait}) {
         await navigate(() => view.goTo(getBookSectionCount() - 2), { allowReadCompletion:false, recordProgress:false });
@@ -68,6 +69,17 @@ window.fetch = (url, options) => {
     await navigate(() => goNextPage());
     if (!panel.open || suggestionRequests !== 1 || panel.querySelectorAll('a').length !== (${notFound} ? 0 : 1)) {
         throw new Error('Reopening refetched or duplicated suggestions');
+    }
+    if (!${fixed}) {
+        document.getElementById('epub-end-return').click();
+        document.getElementById('epub-flow-toggle').click();
+        await waitTimeout(350);
+        await navigate(() => goToBoundary(false), { allowReadCompletion:false, recordProgress:false });
+        if (currentFlowMode !== 'scrolled') throw new Error('Reader did not switch to scroll mode');
+        if (epubEndController.open()) throw new Error('Scroll mode directly opened the end panel');
+        await navigate(() => goNextPage());
+        await navigate(() => goToAdjacentSection(false));
+        if (panel.open) throw new Error('Scroll-mode forward navigation opened the end panel');
     }
     await waitTimeout(350);
     window.__progressNativeResult = {ok:true};

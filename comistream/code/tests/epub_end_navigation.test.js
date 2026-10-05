@@ -8,11 +8,11 @@ const section = (start, end) => source.slice(source.indexOf(start), source.index
 function fixture() {
     let generation = 0, opened = false, opens = 0, pageTurns = 0, completed = 0;
     const context = vm.createContext({
-        console, readerClosing: false, viewInitialized: true, currentLocation: { cfi: 'before', section: { current: 0 }, fraction: 0.9 },
+        console, readerClosing: false, viewInitialized: true, currentFlowMode: 'paginated', currentLocation: { cfi: 'before', section: { current: 0 }, fraction: 0.9 },
         view: { book: { sections: [{}] }, renderer: { atEnd: false } },
         epubEndController: {
             isOpen: () => opened, getGeneration: () => generation,
-            open() { opened = true; generation++; opens++; }, refresh() {}
+            open() { opened = true; generation++; opens++; }
         },
         epubProgressManager: { beforeNavigation: async () => true },
         navigationIntentSeq: 0, pendingNavigationCount: 0, navigationChain: Promise.resolve(),
@@ -52,6 +52,30 @@ test('entering the last screen keeps reading; one further forward operation open
     assert.equal(f.pageTurns(), 1);
     assert.equal(f.completed(), 2);
     assert.equal(f.context.pendingNavigationCount, 0);
+});
+
+test('scrolled forward navigation at the end keeps the body and existing completion handling', async () => {
+    const f = fixture();
+    f.context.currentFlowMode = 'scrolled';
+    f.context.view.renderer.atEnd = true;
+    await f.context.navigate(() => f.context.goNextPage());
+    assert.equal(f.opens(), 0);
+    assert.equal(f.pageTurns(), 1);
+    assert.equal(f.completed(), 1);
+});
+
+test('scrolled chapter navigation at the end does not request the end panel', async () => {
+    const f = fixture();
+    const c = f.context;
+    c.currentFlowMode = 'scrolled';
+    c.view.renderer.atEnd = true;
+    c.getCurrentNavigationIndex = () => 0;
+    c.getAdjacentEpubMarker = () => null;
+    c.getTocNavigationTargets = () => [];
+    c.getBookSectionCount = () => 1;
+    vm.runInContext(section('async function goToAdjacentSection(', 'function handleKeydown('), c);
+    assert.equal(await c.goToAdjacentSection(false), null);
+    assert.equal(f.opens(), 0);
 });
 
 test('queued inputs are discarded when the panel opens and closing permits only fresh inputs', async () => {
