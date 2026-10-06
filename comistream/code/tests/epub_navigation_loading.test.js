@@ -208,7 +208,7 @@ function compositorFixture() {
     return { ...f, overlay, animations, events };
 }
 
-test('compositor feedback uses the configured delay once and cancels before short work becomes visible', () => {
+test('compositor feedback starts immediately, holds transparency and cancels before short work becomes visible', () => {
     const f = compositorFixture();
     const first = f.context.navigationLoadingFeedback.begin();
     f.advance(spinnerDelay - 1);
@@ -216,7 +216,14 @@ test('compositor feedback uses the configured delay once and cancels before shor
     assert.equal(f.animations.length, 1);
     const animation = f.animations[0];
     assert.equal(animation.keyframes[0].opacity, 0);
-    assert.equal(animation.options.delay, spinnerDelay);
+    assert.equal(animation.options.delay || 0, 0);
+    assert.equal(animation.options.duration, spinnerDelay + 180);
+    assert.equal(animation.options.easing || 'linear', 'linear');
+    assert.equal(animation.keyframes[1].opacity, 0);
+    assert.equal(animation.keyframes[1].offset * animation.options.duration, spinnerDelay);
+    assert.equal(animation.keyframes[1].easing, 'ease');
+    assert.equal(animation.keyframes[2].opacity, 1);
+    assert.equal(animation.keyframes[2].offset, 1);
     assert.equal(animation.options.fill, 'both');
     assert.equal(f.overlay.style.transition, 'none');
     assert.equal(f.overlay.attributes.get('aria-hidden'), 'true');

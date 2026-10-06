@@ -23,6 +23,37 @@ window.fetch = async (url, options) => {
     await navigate(() => view.goTo(0), { recordProgress: false });
     await waitTimeout(250);
     const overlay = document.getElementById('epub-loading-overlay');
+    if (mode === 'timing') {
+        const finish = navigationLoadingFeedback.begin();
+        try {
+            const animation = overlay.getAnimations().find(item => item.effect?.target === overlay);
+            if (!animation) throw new Error('Loading animation was not created');
+            animation.pause();
+            await animation.ready;
+            for (const time of [0, NAVIGATION_SPINNER_DELAY_MS - 1, NAVIGATION_SPINNER_DELAY_MS]) {
+                animation.currentTime = time;
+                if (Number(getComputedStyle(overlay).opacity) !== 0) {
+                    throw new Error('Loading feedback became visible at ' + time + ' ms');
+                }
+            }
+            animation.currentTime = NAVIGATION_SPINNER_DELAY_MS + 90;
+            const halfwayOpacity = Number(getComputedStyle(overlay).opacity);
+            if (halfwayOpacity < 0.79 || halfwayOpacity > 0.82) {
+                throw new Error('Loading fade did not preserve ease timing: ' + halfwayOpacity);
+            }
+            animation.currentTime = NAVIGATION_SPINNER_DELAY_MS + 180;
+            if (Number(getComputedStyle(overlay).opacity) !== 1) {
+                throw new Error('Loading fade did not finish after 180 ms');
+            }
+        } finally {
+            finish();
+        }
+        if (getComputedStyle(overlay).visibility !== 'hidden' || Number(getComputedStyle(overlay).opacity) !== 0) {
+            throw new Error('Loading feedback remained after cancellation');
+        }
+        window.__progressNativeResult = { ok: true };
+        return;
+    }
     let feedbackShown = false;
     const observer = new MutationObserver(() => {
         if (overlay.getAttribute('aria-hidden') === 'false') feedbackShown = true;
@@ -150,7 +181,7 @@ async function verifyLoadingFrames(result, frames) {
     if (changed < 40) throw new Error('The spinner did not rotate during blocked rendering');
 }
 
-for (const mode of ['tap', 'swipe', 'sync', 'blocked', 'fast']) {
+for (const mode of ['tap', 'swipe', 'sync', 'blocked', 'fast', 'timing']) {
     test(`actual EPUB ${mode} loading respects delayed feedback and clears it after rendering`, {
         skip: !chrome || process.env.COMISTREAM_EPUB_BROWSER_TESTS !== '1' || process.env.COMISTREAM_HTTP_TESTS !== '1'
     }, async () => {

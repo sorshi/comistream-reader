@@ -522,13 +522,17 @@ function createNavigationLoadingFeedback() {
             if (operations.size === 1) {
                 const overlay = $('epub-loading-overlay');
                 if (typeof overlay?.animate === 'function') {
-                    // 遅延と表示はcompositorへ渡し、main threadが描画中でも動かすルン。
+                    // delay中にSafariが描画側への転送を待たないよう、透明な区間から再生するルン。
                     // 完了時は即座に隠して、次章の上へフェードの残像を出さないルン。
                     overlay.style.transition = 'none';
-                    revealAnimation = overlay.animate([{ opacity: 0 }, { opacity: 1 }], {
-                        delay: NAVIGATION_SPINNER_DELAY_MS,
-                        duration: 180,
-                        easing: 'ease',
+                    const duration = NAVIGATION_SPINNER_DELAY_MS + 180;
+                    revealAnimation = overlay.animate([
+                        { opacity: 0, offset: 0 },
+                        { opacity: 0, offset: NAVIGATION_SPINNER_DELAY_MS / duration, easing: 'ease' },
+                        { opacity: 1, offset: 1 }
+                    ], {
+                        duration,
+                        easing: 'linear',
                         fill: 'both'
                     });
                     show();
