@@ -621,11 +621,19 @@ JS;
     $isDebugConsoleAdminOnly = ((int)($conf['isDebugConsoleAdminOnly'] ?? 1) === 0) ? 0 : 1;
     $isAdmin = false;
     $debugConsoleEnabled = $debugEnabled && ($isDebugConsoleAdminOnly === 0 || $isAdmin);
+    $packetSave = ($_SESSION['packetSave'] ?? false) === true;
+    // 本文を開く前のフォント通信も、共通の節約モードに合わせて止めるルン。
+    $googleFontsHtml = $packetSave ? '' : <<<'HTML'
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=BIZ+UDMincho:wght@400;700&display=swap" rel="stylesheet">
+HTML;
     $configJson = json_encode([
         'publicDir' => (string)($conf['publicDir'] ?? ''),
         'bookIconUrl' => '/theme/icons/book.png',
         'epubPackageBase' => $epubPackageBase,
         'epubUrl' => $epubUrl,
+        'packetSave' => $packetSave,
         'escapedFile' => (string)$escapedFile,
         'baseFile' => (string)$baseFile,
         'csrfToken' => (string)$readerMarkerCsrfToken,
@@ -802,9 +810,7 @@ JS;
     <meta name="apple-mobile-web-app-title" content="Comistream">
     <link rel="manifest" href="{$manifestUrl}" crossorigin="use-credentials">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob:; connect-src 'self' blob: https:; frame-src 'self' blob:; style-src 'self' 'unsafe-inline' blob: https:; img-src 'self' blob: data: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https:; font-src 'self' blob: data: https:; worker-src 'self' blob:;">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=BIZ+UDMincho:wght@400;700&display=swap" rel="stylesheet">
+{$googleFontsHtml}
     <title>{$title} - Comistream</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.29.2/feather.min.js" integrity="sha512-zMm7+ZQ8AZr1r3W8Z8lDATkH05QG5Gm2xc6MlsCdBz9l6oE8Y7IXByMgSm/rdRQrhuHt99HAYfMljBOEZ68q5A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <style>

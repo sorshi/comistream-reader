@@ -186,40 +186,10 @@ $COOKIE = getCookie();
 $user = !empty($COOKIE['comistreamUser']) ? $COOKIE['comistreamUser'] : 'guest';
 $readerMarkerCsrfToken = ensureReaderMarkerCsrfToken();
 
-// サイズ設定の取得
-// URLパラメータ(size)が優先、未設定の場合はCookieを確認するルン！
-if ($size !== 'FULL' && $size !== 'comp') {
-    // sizeパラメータが未設定の場合はcookieを確認
-    if (!empty($COOKIE['rawMode'])) {
-        if ($COOKIE['rawMode'] === 'raw') {
-            $size = 'FULL';
-            $_SESSION['packetSave'] = false;
-        } elseif ($COOKIE['rawMode'] === 'cmp') {
-            $size = 'comp';
-            $_SESSION['packetSave'] = true;
-        } else {
-            $COOKIE['rawMode'] = 'cmp';
-            $size = 'comp';
-            $_SESSION['packetSave'] = true;
-        }
-        writelog("DEBUG size setting by cookie:" . $size);
-    }
-    // cookieも未設定の場合はデフォルト値を設定
-    if (empty($size)) {
-        $size = 'comp';
-        $COOKIE['rawMode'] = 'cmp';
-        $_SESSION['packetSave'] = true;
-        writelog("DEBUG size setting by default:" . $size);
-    }
-} else {
-    // URLパラメータでsize指定がある場合
-    if ($size === 'FULL') {
-        $_SESSION['packetSave'] = false;
-    } else {
-        $_SESSION['packetSave'] = true;
-    }
-    writelog("DEBUG size setting by url param:" . $size);
-}
+// 共通の環境設定を確定して、EPUBにも同じセッション値を渡すルン。
+$size = resolveReaderSizeMode($size, $COOKIE['rawMode'] ?? null, $_SESSION['packetSave'] ?? null);
+$_SESSION['packetSave'] = $size === 'comp';
+writelog("DEBUG resolved size setting:" . $size);
 
 // セッションへの書き込みが完了したので、セッションを閉じて並行リクエストのブロックを防ぐ
 // PHPのセッションはファイルベースでロックされるため、早期解放が重要

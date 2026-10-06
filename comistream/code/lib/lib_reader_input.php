@@ -1,5 +1,21 @@
 <?php
 
+function resolveReaderSizeMode($requestedSize, $rawMode, $packetSave): string
+{
+    if ($requestedSize === 'FULL' || $requestedSize === 'comp') {
+        return $requestedSize;
+    }
+    // 一覧のトグルはCookieを更新するので、残っているセッションより先に反映するルン。
+    if ($rawMode === 'raw') {
+        return 'FULL';
+    }
+    if ($rawMode === 'cmp' || $rawMode === 'compressed') {
+        return 'comp';
+    }
+    // 環境に設定が残っていなければオリジナルサイズにするルン。
+    return $packetSave === true ? 'comp' : 'FULL';
+}
+
 function parseReaderInteger($value, int $minimum, int $maximum): ?int
 {
     if (!is_int($value) && (!is_string($value) || preg_match('/\A[0-9]{1,10}\z/', $value) !== 1)) {

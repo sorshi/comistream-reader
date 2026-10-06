@@ -10,10 +10,11 @@ function section(start, end) {
     return source.slice(from, source.indexOf(end, from));
 }
 
-function rendererFixture() {
+function rendererFixture(packetSave = false) {
     const attributes = new Map();
     const renders = [];
     const writes = [];
+    const cssModes = [];
     const renderer = {
         primaryIndex: 0,
         loaded: false,
@@ -39,6 +40,7 @@ function rendererFixture() {
     };
     const listeners = new Map();
     const context = vm.createContext({
+        appConfig: { packetSave }, recordCssMode: mode => cssModes.push(mode),
         epubEndController: null,
         view: { renderer, isFixedLayout: false, addEventListener: (type, fn) => listeners.set(type, fn) },
         currentFlowMode: 'paginated', currentFontScale: 1,
@@ -63,7 +65,10 @@ function rendererFixture() {
         function resolveEffectiveLayoutMode() { return { vertical: layoutVertical }; }
         function updateLayoutDirectionInfo() { layoutVertical = true; return true; }
         function buildRendererPrefsSignature({ layout }) { return JSON.stringify([layoutVertical, layout, currentFlowMode, currentFontScale]); }
-        function buildReaderCSS() { return 'body { font-size: ' + (20 * currentFontScale) + 'px; }'; }
+        function buildReaderCSS(fontScale, packetSave) {
+            recordCssMode(packetSave);
+            return 'body { font-size: ' + (20 * currentFontScale) + 'px; }';
+        }
     `, context);
     vm.runInContext(section('function setRendererAttribute(', 'function setPaginatedSwipeMinimumDistance('), context);
     vm.runInContext(section('function applyRendererPrefs(', 'function applyInitialFontScaleCorrection('), context);
@@ -71,8 +76,18 @@ function rendererFixture() {
     const loadStart = lifecycle.indexOf("    view.addEventListener('load',");
     const loadEnd = lifecycle.indexOf("    view.addEventListener('relocate',", loadStart);
     vm.runInContext(lifecycle.slice(loadStart, loadEnd), context);
-    return { context, renderer, attributes, renders, writes, listeners };
+    return { context, renderer, attributes, renders, writes, listeners, cssModes };
 }
+
+test('resolved packet saving mode reaches initial and subsequent reader styles', () => {
+    for (const mode of [false, true]) {
+        const f = rendererFixture(mode);
+        f.context.applyRendererPrefs();
+        f.context.currentFontScale = 1.1;
+        f.context.applyRendererPrefs();
+        assert.deepEqual(f.cssModes, [mode, mode]);
+    }
+});
 
 test('unchanged renderer attributes do not trigger layout', () => {
     const f = rendererFixture();

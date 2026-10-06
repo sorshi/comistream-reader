@@ -1777,7 +1777,7 @@ function preparePaperImages(doc) {
     }
 }
 
-function buildReaderCSS(fontScale) {
+function buildReaderCSS(fontScale, packetSave = false) {
     const effectiveLayout = resolveEffectiveReadingMode();
     const theme = getEffectiveTheme();
     const shouldOverrideDirection = currentDirectionOverride !== 'auto';
@@ -1794,9 +1794,17 @@ function buildReaderCSS(fontScale) {
         shouldOverrideWritingMode ? '    writing-mode: inherit !important;' : '',
         shouldOverrideDirection ? '    direction: inherit !important;' : ''
     ].filter(Boolean).join('\n');
+    // 節約時は追加ダウンロードせず、端末の明朝体とOSのserifを順に使うルン。
+    const fontImport = packetSave ? ''
+        : "@import url('https://fonts.googleapis.com/css2?family=BIZ+UDMincho:wght@400;700&display=swap');";
+    const fontFamily = packetSave
+        ? '"Hiragino Mincho ProN", "Hiragino Mincho Pro",\n'
+            + '        "Noto Serif CJK JP", "Noto Serif JP", "YuMincho", "Yu Mincho", serif'
+        : '"BIZ UDMincho", "Noto Serif JP", "YuMincho", "Yu Mincho",\n'
+            + '        "Hiragino Mincho ProN", serif';
 
     return `
-@import url('https://fonts.googleapis.com/css2?family=BIZ+UDMincho:wght@400;700&display=swap');
+${fontImport}
 @namespace epub "http://www.idpf.org/2007/ops";
 html {
     font-size: ${Math.round(fontScale * 100)}% !important;
@@ -1817,8 +1825,7 @@ ${overrideCss}
 body {
     background: transparent !important;
     color: inherit !important;
-    font-family: "BIZ UDMincho", "Noto Serif JP", "YuMincho", "Yu Mincho",
-        "Hiragino Mincho ProN", serif !important;
+    font-family: ${fontFamily} !important;
     line-height: 1.75 !important;
     line-break: strict !important;
     hanging-punctuation: force-end allow-end;
@@ -3709,7 +3716,7 @@ function applyRendererPrefs() {
     }
     lastRendererPrefsSignature = prefsSignature;
     latestRendererPageLocation = null;
-    const css = buildReaderCSS(currentFontScale);
+    const css = buildReaderCSS(currentFontScale, appConfig.packetSave === true);
 
     batchRendererUpdates(() => {
         if (typeof view.renderer.toggleAttribute === 'function') {
