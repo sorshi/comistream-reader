@@ -1084,6 +1084,8 @@ HTML;
             border: 4px solid rgba(255, 255, 255, 0.28);
             border-top-color: #fff;
             border-radius: 50%;
+            /* 透明な待機画面の内側でも、回転要素の描画を先に準備してもらうルン。 */
+            will-change: transform;
             animation: epub-loading-spin 0.8s linear infinite;
         }
         #epub-loading-cover {
@@ -1105,6 +1107,9 @@ HTML;
             overflow-wrap: anywhere;
         }
         @keyframes epub-loading-spin {
+            from {
+                transform: rotate(0deg);
+            }
             to {
                 transform: rotate(360deg);
             }

@@ -23,6 +23,39 @@ window.fetch = async (url, options) => {
     await navigate(() => view.goTo(0), { recordProgress: false });
     await waitTimeout(250);
     const overlay = document.getElementById('epub-loading-overlay');
+    if (mode === 'rotation') {
+        const spinner = document.querySelector('.epub-loading-spinner');
+        // 非表示からの再表示でも、章の解析前に回転を準備できるか確かめるルン。
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const finish = navigationLoadingFeedback.begin();
+            try {
+                await navigationLoadingFeedback.prepareSectionLoad();
+                if (getComputedStyle(spinner).willChange !== 'transform') {
+                    throw new Error('Spinner compositing hint is missing');
+                }
+                const rotation = spinner.getAnimations().find(item => item.animationName === 'epub-loading-spin');
+                if (!rotation || rotation.pending || rotation.playState !== 'running') {
+                    throw new Error('Spinner rotation is not ready before section loading');
+                }
+                await waitTimeout(NAVIGATION_SPINNER_DELAY_MS + 200);
+                const before = getComputedStyle(spinner).transform;
+                const beforeTime = rotation.currentTime;
+                await waitTimeout(200);
+                if (rotation.currentTime <= beforeTime || getComputedStyle(spinner).transform === before) {
+                    throw new Error('Visible spinner did not rotate');
+                }
+            } finally {
+                finish();
+            }
+            if (getComputedStyle(overlay).visibility !== 'hidden') {
+                throw new Error('Loading feedback remained after rotation');
+            }
+            await waitAnimationFrame();
+            await waitAnimationFrame();
+        }
+        window.__progressNativeResult = { ok: true };
+        return;
+    }
     if (mode === 'timing') {
         const finish = navigationLoadingFeedback.begin();
         try {
@@ -181,7 +214,7 @@ async function verifyLoadingFrames(result, frames) {
     if (changed < 40) throw new Error('The spinner did not rotate during blocked rendering');
 }
 
-for (const mode of ['tap', 'swipe', 'sync', 'blocked', 'fast', 'timing']) {
+for (const mode of ['tap', 'swipe', 'sync', 'blocked', 'fast', 'timing', 'rotation']) {
     test(`actual EPUB ${mode} loading respects delayed feedback and clears it after rendering`, {
         skip: !chrome || process.env.COMISTREAM_EPUB_BROWSER_TESTS !== '1' || process.env.COMISTREAM_HTTP_TESTS !== '1'
     }, async () => {
