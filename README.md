@@ -22,6 +22,7 @@ NASに追加すると、ブラウザさえあればどこからでもマンガ�
 - 各種動画フォーマットのHLS変換再生。未変換の位置へのシークとシークバーのサムネイル表示
 - 音楽プレーヤー:フォルダ以下の再帰キュー、シャッフル、リピート、再生速度、曲名・アーティスト・カバーアート・歌詞表示
 - 表紙画像とプレビュー画像の自動作成
+- 表紙画像を持たないEPUBには、書名・著者名を載せた文庫風の表紙を自動生成（PHP GDが必要）
 - プレビュー画像は先頭12ページ分をリスト表示時にマウスホバーで表示できる機能。マンガに多い縦書き右綴じに最適化されている。便利
 - 読書履歴、読みかけ位置、お気に入り、既読情報の記録と表示。再オープン時は前回閉じたページから再開。
 - 任意の読書位置に名前付きのしおりを追加（1冊につき100個まで）
@@ -73,7 +74,7 @@ docker run -d -p 8080:80 \
 2. 必要なツールをインストール：
 AlmaLinux9の例だと以下のコマンドを実行します。
    ```
-   sudo dnf install -y tar httpd php sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release
+   sudo dnf install -y tar httpd php php-gd sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release
    sudo dnf config-manager --set-enabled crb
    sudo dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig unrar fd-find mupdf-devel vips
    ```
@@ -87,6 +88,10 @@ AlmaLinux9の例だと以下のコマンドを実行します。
 - [ffmpeg static build](https://johnvansickle.com/ffmpeg/)
 
 PHPはPDO SQLite、mbstring、intl、XML関連の拡張が利用できる構成にしてください。`sqlite-devel`だけではPHPのSQLiteドライバーは有効になりません。ディストリビューションに応じたPHP拡張パッケージを追加し、`php -m`とWeb側のPHP設定を確認してください。動画の再生時間取得とALAC互換再生には`ffprobe`が必要です。`ffmpeg`と同じディレクトリかPATH上に配置し、管理画面の`ffprobe`設定で変更できます。履歴エクスポートには`tar`、`zstd`、`b3sum`が必要です。
+
+表紙画像を持たないEPUBの定型表紙には、FreeType・JPEG対応のPHP GD拡張（AlmaLinuxでは`php-gd`）を使います。Google Fontsで配布されている「しっぽり明朝 Regular」をライセンスとともに`comistream/rsrc/fonts/shippori-mincho/`へ同梱し、サーバー上で直接読み込みます。生成時の外部通信やシステムへのフォント登録は不要です。既存環境を更新するときは、PHP GDとこのフォントディレクトリも配置してください。
+
+定型表紙はOPFの書名・著者名から生成します。画像は一覧の表紙枠159×226pxの2倍にあたる318×452px、品質85のJPEGです。文字主体の定型表紙は`global_resize`によらずこのサイズで生成し、通常の画像表紙は従来のサイズ設定に従います。緑の帯を右端に配置しています。書名が空ならファイル名を使い、著者が空なら省略します。長い文字列は改行・縮小し、それでも収まらない部分を省略します。通常の表紙キャッシュに保存し、一覧と次回以降のEPUB起動背景に利用します。元のEPUBと本文・読書位置は変更しません。日次バッチの対象範囲は従来の`cover_subDir`設定に従います。画像入りの表紙は従来どおり優先し、本文プレビューの生成方法は変更しません。
 
 4. 配置：
 /home/user/を利用して、webrootが/home/user/public/である場合の配置例と操作です。

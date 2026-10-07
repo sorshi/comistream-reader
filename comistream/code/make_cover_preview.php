@@ -48,6 +48,8 @@ $writelog_process_name = 'make_cover_preview';
 global $conf;
 global $cacheDir;
 
+require_once __DIR__ . '/lib/lib_epub_cover.php';
+
 // import
 // library
 if (file_exists(__DIR__ . "/comistream_lib.php")) {
@@ -352,12 +354,12 @@ if (strcasecmp($ext, 'epub') == 0) {
         writelog("DEBUG [EPUB-COVER] manifestアイテム総数: $manifestItemCount", $writelog_process_name);
 
         // 表紙画像が見つからない場合、または.xhtmlファイルだった場合の処理
-        if ($coverFileName === null || pathinfo((string)(parse_url($coverFileName, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION) === 'xhtml') {
+        if ($coverFileName === null || in_array(strtolower(pathinfo((string)(parse_url($coverFileName, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION)), ['xhtml', 'html'], true)) {
             writelog("DEBUG [EPUB-COVER] 表紙が未発見またはxhtml。manifestから画像を直接探索...", $writelog_process_name);
             foreach ($contentXml->manifest->item as $item) {
                 $itemHref = (string)$item['href'];
-                $itemExt = pathinfo((string)(parse_url($itemHref, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION);
-                if (in_array($itemExt, ['jpg', 'jpeg', 'png', 'gif'])) {
+                $itemExt = strtolower(pathinfo((string)(parse_url($itemHref, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION));
+                if (in_array($itemExt, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) {
                     $coverFileName = $itemHref;
                     writelog("DEBUG [EPUB-COVER] >>> manifest内の最初の画像を表紙として採用: $coverFileName", $writelog_process_name);
                     break;
@@ -365,22 +367,22 @@ if (strcasecmp($ext, 'epub') == 0) {
             }
 
             // .xhtmlファイルの場合、中身を解析して画像ファイルを探す
-            if ($coverFileName !== null && pathinfo((string)(parse_url($coverFileName, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION) === 'xhtml') {
+            if ($coverFileName !== null && in_array(strtolower(pathinfo((string)(parse_url($coverFileName, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION)), ['xhtml', 'html'], true)) {
                 writelog("DEBUG [EPUB-COVER] xhtmlファイルを解析中: $coverFileName", $writelog_process_name);
                 $xhtmlFullPath = resolveEpubFileWithinExtractionRoot($epubTempDir, $contentOpfDir, $coverFileName);
                 if ($xhtmlFullPath !== false) {
-                    $xhtmlContent = file_get_contents($xhtmlFullPath);
-                    $xhtmlXml = new SimpleXMLElement($xhtmlContent);
-                    $xhtmlXml->registerXPathNamespace('xlink', 'http://www.w3.org/1999/xlink');
-                    $images = $xhtmlXml->xpath('//image[@xlink:href]');
-                    if (!empty($images)) {
-                        $coverFileName = (string)$images[0]['xlink:href'];
-                        writelog("DEBUG [EPUB-COVER] >>> xhtmlから画像参照を抽出: $coverFileName", $writelog_process_name);
-                    } else {
-                        writelog("WARNING [EPUB-COVER] xhtml内にimage要素が見つかりません", $writelog_process_name);
+                    try {
+                        $documentImage = getEpubCoverDocumentImage($epubTempDir, $xhtmlFullPath);
+                        // 文字だけの表紙は定型表紙の候補へ回すルン。
+                        $coverFileName = $documentImage === null ? null : substr($documentImage, strlen(realpath($epubTempDir)) + 1);
+                        $contentOpfDir = '.';
+                    } catch (Throwable $error) {
+                        writelog('ERROR [EPUB-COVER] ' . $error->getMessage(), $writelog_process_name);
+                        exit(1);
                     }
                 } else {
-                    writelog("WARNING [EPUB-COVER] xhtmlファイルが存在しません: $xhtmlFullPath", $writelog_process_name);
+                    writelog("ERROR [EPUB-COVER] Cover document is missing or outside the EPUB extraction directory", $writelog_process_name);
+                    exit(1);
                 }
             }
         }
@@ -445,10 +447,19 @@ if (strcasecmp($ext, 'epub') == 0) {
         }
 
         if ($coverFileName === null) {
-            writelog("ERROR [EPUB-COVER] Cover image not found in EPUB file: $file", $writelog_process_name);
-            deleteDirectory($epubTempDir);
-            clean_shm_dir();
-            exit(1);
+            try {
+                create_cover_dir($coverFile);
+                renderEpubFallbackCover(
+                    getEpubFallbackCoverMetadata($contentXml, $file),
+                    __DIR__ . '/../rsrc/fonts/shippori-mincho/ShipporiMincho-Regular.ttf',
+                    $coverFile
+                );
+                writelog("INFO [EPUB-COVER] Generated typographic cover: $coverFile", $writelog_process_name);
+                exit(0);
+            } catch (Throwable $error) {
+                writelog('ERROR [EPUB-COVER] Fallback cover generation failed: ' . $error->getMessage(), $writelog_process_name);
+                exit(1);
+            }
         }
 
         // 最終的なパスを構築して確認

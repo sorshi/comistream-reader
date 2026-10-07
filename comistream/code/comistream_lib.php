@@ -298,7 +298,8 @@ function coverUpdate()
     global $publicDir, $user, $file, $coverFile, $previewFile;
 
     if (($user !== "guest") && !empty($user) && (strlen($user) > 0) && !empty($file)) {
-        $sourcePath = (string)$file;
+        // フォーム内で付けた一段分だけ復号し、+と文字どおりの%xxを保つルン。
+        $sourcePath = rawurldecode((string)$file);
         if (!isSafeReaderPagePath($sourcePath)) {
             writelog("ERROR coverUpdate() unsafe file path");
             errorExit('cover_update_failed');
@@ -307,8 +308,10 @@ function coverUpdate()
         $relativeBase = preg_replace('/\.[^\.\/\\\\]*$/', '', $sourcePath);
         $coverRoot = $conf["comistream_tool_dir"] . '/data/theme/covers' . $publicDir;
         $previewRoot = $conf["comistream_tool_dir"] . '/data/theme/preview' . $publicDir;
-        $coverFile = resolveGeneratedImageDeletionPath($coverRoot, $relativeBase, 'jpg');
-        $previewFile = resolveGeneratedImageDeletionPath($previewRoot, $relativeBase, 'webp');
+        $coverFile = resolveGeneratedImageDeletionPath($coverRoot, $relativeBase, 'jpg', true);
+        // 画像を持たないEPUBでは、プレビューの保存先自体がない場合もあるルン。
+        $previewFile = !file_exists($previewRoot) && !is_link($previewRoot)
+            ? null : resolveGeneratedImageDeletionPath($previewRoot, $relativeBase, 'webp', true);
         if ($coverFile === false || $previewFile === false) {
             writelog("ERROR coverUpdate() generated image path is outside its root");
             errorExit('cover_update_failed');
@@ -321,11 +324,11 @@ function coverUpdate()
             writelog("ERROR coverUpdate() cover not found:$coverFile");
         }
 
-        if ((is_file($previewFile) || is_link($previewFile)) && !is_dir($previewFile)) {
+        if ($previewFile !== null && (is_file($previewFile) || is_link($previewFile)) && !is_dir($previewFile)) {
             unlink($previewFile);
             writelog("INFO coverUpdate() preview deleted:$previewFile");
         } else {
-            writelog("ERROR coverUpdate() preview not found:$previewFile");
+            writelog("INFO coverUpdate() preview not present:$previewFile");
         }
 
         errorExit('cover_deleted', null, false);
