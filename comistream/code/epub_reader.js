@@ -5506,8 +5506,26 @@ function getDefaultStartTarget() {
     if (!Array.isArray(sections) || sections.length === 0) {
         return null;
     }
-    const firstLinearIndex = sections.findIndex((section) => section?.linear !== 'no');
-    return firstLinearIndex >= 0 ? firstLinearIndex : 0;
+    const landmarks = Array.isArray(view.book.landmarks) ? view.book.landmarks : [];
+    // 表紙の参照先を優先し、画像だけの参照やspineにない参照は使わないルン。
+    for (const landmark of landmarks) {
+        if (!Array.isArray(landmark?.type) || !landmark.type.includes('cover') || !landmark.href) {
+            continue;
+        }
+        const index = resolveNavigationIndex(landmark.href);
+        if (index !== null && index >= 0 && index < sections.length) {
+            return landmark.href;
+        }
+    }
+    // 表紙の指定がなくても、先頭のlinear="no"のページを飛ばさないルン。
+    return 0;
+}
+
+async function goToDefaultStart() {
+    const target = getDefaultStartTarget();
+    if (target !== null) {
+        await view.goTo(target);
+    }
 }
 
 function bindViewLifecycleEvents() {
@@ -5920,18 +5938,18 @@ async function init() {
             });
         } catch (error) {
             console.warn('Failed to restore stored location, falling back to book start.', error);
-            debugLog('init() restore failed, falling back to text start', {
+            debugLog('init() restore failed, falling back to book start', {
                 message: error?.message || String(error),
                 storedLocation: location
             });
             clearInitialRestorePin();
             initialRestoreTargetInfo = null;
-            await view.init({ showTextStart: true });
-            perf('view.init fallback text start');
+            await goToDefaultStart();
+            perf('fallback book start');
         }
     } else {
-        await view.init({ showTextStart: true });
-        perf('view.init text start');
+        await goToDefaultStart();
+        perf('book start');
     }
 
     if (!view.lastLocation) {
@@ -5953,7 +5971,7 @@ async function init() {
     if (!view.lastLocation) {
         const fallbackTarget = getDefaultStartTarget();
         if (fallbackTarget !== null) {
-            console.warn('EPUB init completed without a rendered location. Falling back to the first readable section.');
+            console.warn('EPUB init completed without a rendered location. Falling back to book start.');
             debugLog('init() no rendered location, forcing fallback target', {
                 fallbackTarget
             });

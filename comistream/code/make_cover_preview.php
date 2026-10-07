@@ -161,7 +161,7 @@ $fullpathFile = $sharePath . '/' . $file;
 if (strcasecmp($ext, 'epub') == 0) {
     writelog("DEBUG epub detected.", $writelog_process_name);
     // 一時ディレクトリを作成
-    // epubの画像は開かれたときではなくバッチでしか作成されない
+    // オープン時もバッチ時も、プロセスごとの一時ディレクトリへ展開するルン。
     $epubTempDir = $cacheDir . '/make_picture_epub_extract_tmp_' . getmypid();
     if (!chkAndMakeDir($epubTempDir)) {
         exit(1);

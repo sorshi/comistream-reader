@@ -3914,10 +3914,11 @@ function checkContentsIndexArray($indexArray)
  */
 function makeCover($coverProcessFile, $coverFile, $previewFile)
 {
-    global $conf, $make_coverpage_path, $coverFile, $previewFile;
+    global $conf, $make_coverpage_path;
 
     $previewProcessFile = $coverProcessFile;
     $make_coverpage_path = $conf["comistream_tool_dir"] . "/code";
+    $makeCoverScript = escapeshellarg($make_coverpage_path . '/make_cover_preview.php');
     $coverDir = $conf["comistream_tool_dir"] . '/data/theme/covers';
 
     if (!chkAndMakeDir($coverDir)) {
@@ -3932,9 +3933,9 @@ function makeCover($coverProcessFile, $coverFile, $previewFile)
     if (!file_exists($coverFile)) {
         $coverProcessFile = str_replace('+', '%2B', $coverProcessFile);
         $coverProcessFile = urldecode($coverProcessFile);
-        $coverProcessFile = str_replace('`', '\\`', $coverProcessFile);
         writelog("DEBUG makeCover() cover file: $make_coverpage_path/make_cover_preview.php " . $coverProcessFile);
-        shell_exec("php $make_coverpage_path/make_cover_preview.php --file=\"$coverProcessFile\" --type=\"covers\" --cache=true >/dev/null 2>&1 &");
+        // ファイル名とスクリプトのパスを、それぞれ1つの引数として渡すルン。
+        shell_exec("php $makeCoverScript --file=" . escapeshellarg($coverProcessFile) . " --type=covers --cache=true >/dev/null 2>&1 &");
     } else {
         writelog("DEBUG makeCover() cover exist." . $coverFile);
     }
@@ -3943,9 +3944,8 @@ function makeCover($coverProcessFile, $coverFile, $previewFile)
     if (!file_exists($previewFile)) {
         $previewProcessFile = str_replace('+', '%2B', $previewProcessFile);
         $previewProcessFile = urldecode($previewProcessFile);
-        $previewProcessFile = str_replace('`', '\\`', $previewProcessFile);
         writelog("DEBUG makeCover() preview file: $make_coverpage_path/make_cover_preview.php " .  $previewProcessFile);
-        shell_exec("php $make_coverpage_path/make_cover_preview.php --file=\"$previewProcessFile\" --type=\"preview\" --cache=true >/dev/null 2>&1 &");
+        shell_exec("php $makeCoverScript --file=" . escapeshellarg($previewProcessFile) . " --type=preview --cache=true >/dev/null 2>&1 &");
     } else {
         writelog("DEBUG makeCover() preview exist." . $previewFile);
     }
@@ -6252,6 +6252,10 @@ function handleFoliateEpubOpen()
     $conf['epub_saved_cfi'] = $savedCfi;
     $conf['epub_saved_updated_at'] = $savedUpdatedAt;
     printEpubViewerHTML();
+    // 初回展開でもキャッシュ再利用でも、未作成の表紙とプレビューを生成するルン。
+    $coverFile = preg_replace('/\.[^.]+$/', '.jpg', $conf['comistream_tool_dir'] . '/data/theme/covers' . $publicFilePath);
+    $previewFile = preg_replace('/\.[^.]+$/', '.webp', $conf['comistream_tool_dir'] . '/data/theme/preview' . $publicFilePath);
+    makeCover(urlEncodeFilePath(ltrim($remotePath, '/')), $coverFile, $previewFile);
     exit(0);
 }
 
