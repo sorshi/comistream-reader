@@ -42,6 +42,7 @@ require_once(__DIR__ . '/lib/lib_reader_marker.php');
 require_once(__DIR__ . '/lib/lib_image.php');
 require_once(__DIR__ . '/lib/lib_image_quality.php');
 require_once(__DIR__ . '/lib/lib_reader_input.php');
+require_once(__DIR__ . '/lib/lib_preview_status.php');
 require_once(__DIR__ . '/lib/lib_reader_progress.php');
 require_once(__DIR__ . '/lib/lib_view.php');
 
@@ -314,6 +315,18 @@ function coverUpdate()
             ? null : resolveGeneratedImageDeletionPath($previewRoot, $relativeBase, 'webp', true);
         if ($coverFile === false || $previewFile === false) {
             writelog("ERROR coverUpdate() generated image path is outside its root");
+            errorExit('cover_update_failed');
+            return;
+        }
+        try {
+            // 判定解除から画像削除まで、生成プロセスと同じロックを持つルン。
+            $previewResetLock = acquirePreviewStatusLock($conf['comistream_tool_dir'], $sourcePath, false);
+            $previewReset = clearPreviewUnavailable($conf['comistream_tool_dir'], $sourcePath, false);
+        } catch (Throwable $error) {
+            $previewReset = false;
+        }
+        if (!$previewReset) {
+            writelog('ERROR coverUpdate() cannot clear preview status');
             errorExit('cover_update_failed');
             return;
         }
@@ -3944,13 +3957,13 @@ function makeCover($coverProcessFile, $coverFile, $previewFile)
     }
 
     // プレビュー画像ファイルがなければ出力
-    if (!file_exists($previewFile)) {
-        $previewProcessFile = str_replace('+', '%2B', $previewProcessFile);
-        $previewProcessFile = urldecode($previewProcessFile);
+    $previewProcessFile = rawurldecode($previewProcessFile);
+    $previewSource = rtrim((string)($conf['sharePath'] ?? $GLOBALS['sharePath'] ?? ''), '/') . '/' . $previewProcessFile;
+    if (!file_exists($previewFile) && !previewUnavailableMatches($conf['comistream_tool_dir'], $previewProcessFile, $previewSource)) {
         writelog("DEBUG makeCover() preview file: $make_coverpage_path/make_cover_preview.php " .  $previewProcessFile);
         shell_exec("php $makeCoverScript --file=" . escapeshellarg($previewProcessFile) . " --type=preview --cache=true >/dev/null 2>&1 &");
     } else {
-        writelog("DEBUG makeCover() preview exist." . $previewFile);
+        writelog("DEBUG makeCover() preview exists or is unavailable: " . $previewFile);
     }
 } //end function makeCover
 

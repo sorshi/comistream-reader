@@ -48,6 +48,10 @@ try {
         mkdir($outside, 0700);
         file_put_contents($outside . '/outside.jpg', 'keep');
         file_put_contents($outside . '/outside.webp', 'keep');
+        if ($case !== 'traversal') {
+            file_put_contents($tool . '/source.epub', 'source');
+            expectCoverUpdate(savePreviewUnavailable($tool, $relative, $tool . '/source.epub', previewSourceSignature($tool . '/source.epub')), 'Could not create unavailable fixture.');
+        }
         if (in_array($case, ['parent-link', 'parent-link-missing'], true)) {
             symlink($outside, $tool . '/data/theme/covers/nas/escape');
             symlink($outside, $tool . '/data/theme/preview/nas/escape');
@@ -68,9 +72,11 @@ try {
         if (in_array($case, ['guest', 'traversal', 'parent-link', 'parent-link-missing'], true)) {
             expectCoverUpdate($status !== 0, $case . ': unsafe or unauthenticated deletion succeeded.');
             if ($case === 'guest') expectCoverUpdate(is_file($cover) && is_file($preview), 'Guest removed cached images.');
+            if ($case !== 'traversal') expectCoverUpdate(previewUnavailableMatches($tool, $relative, $tool . '/source.epub'), 'Rejected deletion cleared preview status.');
         } else {
             expectCoverUpdate($status === 0 && !file_exists($cover) && !is_link($cover), $case . ': cover was not deleted: ' . implode("\n", $output));
             expectCoverUpdate(!file_exists($preview), $case . ': preview was not deleted.');
+            expectCoverUpdate(!previewUnavailableMatches($tool, $relative, $tool . '/source.epub'), $case . ': deletion did not clear preview status.');
         }
         expectCoverUpdate(file_get_contents($outside . '/outside.jpg') === 'keep' && file_get_contents($outside . '/outside.webp') === 'keep', $case . ': external target changed.');
     }

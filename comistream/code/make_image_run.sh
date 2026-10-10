@@ -49,6 +49,7 @@ cover_subDir=$(sqlite3 "$dbfile" "SELECT value FROM system_config WHERE key='cov
 multiProc=1
 # 利用コマンドパス
 export make_image_script=$(realpath "$(dirname "$0")/make_cover_preview.php")
+export preview_status_script="$(dirname "$make_image_script")/check_preview_status.php"
 # エラーログ
 errorLog="/dev/null"
 
@@ -159,6 +160,14 @@ function resolve_ebook_from_image() {
 }
 export -f resolve_ebook_from_image
 
+function preview_is_unavailable() {
+  [[ "$1" =~ \.[eE][pP][uU][bB]$ ]] || return 1
+  [ -d "$comistream_tool_dir/data/preview_status" ] || return 1
+  [ -f "$preview_status_script" ] || return 1
+  php "$preview_status_script" --tool-root="$comistream_tool_dir" --source-root="$searchPath" --file="$1" >/dev/null 2>&1
+}
+export -f preview_is_unavailable
+
 function make_image() {
   set +H
   filePath="$searchPath/$1"
@@ -188,6 +197,11 @@ function make_image() {
   if [ "$imageType" == "preview" ]; then
     outputFile="$comistream_tool_dir/data/theme/preview$publicDir/$1"
     outputFile="${outputFile%.*}.webp"
+    # 画像なしの判定が原本と一致する場合は、生成プロセスを起動しないルン。
+    if preview_is_unavailable "$1"; then
+      logger -t "comistream make_image_run.sh[$$]" -p local1.debug "preview unavailable; skipped: $1"
+      return
+    fi
   else
     outputFile="$comistream_tool_dir/data/theme/covers$publicDir/$1"
     outputFile="${outputFile%.*}.jpg"
@@ -490,6 +504,10 @@ function make_image() {
   fi
 
   if [ ! -s "$outputFile" ]; then
+    if [ "$imageType" == "preview" ] && preview_is_unavailable "$1"; then
+      logger -t "comistream make_image_run.sh[$$]" -p local1.debug "preview unavailable; no output required: $1"
+      return
+    fi
     logger -t "comistream make_image_run.sh[$$]" -p local1.warning "$imageType output NG :$outputFile:$1"
     rm -f "$outputFile"
   else

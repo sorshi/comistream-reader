@@ -43,6 +43,8 @@ try {
         ['cover-only', true, false, true, '--open', ['covers']],
         ['preview-only', true, true, false, '--open', ['preview']],
         ['complete', true, true, true, '--open', []],
+        ['unavailable', true, true, false, '--open', []],
+        ['unavailable-new-cover', true, false, false, '--open', ['covers']],
         ['cbz', true, false, false, '--cover', ['covers', 'preview']],
     ] as [$name, $cached, $hasCover, $hasPreview, $mode, $expectedTypes]) {
         $caseRoot = $root . '/' . $name;
@@ -58,6 +60,9 @@ try {
             mkdir($directory, 0700, true);
         }
         file_put_contents($share . '/' . $relative, 'EPUB fixture');
+        if (str_starts_with($name, 'unavailable')) {
+            expectEpubCoverOpen(savePreviewUnavailable($tool, $relative, $share . '/' . $relative, previewSourceSignature($share . '/' . $relative)), 'Could not save unavailable fixture.');
+        }
         $sentinel = $caseRoot . '/unrelated-existing-image';
         file_put_contents($sentinel, 'unrelated');
         if ($hasCover) file_put_contents($cover, 'existing cover');

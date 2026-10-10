@@ -49,6 +49,7 @@ global $conf;
 global $cacheDir;
 
 require_once __DIR__ . '/lib/lib_epub_cover.php';
+require_once __DIR__ . '/lib/lib_epub_preview.php';
 
 // import
 // library
@@ -124,6 +125,12 @@ if (!isset($options['file']) || !isset($options['type'])) {
 $file = $options['file'];
 $type = $options['type'];
 writelog("DEBUG Start process, type:$type", $writelog_process_name);
+// 判定済みなら、一時ディレクトリや画像ライブラリを用意する前に省略するルン。
+if ($type === 'preview' && previewUnavailableMatches($conf['comistream_tool_dir'], $file, $sharePath . '/' . $file)) {
+    writelog('DEBUG Preview unavailable; unchanged EPUB skipped.', $writelog_process_name);
+    exit(0);
+}
+
 // 作業ディレクトリ作成
 // $conf_cacheDir = $cacheDir;
 if ((isset($options['cache'])) && ($options['cache'] == true)) {
@@ -162,6 +169,20 @@ $fullpathFile = $sharePath . '/' . $file;
 // epubの処理 =======================================================================================
 if (strcasecmp($ext, 'epub') == 0) {
     writelog("DEBUG epub detected.", $writelog_process_name);
+    $previewStatusLock = null;
+    if ($type === 'preview') {
+        try {
+            $previewStatusLock = acquirePreviewStatusLock($conf['comistream_tool_dir'], $file);
+        } catch (Throwable $error) {
+            writelog('WARNING Preview status lock unavailable: ' . $error->getMessage(), $writelog_process_name);
+        }
+        // 先行プロセスが判定を保存していれば、ロック取得後にも省略するルン。
+        if (previewUnavailableMatches($conf['comistream_tool_dir'], $file, $fullpathFile)) {
+            writelog('DEBUG Preview unavailable; concurrent generation skipped.', $writelog_process_name);
+            exit(0);
+        }
+    }
+
     // 一時ディレクトリを作成
     // オープン時もバッチ時も、プロセスごとの一時ディレクトリへ展開するルン。
     $epubTempDir = $cacheDir . '/make_picture_epub_extract_tmp_' . getmypid();
@@ -263,6 +284,11 @@ if (strcasecmp($ext, 'epub') == 0) {
         }
     }
 
+    $previewSourceSignature = $type === 'preview' ? previewSourceSignature($fullpathFile) : null;
+    if ($type === 'preview' && $previewSourceSignature === null) {
+        writelog('ERROR Cannot read EPUB preview source.', $writelog_process_name);
+        exit(1);
+    }
     $escapedEpubTempDir = escapeshellarg($epubTempDir);
     $escapedFullpathFile = escapeshellarg($fullpathFile);
     // LANG環境変数を明示的に設定してUTF-8ファイル名を正しく扱うルン
@@ -613,10 +639,15 @@ if (strcasecmp($ext, 'epub') == 0) {
             exit(1);
         }
 
-        // content.opfファイルのパスを取得
-        $xml = new SimpleXMLElement($containerXml);
-        $contentOpfPath = (string)$xml->rootfiles->rootfile['full-path'];
-        $contentOpfDir = dirname($contentOpfPath);
+        // content.opfファイルのパスを取得し、壊れたcontainerもエラーとして残すルン。
+        try {
+            $xml = readEpubPreviewXml($containerXmlPath);
+            $contentOpfPath = (string)$xml->rootfiles->rootfile['full-path'];
+            $contentOpfDir = dirname($contentOpfPath);
+        } catch (Throwable $error) {
+            writelog('ERROR EPUB preview container inspection failed: ' . $error->getMessage(), $writelog_process_name);
+            exit(1);
+        }
 
         // content.opfファイルの内容を取得してspineを解析するルン
         $contentOpfFullPath = resolveEpubFileWithinExtractionRoot($epubTempDir, '.', $contentOpfPath);
@@ -633,86 +664,28 @@ if (strcasecmp($ext, 'epub') == 0) {
             clean_shm_dir();
             exit(1);
         }
-        $contentXml = new SimpleXMLElement($contentOpf);
-
-        // manifestからidでhrefを引けるマップを作成
-        $manifestMap = [];
-        foreach ($contentXml->manifest->item as $item) {
-            $manifestMap[(string)$item['id']] = (string)$item['href'];
-        }
-
-        // spineの順序で画像ファイルを収集するルン
-        $imageFiles = [];
-        foreach ($contentXml->spine->itemref as $itemref) {
-            $idref = (string)$itemref['idref'];
-            if (isset($manifestMap[$idref])) {
-                $href = $manifestMap[$idref];
-                $fullPath = resolveEpubFileWithinExtractionRoot($epubTempDir, $contentOpfDir, $href);
-
-                // SVGファイルの場合、中の画像参照を解析するルン
-                if (strtolower(pathinfo((string)(parse_url($href, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION)) === 'svg' && $fullPath !== false) {
-                    $svgContent = file_get_contents($fullPath);
-                    $extractedImage = extractImageFromSvg($svgContent, dirname($href));
-                    if ($extractedImage !== null) {
-                        $imagePath = resolveEpubFileWithinExtractionRoot($epubTempDir, $contentOpfDir, $extractedImage);
-                        if ($imagePath !== false) {
-                            $imageFiles[] = $imagePath;
-                            writelog("DEBUG preview image from SVG: $imagePath", $writelog_process_name);
-                        }
-                    }
-                }
-                // 直接画像ファイルの場合
-                elseif (in_array(strtolower(pathinfo((string)(parse_url($href, PHP_URL_PATH) ?? ''), PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'gif', 'webp']) && $fullPath !== false) {
-                    $imageFiles[] = $fullPath;
-                }
+        try {
+            $contentXml = readEpubPreviewXml($contentOpfFullPath);
+            if ($contentXml->getName() !== 'package' || !isset($contentXml->manifest, $contentXml->spine)
+                || count($contentXml->spine->itemref) === 0) {
+                throw new RuntimeException('EPUB preview package has no valid manifest or spine.');
             }
-
-            // 12枚集まったらループを抜けるルン
-            if (count($imageFiles) >= 12) {
-                break;
-            }
+            $imageFiles = collectEpubPreviewImages($epubTempDir, $contentXml, $contentOpfDir);
+        } catch (Throwable $error) {
+            writelog('ERROR EPUB preview inspection failed: ' . $error->getMessage(), $writelog_process_name);
+            exit(1);
         }
-
-        writelog("DEBUG collected " . count($imageFiles) . " images from spine", $writelog_process_name);
-
-        // spineから画像が見つからなかった場合、従来の方法で探すルン
         if (empty($imageFiles)) {
-            writelog("DEBUG falling back to directory search", $writelog_process_name);
-            $imageDirs = ['images', 'OEBPS/Images', 'OEBPS/images', 'OPS/Images', 'OPS/images'];
-
-            foreach ($imageDirs as $imageDir) {
-                $fullImageDir = $epubTempDir . '/' . $imageDir;
-                if (is_dir($fullImageDir)) {
-                    $files = glob($fullImageDir . '/*.{jpg,jpeg,png,gif,webp}', GLOB_BRACE);
-                    $imageFiles = array_merge($imageFiles, $files);
-                }
+            if (!savePreviewUnavailable($conf['comistream_tool_dir'], $file, $fullpathFile, $previewSourceSignature)) {
+                writelog('WARNING Cannot save EPUB preview unavailable status.', $writelog_process_name);
             }
-
-            // 画像が見つからない場合、EPUBの全ディレクトリを検索
-            if (empty($imageFiles)) {
-                $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($epubTempDir));
-                foreach ($iterator as $file) {
-                    if ($file->isFile() && in_array(strtolower($file->getExtension()), ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
-                        $imageFiles[] = $file->getPathname();
-                    }
-                }
-            }
-        }
-
-        $realEpubRoot = realpath($epubTempDir);
-        $imageFiles = array_values(array_filter($imageFiles, static function ($imagePath) use ($realEpubRoot) {
-            $resolvedImagePath = is_string($imagePath) ? realpath($imagePath) : false;
-            return $realEpubRoot !== false && $resolvedImagePath !== false && is_file($resolvedImagePath)
-                && str_starts_with($resolvedImagePath, $realEpubRoot . DIRECTORY_SEPARATOR);
-        }));
-
-        // 画像が12枚未満の場合、警告を出す
-        if (count($imageFiles) < 12) {
-            writelog("WARNING: Less than 12 images found in EPUB file: " . count($imageFiles), $writelog_process_name);
+            writelog('INFO EPUB preview unavailable: no images found.', $writelog_process_name);
+            exit(0);
         }
 
         // 最初の12枚の画像を処理
         $shmDir = create_shm_dir();
+        $convertedImages = [];
         for ($i = 0; $i < min(12, count($imageFiles)); $i++) {
             $outputFileBasename = sprintf("%03d", $i + 1);
 
@@ -773,6 +746,7 @@ if (strcasecmp($ext, 'epub') == 0) {
 
                     if ($return_var !== 0) {
                         writelog("ERROR: Failed to convert image with ImageMagick: $cmd", $writelog_process_name);
+                        exit(1);
                     }
                 }
             } else {
@@ -784,26 +758,29 @@ if (strcasecmp($ext, 'epub') == 0) {
 
                 if ($return_var !== 0) {
                     writelog("ERROR: Failed to convert image: $cmd", $writelog_process_name);
+                    exit(1);
                 }
             }
             unset($image);
+            $converted = "$shmDir/" . $outputFileBasename . '.png';
+            if (!is_file($converted) || @getimagesize($converted) === false) {
+                writelog('ERROR EPUB preview image conversion failed.', $writelog_process_name);
+                exit(1);
+            }
+            $convertedImages[] = $converted;
         }
 
         // プレビュー画像を作成
         create_preview_dir($previewFile);
-        // オヨ！ファイル名にバッククォートや特殊文字が含まれる場合があるからescapeshellarg()でエスケープするルン！
-        $escapedPreviewFile = escapeshellarg($previewFile);
-        $concatCmd = "LANG=ja_JP.UTF8 nice $montage -background '#000000' -geometry +3+3 $shmDir/004.png $shmDir/003.png $shmDir/002.png $shmDir/001.png $shmDir/008.png $shmDir/007.png $shmDir/006.png $shmDir/005.png $shmDir/012.png $shmDir/011.png $shmDir/010.png $shmDir/009.png -tile 4x3 - | $convert - -quality $quality -define webp:lossless=false $escapedPreviewFile";
-        writelog("DEBUG concatCmd:$concatCmd", $writelog_process_name);
-        exec($concatCmd, $output, $return_var);
-
-        if ($return_var !== 0) {
-            writelog('ERROR exec failed. Command: ' . $concatCmd . ' Return code: ' . $return_var, $writelog_process_name);
-            clean_shm_dir();
-            deleteDirectory($epubTempDir);
+        try {
+            writeEpubPreviewMontage($convertedImages, $shmDir, $previewFile, $montage, $convert, (int)$quality);
+            if (!clearPreviewUnavailable($conf['comistream_tool_dir'], $file, false)) {
+                writelog('WARNING Cannot clear obsolete EPUB preview status.', $writelog_process_name);
+            }
+            writelog('DEBUG EPUB preview generated successfully.', $writelog_process_name);
+        } catch (Throwable $error) {
+            writelog('ERROR ' . $error->getMessage(), $writelog_process_name);
             exit(1);
-        } else {
-            writelog('DEBUG exec succeeded. Command: ' . $concatCmd . ' Output: ' . implode("\n", $output), $writelog_process_name);
         }
 
         // 一時ディレクトリを削除
