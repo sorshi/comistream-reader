@@ -19,6 +19,11 @@ if (in_array($argv[1] ?? '', ['--open', '--cover'], true)) {
     $p7zip = $fixture['extractor'];
     $dbh = null;
     $user = 'guest';
+    if (isset($fixture['database'])) {
+        $dbh = new PDO('sqlite:' . $fixture['database']);
+        $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $user = 'reader';
+    }
     $readerMarkerCsrfToken = '';
     // 呼び出し元の出力先を使い、別のグローバル変数に引きずられないか確認するルン。
     $coverFile = $previewFile = $fixture['sentinel'];
@@ -95,15 +100,31 @@ PHP);
             symlink($cache . '/' . $hash, $web . '/theme/bibi/' . $hash);
         }
         $fixturePath = $caseRoot . '/fixture.json';
-        file_put_contents($fixturePath, json_encode([
+        $fixture = [
             'conf' => ['comistream_tool_dir' => $tool, 'publicDir' => '/public', 'webRoot' => $web],
             'sharePath' => $share, 'cacheDir' => $cache, 'relative' => $relative,
             'extractor' => $extractor, 'cover' => $cover, 'preview' => $preview, 'sentinel' => $sentinel,
-        ], JSON_THROW_ON_ERROR));
+        ];
+        // 初回展開とキャッシュ利用の両方で、本文操作前に履歴日時が入るか確認するルン。
+        if (in_array($name, ['fresh', 'cached'], true)) {
+            $fixture['database'] = $caseRoot . '/history.sqlite';
+            $database = new PDO('sqlite:' . $fixture['database']);
+            $schema = file_get_contents(dirname(__DIR__, 2) . '/rsrc/sql/make-comistream-db-ddl.sql');
+            $database->exec(substr($schema, 0, strpos($schema, 'CREATE TABLE IF NOT EXISTS reader_markers')));
+        }
+        file_put_contents($fixturePath, json_encode($fixture, JSON_THROW_ON_ERROR));
         $output = [];
         $status = 0;
         exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' ' . $mode . ' ' . escapeshellarg($fixturePath) . ' 2>&1', $output, $status);
         expectEpubCoverOpen($status === 0, $name . ': worker failed: ' . implode("\n", $output));
+        if (isset($fixture['database'])) {
+            $row = $database->query('SELECT * FROM book_history')->fetch(PDO::FETCH_ASSOC);
+            expectEpubCoverOpen($row && $row['base_file'] === basename($relative) && $row['updated_at'] !== null,
+                $name . ': opening EPUB did not set the history timestamp.');
+            expectEpubCoverOpen((int)$row['current_page'] === 0 && (int)$row['has_read'] === 0 && $row['epub_cfi'] === null,
+                $name . ': opening EPUB changed reading progress.');
+            $database = null;
+        }
         if ($mode === '--open') {
             expectEpubCoverOpen(str_contains(implode("\n", $output), 'window.epubReaderConfig ='), $name . ': reader HTML was not returned.');
             expectEpubCoverOpen(is_file($cache . '/' . $hash . '/DONE'), $name . ': extraction cache was not completed.');

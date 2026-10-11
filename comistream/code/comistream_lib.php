@@ -693,7 +693,8 @@ function makeBookmark()
         $dbh->setAttribute(PDO::ATTR_TIMEOUT, 5);
         $dbh->exec('PRAGMA busy_timeout = 5000');
 
-        $query = "INSERT INTO book_history (user, request_uri, path_hash, relative_path, base_file, base_file_hash, current_page, max_page) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user, base_file) DO UPDATE SET max_page = CASE WHEN has_read = 1 THEN 0 ELSE excluded.max_page END, request_uri = excluded.request_uri, path_hash = excluded.path_hash, relative_path = excluded.relative_path";
+        // ページを動かさず閉じても履歴に出るよう、初回登録時にも日時を入れるルン。
+        $query = "INSERT INTO book_history (user, request_uri, path_hash, relative_path, base_file, base_file_hash, current_page, max_page, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(user, base_file) DO UPDATE SET max_page = CASE WHEN has_read = 1 THEN 0 ELSE excluded.max_page END, request_uri = excluded.request_uri, path_hash = excluded.path_hash, relative_path = excluded.relative_path";
 
         $sqlStartTime = microtime(true);
 
@@ -839,7 +840,8 @@ function getHistory()
 
     if ($user !== "guest") {
         if ($global_use_db_flag == 1) {
-            $query = "SELECT request_uri, path_hash, base_file FROM book_history WHERE user = ? ORDER BY updated_at DESC LIMIT 1";
+            // 旧データの空の更新日時は作成日時で補い、同じ秒なら新しい登録を優先するルン。
+            $query = "SELECT request_uri, path_hash, base_file FROM book_history WHERE user = ? ORDER BY COALESCE(updated_at, created_at) DESC, id DESC LIMIT 1";
             $stmt = $dbh->prepare($query);
             $stmt->execute([$user]);
 
@@ -869,7 +871,7 @@ function getRecentBooks()
     if ($user !== "guest") {
         $json = [];
         if ($global_use_db_flag == 1) {
-            $query = "SELECT request_uri, path_hash, base_file FROM book_history WHERE user = ? ORDER BY updated_at DESC LIMIT 50";
+            $query = "SELECT request_uri, path_hash, base_file FROM book_history WHERE user = ? ORDER BY COALESCE(updated_at, created_at) DESC, id DESC LIMIT 50";
             $stmt = $dbh->prepare($query);
             $stmt->execute([$user]);
 
@@ -6244,8 +6246,8 @@ function handleFoliateEpubOpen()
         $relativePath = dirname('/' . ltrim($remotePath, '/'));
         $stmt = $dbh->prepare(
             'INSERT INTO book_history '
-            . '(user, request_uri, path_hash, relative_path, base_file, base_file_hash, current_page, max_page) '
-            . 'VALUES (?, ?, ?, ?, ?, ?, 0, 0) '
+            . '(user, request_uri, path_hash, relative_path, base_file, base_file_hash, current_page, max_page, updated_at) '
+            . 'VALUES (?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP) '
             . 'ON CONFLICT(user, base_file) DO UPDATE SET '
             . 'request_uri = excluded.request_uri, path_hash = excluded.path_hash, relative_path = excluded.relative_path'
         );
