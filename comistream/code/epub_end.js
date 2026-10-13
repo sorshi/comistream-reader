@@ -76,8 +76,15 @@
         });
         returnButton?.addEventListener('click', close);
         backButton?.addEventListener('click', () => { void options.onBack(); });
-        // ダイアログのボタンとTab操作はブラウザに任せ、Readerのキー操作へ渡さないルン。
-        panel?.addEventListener('keydown', event => event.stopPropagation());
+        // Delキーで一覧へ戻り、ボタンとTab操作はブラウザに任せるルン。
+        panel?.addEventListener('keydown', event => {
+            if (isOpen() && !event.defaultPrevented
+                && (event.code === 'Delete' || event.key === 'Delete')) {
+                event.preventDefault();
+                void options.onBack();
+            }
+            event.stopPropagation();
+        });
         const title = doc.getElementById('epub-end-book-title');
         if (title) title.textContent = options.baseFile;
 

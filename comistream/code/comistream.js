@@ -819,6 +819,15 @@ function showSuggestPanel() {
       event.preventDefault();
       hideSuggestPanel();
     });
+    // 巻末パネルでもDelキーで一覧へ戻るルン。
+    panel.addEventListener("keydown", (event) => {
+      if (panel.open && !event.defaultPrevented
+        && (event.code === "Delete" || event.key === "Delete")) {
+        event.preventDefault();
+        event.stopPropagation();
+        void backListPage();
+      }
+    });
     panel.addEventListener("click", (event) => {
       if (backdropPressed && event.target === panel && outside(event)) hideSuggestPanel();
       backdropPressed = false;

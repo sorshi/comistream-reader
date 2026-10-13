@@ -65,8 +65,8 @@ function rendererFixture(packetSave = false) {
         function resolveEffectiveLayoutMode() { return { vertical: layoutVertical }; }
         function updateLayoutDirectionInfo() { layoutVertical = true; return true; }
         function buildRendererPrefsSignature({ layout }) { return JSON.stringify([layoutVertical, layout, currentFlowMode, currentFontScale]); }
-        function buildReaderCSS(fontScale, packetSave) {
-            recordCssMode(packetSave);
+        function applyReaderFontStyles() { recordCssMode(appConfig.packetSave); }
+        function buildReaderCSS(fontScale) {
             return 'body { font-size: ' + (20 * currentFontScale) + 'px; }';
         }
     `, context);
@@ -79,12 +79,14 @@ function rendererFixture(packetSave = false) {
     return { context, renderer, attributes, renders, writes, listeners, cssModes };
 }
 
-test('resolved packet saving mode reaches initial and subsequent reader styles', () => {
+test('resolved packet saving mode reaches every section font style', () => {
     for (const mode of [false, true]) {
         const f = rendererFixture(mode);
         f.context.applyRendererPrefs();
+        f.listeners.get('load')({ detail: { index: 0, doc: { addEventListener() {} } } });
         f.context.currentFontScale = 1.1;
         f.context.applyRendererPrefs();
+        f.listeners.get('load')({ detail: { index: 1, doc: { addEventListener() {} } } });
         assert.deepEqual(f.cssModes, [mode, mode]);
     }
 });

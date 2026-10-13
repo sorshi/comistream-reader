@@ -134,6 +134,7 @@ let initialRestoreCfi = '';
 let initialRestoreReconcileUntil = 0;
 let initialRestorePinnedLocation = null;
 const illustrationStyleSnapshots = new WeakMap();
+const readerFontStyles = new WeakMap();
 const sectionIsolationRenderers = new WeakSet();
 const loadingFeedbackRenderers = new WeakSet();
 const navigationLoadingFeedback = createNavigationLoadingFeedback();
@@ -1781,7 +1782,102 @@ function preparePaperImages(doc) {
     }
 }
 
-function buildReaderCSS(fontScale, packetSave = false) {
+function parseReaderFontLocale(language) {
+    if (typeof language !== 'string' || !language.trim()) return null;
+    try {
+        const locale = new Intl.Locale(language.trim().replace(/_/g, '-'));
+        // 言語不明のundを英語と推定せず、書籍の言語か端末標準へ任せるルン。
+        return (!locale.language || locale.language === 'und') && !locale.script ? null : locale;
+    } catch {
+        return null;
+    }
+}
+
+function getReaderFontLocale(doc) {
+    const root = doc?.documentElement;
+    const bookLanguage = view?.book?.metadata?.language;
+    const languages = [
+        // Foliateがlangを補った場合も、XHTML自身のxml:langを優先するルン。
+        root?.getAttributeNS?.('http://www.w3.org/XML/1998/namespace', 'lang'),
+        root?.getAttribute?.('xml:lang'),
+        root?.getAttribute?.('lang'),
+        ...(Array.isArray(bookLanguage) ? bookLanguage : [bookLanguage]),
+        view?.language?.canonical
+    ];
+    for (const language of languages) {
+        const locale = parseReaderFontLocale(language);
+        if (locale) return locale;
+    }
+    return null;
+}
+
+function getReaderFontProfile(locale) {
+    if (!locale) return 'generic';
+    const { script, region } = locale.maximize();
+    if (locale.language === 'ja' && ['Jpan', 'Hira', 'Kana'].includes(script)) return 'japanese';
+    if (script === 'Hant') return ['HK', 'MO'].includes(region) ? 'hongkong' : 'taiwan';
+    if (['Latn', 'Grek', 'Cyrl'].includes(script)) return 'latin';
+    return 'generic';
+}
+
+function buildReaderFontCSS(packetSave = false, locale = null) {
+    const profile = getReaderFontProfile(locale);
+    const fonts = {
+        japanese: {
+            web: 'BIZ+UDMincho:wght@400;700',
+            normal: '"BIZ UDMincho", "Noto Serif JP", "YuMincho", "Yu Mincho", '
+                + '"Hiragino Mincho ProN", serif',
+            local: '"Hiragino Mincho ProN", "Hiragino Mincho Pro", '
+                + '"Noto Serif CJK JP", "Noto Serif JP", "YuMincho", "Yu Mincho", serif'
+        },
+        latin: {
+            web: 'Noto+Serif:ital,wght@0,400;0,700;1,400;1,700',
+            normal: '"Noto Serif", Georgia, "Times New Roman", serif',
+            local: 'Georgia, "Noto Serif", "Times New Roman", serif'
+        },
+        taiwan: {
+            web: 'Noto+Serif+TC:wght@400;700',
+            normal: '"Noto Serif TC", "Noto Serif CJK TC", "Songti TC", "PMingLiU", "MingLiU", serif',
+            local: '"Noto Serif CJK TC", "Noto Serif TC", "Songti TC", "PMingLiU", "MingLiU", serif'
+        },
+        hongkong: {
+            web: 'Noto+Serif+HK:wght@400;700',
+            normal: '"Noto Serif HK", "Noto Serif CJK HK", "MingLiU_HKSCS", "Songti TC", "PMingLiU", serif',
+            local: '"Noto Serif CJK HK", "Noto Serif HK", "MingLiU_HKSCS", "Songti TC", "PMingLiU", serif'
+        },
+        generic: { normal: 'serif', local: 'serif' }
+    };
+    const font = fonts[profile];
+    // 節約時と未対応の文字体系では、リーダー用Webフォントを取得しないルン。
+    const fontImport = !packetSave && font.web
+        ? `@import url('https://fonts.googleapis.com/css2?family=${font.web}&display=swap');`
+        : '';
+    const features = profile === 'japanese' ? '"palt" 1, "pkna" 1' : 'normal';
+    return `${fontImport}
+/* 書籍のhtml・body・本文指定が優先されるよう、既定値だけを継承させるルン。 */
+:where(html) {
+    font-family: ${packetSave ? font.local : font.normal};
+    font-feature-settings: ${features};
+}
+`;
+}
+
+function applyReaderFontStyles(doc) {
+    if (!doc?.head || !doc.documentElement) return;
+    const locale = getReaderFontLocale(doc);
+    if (locale) doc.documentElement.lang = locale.toString();
+    const css = buildReaderFontCSS(appConfig.packetSave === true, locale);
+    let style = readerFontStyles.get(doc);
+    if (!style || style.parentNode !== doc.head) {
+        style = doc.createElement('style');
+        style.setAttribute('data-comistream-reader-font', '');
+        doc.head.prepend(style);
+        readerFontStyles.set(doc, style);
+    }
+    if (style.textContent !== css) style.textContent = css;
+}
+
+function buildReaderCSS(fontScale) {
     const effectiveLayout = resolveEffectiveReadingMode();
     const theme = getEffectiveTheme();
     const shouldOverrideDirection = currentDirectionOverride !== 'auto';
@@ -1798,17 +1894,7 @@ function buildReaderCSS(fontScale, packetSave = false) {
         shouldOverrideWritingMode ? '    writing-mode: inherit !important;' : '',
         shouldOverrideDirection ? '    direction: inherit !important;' : ''
     ].filter(Boolean).join('\n');
-    // 節約時は追加ダウンロードせず、端末の明朝体とOSのserifを順に使うルン。
-    const fontImport = packetSave ? ''
-        : "@import url('https://fonts.googleapis.com/css2?family=BIZ+UDMincho:wght@400;700&display=swap');";
-    const fontFamily = packetSave
-        ? '"Hiragino Mincho ProN", "Hiragino Mincho Pro",\n'
-            + '        "Noto Serif CJK JP", "Noto Serif JP", "YuMincho", "Yu Mincho", serif'
-        : '"BIZ UDMincho", "Noto Serif JP", "YuMincho", "Yu Mincho",\n'
-            + '        "Hiragino Mincho ProN", serif';
-
     return `
-${fontImport}
 @namespace epub "http://www.idpf.org/2007/ops";
 html {
     font-size: ${Math.round(fontScale * 100)}% !important;
@@ -1820,7 +1906,6 @@ html {
     hanging-punctuation: force-end allow-end;
     text-spacing-trim: space-first allow-end;
     text-rendering: optimizeLegibility;
-    font-feature-settings: "palt" 1, "pkna" 1;
     -webkit-font-smoothing: antialiased;
     letter-spacing: 0 !important;
     word-spacing: normal !important;
@@ -1829,12 +1914,10 @@ ${overrideCss}
 body {
     background: transparent !important;
     color: inherit !important;
-    font-family: ${fontFamily} !important;
     line-height: 1.75 !important;
     line-break: strict !important;
     hanging-punctuation: force-end allow-end;
     text-spacing-trim: space-first allow-end;
-    font-feature-settings: "palt" 1, "pkna" 1;
     font-kerning: normal;
     letter-spacing: 0 !important;
     word-spacing: normal !important;
@@ -3720,7 +3803,7 @@ function applyRendererPrefs() {
     }
     lastRendererPrefsSignature = prefsSignature;
     latestRendererPageLocation = null;
-    const css = buildReaderCSS(currentFontScale, appConfig.packetSave === true);
+    const css = buildReaderCSS(currentFontScale);
 
     batchRendererUpdates(() => {
         if (typeof view.renderer.toggleAttribute === 'function') {
@@ -5537,6 +5620,7 @@ function bindViewLifecycleEvents() {
     view.addEventListener('load', (event) => batchRendererUpdates(() => {
         navigationEventSeq++;
         const doc = event.detail?.doc;
+        applyReaderFontStyles(doc);
         doc?.addEventListener('pointerdown', hidePagePositionHelp, { passive: true });
         preparePaperImages(doc);
         markMediaPageLayout(doc);

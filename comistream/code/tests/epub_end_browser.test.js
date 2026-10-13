@@ -2,6 +2,8 @@ const test = require('node:test');
 const fs = require('node:fs');
 const { chrome, literal, runBrowserFixture } = require('./browser_fixture');
 const source = fs.readFileSync(require.resolve('../epub_end'), 'utf8');
+const reader = fs.readFileSync(require.resolve('../epub_reader.js'), 'utf8');
+const keys = reader.slice(reader.indexOf('function handleKeydown('), reader.indexOf('function bindKeyboardShortcuts('));
 const body = `<button id="origin">Reader</button>
 <dialog id="epub-end-panel" aria-modal="true" aria-labelledby="epub-end-title">
 <h2 id="epub-end-title">End of book</h2><div id="epub-end-book-title"></div>
@@ -22,6 +24,9 @@ test('modal end navigation stays usable during delayed loading and safely adds c
             onNavigate: href => { nextUrl = href; },
             fetch: () => { requests++; return new Promise(resolve => { resolveFetch = resolve; }); }
         });
+        const epubEndController = controller;
+        ${keys}
+        document.addEventListener('keydown', handleKeydown, true);
         const loading = controller.startSuggestions();
         expect(!controller.open(), 'An intermediate chapter opened the panel');
         atEnd = true; origin.focus(); controller.open();
@@ -48,6 +53,15 @@ test('modal end navigation stays usable during delayed loading and safely adds c
                 panel.dispatchEvent(new Event('cancel', { cancelable: true }));
                 await new Promise(resolve => setTimeout(resolve, 0));
                 expect(!panel.open, 'Escape cancellation did not close the panel');
+                controller.open();
+                let expectedExits = exits;
+                for (const target of [document.getElementById('epub-end-return'), document.getElementById('epub-end-back'), link]) {
+                    target.focus();
+                    expect(document.activeElement === target, 'Panel control did not receive focus');
+                    const event = new KeyboardEvent('keydown', { code:'Delete', key:'Delete', bubbles:true, cancelable:true });
+                    target.dispatchEvent(event);
+                    expect(event.defaultPrevented && exits === ++expectedExits, 'Delete did not exit exactly once from the focused panel control');
+                }
             } catch (error) { window.testFailed = true; document.getElementById('result').textContent = error.stack; }
             window.testDone = true;
         });

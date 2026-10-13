@@ -86,6 +86,19 @@ test('CBZ body return, list exit, Escape and backdrop close remain distinct and 
                 panel.dispatchEvent(new MouseEvent('click', {clientX:0,clientY:0}));
                 await new Promise(resolve => setTimeout(resolve,0));
                 expect(!panel.open && exits === 1, 'Backdrop did not return to reading');
+                showSuggestPanel();
+                const link = document.createElement('a');
+                link.href = '#next'; link.textContent = 'Next volume';
+                const list = document.getElementById('suggest-books');
+                list.append(link); list.hidden = false;
+                let expectedExits = exits;
+                for (const target of [document.getElementById('suggest-return'), document.getElementById('suggest-back'), link]) {
+                    target.focus();
+                    expect(document.activeElement === target, 'Panel control did not receive focus');
+                    const event = new KeyboardEvent('keydown', { code:'Delete', key:'Delete', bubbles:true, cancelable:true });
+                    target.dispatchEvent(event);
+                    expect(event.defaultPrevented && exits === ++expectedExits, 'Delete did not exit exactly once from the focused panel control');
+                }
                 window.matchMedia = matchMedia;
             } catch (error) { window.testFailed = true; document.getElementById('result').textContent = error.stack; }
             window.testDone = true;

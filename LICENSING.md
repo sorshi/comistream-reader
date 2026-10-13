@@ -20,6 +20,8 @@ Comistream Readerには、Apaxy、Faenza icon theme、long-press-event、Foliate
 
 EPUB定型表紙用のShippori Mincho Regular（しっぽり明朝）は、The Shippori Mincho Project Authorsによるフォントです。SIL Open Font License 1.1で改変せず同梱しています。[取得元と固定リビジョン](comistream/rsrc/fonts/shippori-mincho/README.md)、[著作権表示とライセンス全文](comistream/rsrc/fonts/shippori-mincho/OFL.txt)を参照してください。
 
+EPUB本文の既定Webフォントには、Google Fontsで配信されるBIZ UDMincho、Noto Serif、Noto Serif TC、Noto Serif HKを使用します。各フォントはSIL Open Font License 1.1で提供されています。フォントファイルは本リポジトリに同梱せず、通常モードでブラウザが配信元から取得します。権利者とライセンス全文は、それぞれの配布元（[BIZ UDMincho](https://github.com/google/fonts/tree/main/ofl/bizudmincho)、[Noto Serif](https://github.com/google/fonts/tree/main/ofl/notoserif)、[Noto Serif TC](https://github.com/google/fonts/tree/main/ofl/notoseriftc)、[Noto Serif HK](https://github.com/google/fonts/tree/main/ofl/notoserifhk)）を参照してください。
+
 ## 権利者による別途許諾
 
 各権利者は、自ら権利を保有する部分について、AGPLv3とは別の条件で個別に許諾できる場合があります。この規定は、第三者が権利を保有する部分について別途許諾する権限を意味しません。
