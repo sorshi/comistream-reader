@@ -1852,12 +1852,12 @@ function buildReaderFontCSS(packetSave = false, locale = null) {
     const fontImport = !packetSave && font.web
         ? `@import url('https://fonts.googleapis.com/css2?family=${font.web}&display=swap');`
         : '';
-    const features = profile === 'japanese' ? '"palt" 1, "pkna" 1' : 'normal';
     return `${fontImport}
 /* 書籍のhtml・body・本文指定が優先されるよう、既定値だけを継承させるルン。 */
 :where(html) {
     font-family: ${packetSave ? font.local : font.normal};
-    font-feature-settings: ${features};
+    /* 横組み用のpalt・pknaを継承すると縦組みの中黒などがずれるので、標準の字形・字幅を使うルン。 */
+    font-feature-settings: normal;
 }
 `;
 }

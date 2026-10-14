@@ -72,7 +72,8 @@ test('normal mode loads only the selected web family and includes Latin italics'
         assert.ok(css.includes(`family=${family}&display=swap`));
         assert.equal((css.match(/@import/g) || []).length, 1);
         assert.doesNotMatch(css, /!important/);
-        assert.ok(css.includes('"palt"') === (language === 'ja'));
+        assert.match(css, /font-feature-settings: normal;/);
+        assert.doesNotMatch(css, /"palt"|"pkna"/);
     }
     for (const language of ['ar', 'he', 'hi', 'th', 'ko', 'zh-Hans', 'und']) {
         const css = f.buildReaderFontCSS(false, f.parseReaderFontLocale(language));
@@ -90,6 +91,7 @@ test('packet saving uses local regional families without web requests', () => {
         assert.doesNotMatch(css, /@import|url\(|fonts\.googleapis|fonts\.gstatic/);
         assert.ok(css.includes(`font-family: ${family}`));
         assert.match(css, /serif;/);
+        assert.match(css, /font-feature-settings: normal;/);
     }
     assert.match(f.buildReaderFontCSS(true, f.parseReaderFontLocale('zh-HK')), /MingLiU_HKSCS/);
 });
@@ -134,6 +136,7 @@ test('browser preserves publisher fonts while chapter defaults and writing modes
             const computed = element => frame.contentWindow.getComputedStyle(element);
             const paragraph = doc.querySelector('p');
             expect(computed(paragraph).fontFamily.startsWith(family), 'Wrong default: ' + language + ': ' + computed(paragraph).fontFamily);
+            expect(computed(paragraph).fontFeatureSettings === 'normal', 'Reader injected glyph spacing: ' + language);
             expect(computed(doc.body).writingMode === writingMode, 'Writing mode changed: ' + language);
             if (language === 'ar') expect(computed(paragraph).direction === 'rtl', 'Arabic direction changed');
             expect(computed(doc.querySelector('.publisher')).fontFamily === 'sans-serif', 'Publisher paragraph font was overridden');
@@ -147,5 +150,42 @@ test('browser preserves publisher fonts while chapter defaults and writing modes
             records.push({ language, writingMode });
         }
         expect(records.length === cases.length, 'Some chapters did not render');
+    `);
+});
+
+test('Japanese vertical punctuation uses native metrics and preserves publisher features', { skip: !chrome }, async () => {
+    await runBrowserFixture(`
+        const view = { book: { metadata: { language: ['ja'] } } };
+        const appConfig = { packetSave: true };
+        const readerFontStyles = new WeakMap();
+        ${fontCode}
+        const frame = document.createElement('iframe');
+        document.body.append(frame);
+        const doc = frame.contentDocument;
+        doc.documentElement.lang = 'ja';
+        const publisher = doc.createElement('style');
+        publisher.textContent = 'body { font-family: "Yu Mincho", serif; } .horizontal { writing-mode: horizontal-tb; }';
+        doc.head.append(publisher);
+        // 禁則の強さと縦横の混在にかかわらず、横組み用の字詰めを継承させないルン。
+        doc.body.innerHTML = '<p style="line-break: loose">「星・月」や（太陽）</p>'
+            + '<p style="line-break: normal">「星・月」や（太陽）</p>'
+            + '<p style="line-break: strict">「星・月」や（太陽）</p>'
+            + '<p class="horizontal">横組み：星・月</p>';
+        applyReaderFontStyles(doc);
+        const computed = element => frame.contentWindow.getComputedStyle(element);
+        for (const writingMode of ['vertical-rl', 'vertical-lr', 'horizontal-tb']) {
+            doc.documentElement.style.writingMode = writingMode;
+            for (const paragraph of doc.querySelectorAll('p')) {
+                expect(computed(paragraph).fontFeatureSettings === 'normal',
+                    'Horizontal glyph adjustments leaked into ' + writingMode);
+            }
+        }
+        // 書籍が指定した縦組み用・横組み用の機能は上書きしないルン。
+        doc.documentElement.style.writingMode = 'vertical-rl';
+        publisher.textContent += 'body { font-feature-settings: "vpal" 1; }'
+            + '.horizontal { font-feature-settings: "palt" 1; }';
+        applyReaderFontStyles(doc);
+        expect(computed(doc.querySelector('p')).fontFeatureSettings === '"vpal"', 'Publisher vertical features were overridden');
+        expect(computed(doc.querySelector('.horizontal')).fontFeatureSettings === '"palt"', 'Publisher horizontal features were overridden');
     `);
 });
