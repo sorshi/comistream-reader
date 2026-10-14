@@ -1,0 +1,6 @@
+AddType font/ttf .ttf
+<IfModule mod_headers.c>
+    <Files "ComistreamKanaRepeat-v1.ttf">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </Files>
+</IfModule>

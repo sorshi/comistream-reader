@@ -26,7 +26,8 @@ async function checkDashes() {
     doc.body.innerHTML = '<p id="sample">これは――遠い宇宙。これは―――長い航路。これは——文章。</p>'
         + '<p class="horizontal">横書き――文字</p><p lang="en">English――text</p>'
         + '<code>code――text</code><p><span class="combined">――</span></p>'
-        + '<p class="hidden">不可視――文字</p><p>単体：―、—、–、−、ー。</p>';
+        + '<p class="hidden">不可視――文字</p><p>単体：―、—、–、−、ー。</p>'
+        + '<p id="repeat" style="inline-size:4em;line-break:strict">あああ〳〵文、あああ〴〵文。</p>';
     view.renderer = { getContents: () => [{ doc }] };
     const textNodes = () => {
         const walker = doc.createTreeWalker(doc.body, 4), nodes = [];
@@ -51,6 +52,23 @@ async function checkDashes() {
     expect(frame.parentElement.querySelectorAll('[data-comistream-dash-overlay]').length === 1, 'Overlays duplicated');
     const overlay = frame.parentElement.querySelector('[data-comistream-dash-overlay]');
     expect(getComputedStyle(overlay).pointerEvents === 'none', 'Overlay intercepts reader input');
+    function verifyRepeatMarks() {
+        const node = doc.getElementById('repeat').firstChild;
+        const size = parseFloat(win.getComputedStyle(node.parentElement).fontSize);
+        for (const match of node.data.matchAll(/[〳〴]〵/g)) {
+            const upper = doc.createRange();
+            upper.setStart(node, match.index);
+            upper.setEnd(node, match.index + 1);
+            const lower = doc.createRange();
+            lower.setStart(node, match.index + 1);
+            lower.setEnd(node, match.index + 2);
+            const first = upper.getBoundingClientRect(), second = lower.getBoundingClientRect();
+            // 上下字形の接続はフォントに任せ、追加の描画・字間・行末分割を入れないルン。
+            expect(Math.abs(first.left - second.left) < 0.1, 'Repeat mark halves split between columns');
+            expect(Math.abs(first.bottom - second.top) < 0.1, 'Space inserted between repeat mark halves');
+            expect(Math.abs(second.bottom - first.top - size * 2) < 0.1, 'Repeat mark does not occupy two cells');
+        }
+    }
     function verify(expectedCount = 3) {
         const ranges = Array.from(win.CSS.highlights.get(name) || []);
         const lines = Array.from(overlay.querySelectorAll('line'));
@@ -77,6 +95,7 @@ async function checkDashes() {
                 Object.assign(doc.documentElement.style, { writingMode: mode, fontSize: `${size}px`, fontWeight: weight });
                 await wait();
                 verify();
+                verifyRepeatMarks();
             }
         }
     }

@@ -83,7 +83,7 @@ test('normal mode loads only the selected web family and includes Latin italics'
     }
 });
 
-test('packet saving uses local regional families without web requests', () => {
+test('packet saving uses local regional families without Google Fonts requests', () => {
     const f = fixture();
     const families = { ja: '"Hiragino Mincho ProN"', en: 'Georgia', 'zh-TW': '"Noto Serif CJK TC"', 'zh-HK': '"Noto Serif CJK HK"', ar: 'serif' };
     for (const [language, family] of Object.entries(families)) {
@@ -94,6 +94,22 @@ test('packet saving uses local regional families without web requests', () => {
         assert.match(css, /font-feature-settings: normal;/);
     }
     assert.match(f.buildReaderFontCSS(true, f.parseReaderFontLocale('zh-HK')), /MingLiU_HKSCS/);
+});
+
+test('kana repeat font is restricted to two codepoints in Japanese chapters', () => {
+    const f = fixture();
+    const url = 'https://reader.example/theme/fonts/kana-repeat/ComistreamKanaRepeat-v1.ttf';
+    for (const packetSave of [false, true]) {
+        const css = f.buildReaderFontCSS(packetSave, f.parseReaderFontLocale('ja'), url);
+        assert.ok(css.includes(`src: url("${url}") format("truetype")`));
+        assert.match(css, /unicode-range: U\+3031-3032;/);
+        assert.match(css, /font-display: swap;/);
+        assert.match(css, /font-family: "Comistream Kana Repeat",/);
+        if (packetSave) assert.doesNotMatch(css, /@import|googleapis|gstatic/);
+    }
+    for (const lang of ['en', 'zh-Hant', 'ar', 'und']) {
+        assert.doesNotMatch(f.buildReaderFontCSS(true, f.parseReaderFontLocale(lang), url), /Comistream Kana Repeat|@font-face/);
+    }
 });
 
 test('browser preserves publisher fonts while chapter defaults and writing modes remain independent', { skip: !chrome }, async () => {
@@ -135,12 +151,13 @@ test('browser preserves publisher fonts while chapter defaults and writing modes
             expect(doc.head.firstElementChild.hasAttribute('data-comistream-reader-font'), 'Default font was not inserted before publisher styles');
             const computed = element => frame.contentWindow.getComputedStyle(element);
             const paragraph = doc.querySelector('p');
-            expect(computed(paragraph).fontFamily.startsWith(family), 'Wrong default: ' + language + ': ' + computed(paragraph).fontFamily);
+            const originalFamily = element => computed(element).fontFamily.replace(/^"Comistream Kana Repeat", /, '');
+            expect(originalFamily(paragraph).startsWith(family), 'Wrong default: ' + language + ': ' + computed(paragraph).fontFamily);
             expect(computed(paragraph).fontFeatureSettings === 'normal', 'Reader injected glyph spacing: ' + language);
             expect(computed(doc.body).writingMode === writingMode, 'Writing mode changed: ' + language);
             if (language === 'ar') expect(computed(paragraph).direction === 'rtl', 'Arabic direction changed');
-            expect(computed(doc.querySelector('.publisher')).fontFamily === 'sans-serif', 'Publisher paragraph font was overridden');
-            expect(computed(doc.querySelector('code')).fontFamily === 'monospace', 'Code font was overridden');
+            expect(originalFamily(doc.querySelector('.publisher')) === 'sans-serif', 'Publisher paragraph font was overridden');
+            expect(originalFamily(doc.querySelector('code')) === 'monospace', 'Code font was overridden');
             publisher.textContent += 'body { font-family: "Publisher Font", serif; }';
             expect(computed(paragraph).fontFamily.startsWith('"Publisher Font"'), 'Publisher body font was overridden');
             publisher.textContent += 'html { font-family: "Root Font", serif; } body { font-family: inherit; }';
