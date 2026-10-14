@@ -135,6 +135,7 @@ let initialRestoreReconcileUntil = 0;
 let initialRestorePinnedLocation = null;
 const illustrationStyleSnapshots = new WeakMap();
 const readerFontStyles = new WeakMap();
+const readerDashDocuments = new Map();
 const sectionIsolationRenderers = new WeakSet();
 const loadingFeedbackRenderers = new WeakSet();
 const navigationLoadingFeedback = createNavigationLoadingFeedback();
@@ -1875,6 +1876,166 @@ function applyReaderFontStyles(doc) {
         readerFontStyles.set(doc, style);
     }
     if (style.textContent !== css) style.textContent = css;
+}
+
+function collectReaderDashRanges(doc) {
+    const ranges = [];
+    const walker = doc.createTreeWalker(doc.body, 4);
+    while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (node.parentElement.closest('script, style, noscript, textarea, select, code, pre, svg, math, rt, rp')) continue;
+        for (const match of node.data.matchAll(/―{2,}|—{2,}/g)) {
+            const range = doc.createRange();
+            range.setStart(node, match.index);
+            range.setEnd(node, match.index + match[0].length);
+            ranges.push(range);
+        }
+    }
+    return ranges;
+}
+
+function prepareReaderDashes(doc) {
+    if (!doc?.body || view?.isFixedLayout) return;
+    const previous = readerDashDocuments.get(doc);
+    if (previous) {
+        previous.schedule();
+        return;
+    }
+    const win = doc.defaultView;
+    const frame = win?.frameElement;
+    const parent = frame?.parentElement;
+    // 本文を隠すAPIと描画先が揃わない環境では、元の文字をそのまま残すルン。
+    if (!win?.CSS?.highlights || typeof win.Highlight !== 'function' || !parent
+        || !win.CSS.supports('selector(::highlight(comistream-reader-dashes))')
+        || getComputedStyle(parent).position === 'static') return;
+
+    const name = 'comistream-reader-dashes';
+    const namespace = 'http://www.w3.org/2000/svg';
+    const overlay = document.createElementNS(namespace, 'svg');
+    overlay.setAttribute('data-comistream-dash-overlay', '');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.setAttribute('part', 'filter');
+    overlay.style.cssText = 'position:absolute;display:block;pointer-events:none;overflow:hidden;user-select:none';
+    parent.append(overlay);
+    const style = doc.createElement('style');
+    style.setAttribute('data-comistream-dash-style', '');
+    style.textContent = `::highlight(${name}) { color: transparent; text-decoration-line: none; }`;
+    doc.head.append(style);
+    let ranges = [];
+    let rescan = true;
+    let pendingFrame = null;
+    let destroyed = false;
+
+    function render() {
+        pendingFrame = null;
+        if (destroyed) return;
+        if (!frame.isConnected || frame.contentDocument !== doc) {
+            destroy();
+            return;
+        }
+        try {
+            if (rescan) {
+                ranges = collectReaderDashRanges(doc);
+                rescan = false;
+            }
+            overlay.style.left = `${frame.offsetLeft + frame.clientLeft}px`;
+            overlay.style.top = `${frame.offsetTop + frame.clientTop}px`;
+            overlay.setAttribute('width', frame.clientWidth);
+            overlay.setAttribute('height', frame.clientHeight);
+            const lines = document.createDocumentFragment();
+            const highlight = new win.Highlight();
+            const styles = new Map();
+            for (const range of ranges) {
+                const element = range.startContainer.parentElement;
+                if (!element?.isConnected || !element.matches(':lang(ja), :lang(jpn)')) continue;
+                let computed = styles.get(element);
+                if (!computed) {
+                    computed = win.getComputedStyle(element);
+                    styles.set(element, computed);
+                }
+                if (!computed.writingMode.startsWith('vertical') || computed.textOrientation === 'sideways'
+                    || computed.textCombineUpright !== 'none' || computed.visibility !== 'visible') continue;
+                // 分割された範囲はつながず、縦中横や別言語の本文にも介入しないルン。
+                const rects = Array.from(range.getClientRects());
+                if (rects.length !== 1 || rects[0].width <= 0 || rects[0].height <= 0) continue;
+                let opacity = 1;
+                for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+                    opacity *= Number(win.getComputedStyle(ancestor).opacity);
+                }
+                if (!opacity) continue;
+                const rect = rects[0];
+                const fontSize = parseFloat(computed.fontSize);
+                const center = rect.left + rect.width / 2;
+                const line = document.createElementNS(namespace, 'line');
+                line.setAttribute('x1', center);
+                line.setAttribute('x2', center);
+                line.setAttribute('y1', rect.top);
+                // 文字領域を保ち、黒線の終点だけを0.12em手前で止めるルン。
+                line.setAttribute('y2', rect.bottom - Math.min(fontSize * 0.12, rect.height / 2));
+                line.setAttribute('stroke', computed.color);
+                line.setAttribute('stroke-width', fontSize * 0.045);
+                line.setAttribute('stroke-linecap', 'butt');
+                line.setAttribute('opacity', opacity);
+                lines.append(line);
+                highlight.add(range);
+            }
+            // 線を用意してから元の字形を隠し、CFI・検索・コピーの文字列は保持するルン。
+            overlay.replaceChildren(lines);
+            if (highlight.size) win.CSS.highlights.set(name, highlight);
+            else win.CSS.highlights.delete(name);
+        } catch (error) {
+            win.CSS.highlights.delete(name);
+            overlay.replaceChildren();
+            debugLog('EPUB dash rendering failed; keeping original text', { error: String(error) });
+        }
+    }
+
+    function schedule() {
+        if (!destroyed && pendingFrame === null) pendingFrame = window.requestAnimationFrame(render);
+    }
+    const resizeObserver = new ResizeObserver(schedule);
+    resizeObserver.observe(frame);
+    resizeObserver.observe(parent);
+    resizeObserver.observe(doc.body);
+    const mutationObserver = new MutationObserver(records => {
+        if (records.some(record => record.type !== 'attributes' && doc.body.contains(record.target))) rescan = true;
+        schedule();
+    });
+    mutationObserver.observe(doc.documentElement, {
+        subtree: true, childList: true, characterData: true, attributes: true,
+        attributeFilter: ['style', 'class', 'lang', 'xml:lang', 'dir', 'hidden']
+    });
+    win.addEventListener('scroll', schedule, { passive: true });
+    win.addEventListener('resize', schedule);
+    win.addEventListener('pagehide', destroy);
+    doc.fonts?.addEventListener('loadingdone', schedule);
+    doc.fonts?.ready.then(schedule);
+
+    function destroy() {
+        if (destroyed) return;
+        destroyed = true;
+        if (pendingFrame !== null) window.cancelAnimationFrame(pendingFrame);
+        resizeObserver.disconnect();
+        mutationObserver.disconnect();
+        win.removeEventListener('scroll', schedule);
+        win.removeEventListener('resize', schedule);
+        win.removeEventListener('pagehide', destroy);
+        doc.fonts?.removeEventListener('loadingdone', schedule);
+        win.CSS.highlights.delete(name);
+        overlay.remove();
+        style.remove();
+        readerDashDocuments.delete(doc);
+    }
+    readerDashDocuments.set(doc, { schedule, destroy });
+    schedule();
+}
+
+function refreshReaderDashes() {
+    const docs = new Set(getRendererContents().map(content => content.doc ?? content.document));
+    for (const [doc, state] of readerDashDocuments) {
+        if (!docs.has(doc) || view?.isFixedLayout) state.destroy();
+    }
+    for (const doc of docs) prepareReaderDashes(doc);
 }
 
 function buildReaderCSS(fontScale) {
@@ -3838,6 +3999,7 @@ function applyRendererPrefs() {
         view.renderer.setStyles?.(css);
         for (const content of getRendererContents()) {
             preparePaperImages(content?.doc ?? content?.document);
+            prepareReaderDashes(content?.doc ?? content?.document);
         }
         setRendererAttribute('flow', currentFlowMode);
         // CSSだけの変更も、最終状態で1回描画するルン。
@@ -5621,6 +5783,7 @@ function bindViewLifecycleEvents() {
         navigationEventSeq++;
         const doc = event.detail?.doc;
         applyReaderFontStyles(doc);
+        prepareReaderDashes(doc);
         doc?.addEventListener('pointerdown', hidePagePositionHelp, { passive: true });
         preparePaperImages(doc);
         markMediaPageLayout(doc);
@@ -5799,6 +5962,7 @@ function bindRendererPagePositionEvents() {
     epubEndController?.bindGestures(renderer);
     let previousPageLocation = null;
     renderer.addEventListener('relocate', (event) => {
+        refreshReaderDashes();
         const direction = getPageTurnDirection(previousPageLocation, event.detail);
         previousPageLocation = event.detail;
         // 初期表示・再レイアウト・遅延scroll通知では演出を繰り返さないルン。
@@ -5813,6 +5977,7 @@ function bindRendererPagePositionEvents() {
         });
     });
     renderer.addEventListener('stabilized', () => {
+        refreshReaderDashes();
         schedulePagePositionUpdate();
     });
     return true;

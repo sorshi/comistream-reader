@@ -50,6 +50,7 @@ function fixture({ rtl = false, fixed = false, flow = 'paginated', initialized =
         EPUB_PAGE_TURN_DURATION_MS: 100,
         EPUB_PAGE_TURN_OFFSET_PX: 32,
         getNavigationIsRtl: () => rtl,
+        refreshReaderDashes: () => {},
         schedulePagePositionUpdate: () => {}
     });
     vm.runInContext(animationCode, context);
