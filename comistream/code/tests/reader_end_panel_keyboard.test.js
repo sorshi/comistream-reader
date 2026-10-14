@@ -45,28 +45,30 @@ function fixture(format) {
 }
 
 for (const format of ['image/PDF', 'EPUB']) {
-    test(`${format} end panel Delete uses list exit once and consumes the key`, () => {
-        const f = fixture(format);
-        f.open();
-        f.open();
-        assert.equal(f.key('Delete').defaultPrevented, true);
-        assert.equal(f.exits(), 1);
-        f.close();
-        f.open();
-        assert.equal(f.key('', { key: 'Delete' }).defaultPrevented, true);
-        assert.equal(f.exits(), 2);
-    });
+    for (const code of ['Delete', 'Backspace']) {
+        test(`${format} end panel ${code} uses list exit once and consumes the key`, () => {
+            const f = fixture(format);
+            f.open();
+            f.open();
+            assert.equal(f.key(code).defaultPrevented, true);
+            assert.equal(f.exits(), 1);
+            f.close();
+            f.open();
+            assert.equal(f.key('', { key: code }).defaultPrevented, true);
+            assert.equal(f.exits(), 2);
+        });
+    }
 
     test(`${format} end panel preserves other keys, cancelled events and closed-panel input`, () => {
         const f = fixture(format);
         f.open();
-        for (const code of ['Escape', 'Space', 'Enter', 'Tab', 'ArrowDown', 'Backspace']) {
+        for (const code of ['Escape', 'Space', 'Enter', 'Tab', 'ArrowDown']) {
             assert.equal(f.key(code).defaultPrevented, false, code);
         }
-        f.key('Delete', { prevented: true });
+        for (const code of ['Delete', 'Backspace']) f.key(code, { prevented: true });
         assert.equal(f.exits(), 0);
         f.close();
-        assert.equal(f.key('Delete').defaultPrevented, false);
+        for (const code of ['Delete', 'Backspace']) assert.equal(f.key(code).defaultPrevented, false);
         assert.equal(f.exits(), 0);
     });
 }

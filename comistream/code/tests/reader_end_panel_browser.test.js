@@ -95,9 +95,11 @@ test('CBZ body return, list exit, Escape and backdrop close remain distinct and 
                 for (const target of [document.getElementById('suggest-return'), document.getElementById('suggest-back'), link]) {
                     target.focus();
                     expect(document.activeElement === target, 'Panel control did not receive focus');
-                    const event = new KeyboardEvent('keydown', { code:'Delete', key:'Delete', bubbles:true, cancelable:true });
-                    target.dispatchEvent(event);
-                    expect(event.defaultPrevented && exits === ++expectedExits, 'Delete did not exit exactly once from the focused panel control');
+                    for (const code of ['Delete', 'Backspace']) {
+                        const event = new KeyboardEvent('keydown', { code, key:code, bubbles:true, cancelable:true });
+                        target.dispatchEvent(event);
+                        expect(event.defaultPrevented && exits === ++expectedExits, code + ' did not exit exactly once from the focused panel control');
+                    }
                 }
                 window.matchMedia = matchMedia;
             } catch (error) { window.testFailed = true; document.getElementById('result').textContent = error.stack; }

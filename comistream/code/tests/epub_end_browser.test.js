@@ -58,9 +58,11 @@ test('modal end navigation stays usable during delayed loading and safely adds c
                 for (const target of [document.getElementById('epub-end-return'), document.getElementById('epub-end-back'), link]) {
                     target.focus();
                     expect(document.activeElement === target, 'Panel control did not receive focus');
-                    const event = new KeyboardEvent('keydown', { code:'Delete', key:'Delete', bubbles:true, cancelable:true });
-                    target.dispatchEvent(event);
-                    expect(event.defaultPrevented && exits === ++expectedExits, 'Delete did not exit exactly once from the focused panel control');
+                    for (const code of ['Delete', 'Backspace']) {
+                        const event = new KeyboardEvent('keydown', { code, key:code, bubbles:true, cancelable:true });
+                        target.dispatchEvent(event);
+                        expect(event.defaultPrevented && exits === ++expectedExits, code + ' did not exit exactly once from the focused panel control');
+                    }
                 }
             } catch (error) { window.testFailed = true; document.getElementById('result').textContent = error.stack; }
             window.testDone = true;

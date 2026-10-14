@@ -819,10 +819,10 @@ function showSuggestPanel() {
       event.preventDefault();
       hideSuggestPanel();
     });
-    // 巻末パネルでもDelキーで一覧へ戻るルン。
+    // 巻末パネルでもTOCと同じDel/Backspaceキーで一覧へ戻るルン。
     panel.addEventListener("keydown", (event) => {
       if (panel.open && !event.defaultPrevented
-        && (event.code === "Delete" || event.key === "Delete")) {
+        && (["Delete", "Backspace"].includes(event.code) || ["Delete", "Backspace"].includes(event.key))) {
         event.preventDefault();
         event.stopPropagation();
         void backListPage();

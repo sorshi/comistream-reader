@@ -76,10 +76,10 @@
         });
         returnButton?.addEventListener('click', close);
         backButton?.addEventListener('click', () => { void options.onBack(); });
-        // Delキーで一覧へ戻り、ボタンとTab操作はブラウザに任せるルン。
+        // TOCと同じDel/Backspaceキーで一覧へ戻り、ボタンとTab操作はブラウザに任せるルン。
         panel?.addEventListener('keydown', event => {
             if (isOpen() && !event.defaultPrevented
-                && (event.code === 'Delete' || event.key === 'Delete')) {
+                && (['Delete', 'Backspace'].includes(event.code) || ['Delete', 'Backspace'].includes(event.key))) {
                 event.preventDefault();
                 void options.onBack();
             }
