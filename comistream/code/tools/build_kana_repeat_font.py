@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the OFL-1.1 Comistream Kana Repeat font from a Shippori Mincho subset.
 
-Usage: python3 build_kana_repeat_font.py halves.ttf ComistreamKanaRepeat-v1.ttf
+Usage: python3 build_kana_repeat_font.py halves.ttf ComistreamKanaRepeat-v2.ttf
 See theme/fonts/kana-repeat/README.md for the pinned source and subset command.
 """
 
@@ -94,6 +94,14 @@ for header, table, values in [(b'hhea', b'hmtx', horizontal), (b'vhea', b'vmtx',
     struct.pack_into('>H', tables[header], 10, max(m[0] for m in values))
     tables[table] = bytearray(b''.join(struct.pack('>Hh', *m) for m in values))
 
+# WebKitは対象文字がなくても先頭候補の行寸法をルビ配置へ使うルン。
+# hheaの広い寸法を組版用の1emへ合わせ、縦2emの字送りと輪郭は保持するルン。
+typo_metrics = struct.unpack_from('>hhh', tables[b'OS/2'], 68)
+if typo_metrics != (880, -120, 0) or typo_metrics[0] - typo_metrics[1] != units:
+    raise ValueError('Expected one-em Shippori Mincho typographic metrics')
+struct.pack_into('>hhh', tables[b'hhea'], 4, *typo_metrics)
+struct.pack_into('>I', tables[b'head'], 4, 0x00020000)
+
 codes = [0x3031, 0x3032, 0x3033, 0x3034, 0x3035, 0xffff]
 ids = [count, count + 1, upper, voiced, lower, 0]
 n = len(codes)
@@ -106,8 +114,8 @@ tables[b'cmap'] = bytearray(struct.pack('>HHHHIHHI', 0, 2, 0, 3, 20, 3, 1, 20) +
 
 names = {0: 'Copyright 2021 The Shippori Mincho Project Authors. Modified for Comistream Reader.',
          1: 'Comistream Kana Repeat', 2: 'Regular',
-         3: 'ComistreamKanaRepeat-1.0', 4: 'Comistream Kana Repeat',
-         5: 'Version 1.0', 6: 'ComistreamKanaRepeat',
+         3: 'ComistreamKanaRepeat-2.0', 4: 'Comistream Kana Repeat',
+         5: 'Version 2.0', 6: 'ComistreamKanaRepeat',
          13: 'SIL Open Font License 1.1. See the accompanying OFL.txt.', 14: 'https://openfontlicense.org/'}
 strings = bytearray()
 entries = bytearray()

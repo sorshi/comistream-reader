@@ -98,7 +98,7 @@ test('packet saving uses local regional families without Google Fonts requests',
 
 test('kana repeat font is restricted to two codepoints in Japanese chapters', () => {
     const f = fixture();
-    const url = 'https://reader.example/theme/fonts/kana-repeat/ComistreamKanaRepeat-v1.ttf';
+    const url = 'https://reader.example/theme/fonts/kana-repeat/ComistreamKanaRepeat-v2.ttf';
     for (const packetSave of [false, true]) {
         const css = f.buildReaderFontCSS(packetSave, f.parseReaderFontLocale('ja'), url);
         assert.ok(css.includes(`src: url("${url}") format("truetype")`));
@@ -110,6 +110,120 @@ test('kana repeat font is restricted to two codepoints in Japanese chapters', ()
     for (const lang of ['en', 'zh-Hant', 'ar', 'und']) {
         assert.doesNotMatch(f.buildReaderFontCSS(true, f.parseReaderFontLocale(lang), url), /Comistream Kana Repeat|@font-face/);
     }
+});
+
+test('browser resolves Japanese serif aliases while preserving publisher font choices', { skip: !chrome }, async () => {
+    await runBrowserFixture(`
+        const view = { book: { metadata: { language: ['ja'] } } };
+        const appConfig = { packetSave: false };
+        const readerFontStyles = new WeakMap();
+        ${fontCode}
+        const frame = document.createElement('iframe');
+        document.body.append(frame);
+        const doc = frame.contentDocument;
+        doc.documentElement.lang = 'ja';
+        const publisher = doc.createElement('style');
+        publisher.textContent = 'html { font-family:serif-ja,serif; writing-mode:vertical-rl; }'
+            + '@media all { .mfont { font:700 24px/1.8 "serif-ja-v", serif-ja, serif !important; } }'
+            + '.gfont { font-family:sans-serif-ja,sans-serif; }'
+            + '.publisher { font-family:"Publisher Font",serif; }'
+            + '.mixed { font-family:"Publisher, Serif",serif-ja,serif; }'
+            + '.generic { font-family:serif; }'
+            + '.quoted { font-family:"serif",serif; }'
+            + '.variable { --book-font:"Publisher Font"; font-family:var(--book-font); }';
+        doc.head.append(publisher);
+        doc.body.innerHTML = '<p>通常の<ruby>漢字<rt>かんじ</rt></ruby>と<strong>太字</strong>。</p>'
+            + '<p class="mfont">明朝指定</p><p class="inline" style="font-family:serif-ja,serif !important">本文</p>'
+            + '<p class="gfont">ゴシック指定</p><p class="publisher">固有書体</p>'
+            + '<p class="mixed">固有書体と汎用指定</p><p class="generic">serifのみ</p>'
+            + '<p class="quoted">引用符付きの書体名</p><p class="variable">変数</p>';
+        const originalText = doc.body.textContent;
+        const computed = selector => frame.contentWindow.getComputedStyle(doc.querySelector(selector));
+        const family = selector => computed(selector).fontFamily.replace(/^"Comistream Kana Repeat", /, '');
+        for (const packetSave of [false, true, false]) {
+            appConfig.packetSave = packetSave;
+            applyReaderFontStyles(doc);
+            applyReaderFontStyles(doc);
+            const expected = packetSave ? '"Hiragino Mincho ProN"' : '"BIZ UDMincho"';
+            for (const selector of ['html', 'body', 'p', '.mfont', '.inline', 'rt', 'strong']) {
+                expect(family(selector).startsWith(expected), selector + ': ' + family(selector));
+            }
+            expect(family('.gfont') === 'sans-serif-ja, sans-serif', 'Gothic family changed');
+            expect(family('.publisher') === '"Publisher Font", serif', 'Publisher family changed');
+            expect(family('.mixed') === '"Publisher, Serif", serif-ja, serif', 'Named family list changed');
+            expect(family('.generic') === 'serif', 'Plain serif changed');
+            expect(family('.quoted') === '"serif", serif', 'Quoted family changed');
+            expect(family('.variable') === '"Publisher Font"', 'CSS variable changed');
+            expect(computed('.mfont').fontSize === '24px' && computed('.mfont').fontWeight === '700', 'Font shorthand lost');
+            expect(computed('strong').fontWeight === '700', 'Bold lost');
+            expect(computed('html').writingMode === 'vertical-rl', 'Writing mode changed');
+            expect(doc.querySelector('.inline').style.getPropertyPriority('font-family') === 'important', 'Inline priority lost');
+            expect(publisher.sheet.cssRules[1].cssRules[0].style.getPropertyPriority('font-family') === 'important', 'Rule priority lost');
+            expect(doc.body.textContent === originalText, 'Book text changed');
+            expect(doc.head.querySelectorAll('[data-comistream-reader-font]').length === 1, 'Reader styles duplicated');
+            if (packetSave) expect(!/googleapis|gstatic|BIZ UDMincho/.test(doc.querySelector('[data-comistream-reader-font]').textContent), 'Web font retained in saving mode');
+        }
+    `, '<meta http-equiv="Content-Security-Policy" content="style-src \'unsafe-inline\'; font-src \'none\'">');
+});
+
+test('browser preserves defined serif aliases, fixed layouts and other chapter languages', { skip: !chrome }, async () => {
+    await runBrowserFixture(`
+        const view = { book: { metadata: { language: ['ja'] } } };
+        const appConfig = { packetSave: true };
+        const readerFontStyles = new WeakMap();
+        ${fontCode}
+        for (const [language, fixed, face] of [['ja', false, 'serif-ja'], ['ja', false, 'serif-ja-v'], ['ja', true, ''], ['en', false, '']]) {
+            const frame = document.createElement('iframe');
+            document.body.append(frame);
+            const doc = frame.contentDocument;
+            doc.documentElement.lang = language;
+            view.isFixedLayout = fixed;
+            const publisher = doc.createElement('style');
+            // @font-faceが本文指定より後に現れても、書籍側の定義を尊重するルン。
+            publisher.textContent = 'html { font-family:serif-ja-v,serif-ja,serif; }'
+                + (face ? '@media all { @font-face { font-family:"' + face + '"; src:local("Times New Roman"); } }' : '');
+            doc.head.append(publisher);
+            doc.body.innerHTML = '<p>本文</p>';
+            applyReaderFontStyles(doc);
+            const family = frame.contentWindow.getComputedStyle(doc.querySelector('p')).fontFamily;
+            expect(family.replace(/^"Comistream Kana Repeat", /, '') === 'serif-ja-v, serif-ja, serif', 'Author font or excluded chapter changed: ' + family);
+            if (face) expect(publisher.sheet.cssRules[1].cssRules[0].style.getPropertyValue('font-family').replaceAll('"', '') === face, 'Font face name changed');
+            frame.remove();
+        }
+    `, '<meta http-equiv="Content-Security-Policy" content="style-src \'unsafe-inline\'; font-src \'none\'">');
+});
+
+test('browser resolves imported serif aliases and preserves imported font faces', { skip: !chrome }, async () => {
+    await runBrowserFixture(`
+        window.testDone = false;
+        const view = { book: { metadata: { language: ['ja'] } } };
+        const appConfig = { packetSave: true };
+        const readerFontStyles = new WeakMap();
+        ${fontCode}
+        (async () => {
+            for (const embedded of [false, true]) {
+                const cssURL = URL.createObjectURL(new Blob([
+                    'html { font-family:serif-ja,serif; }'
+                    + (embedded ? '@font-face { font-family:"serif-ja"; src:local("Times New Roman"); }' : '')
+                ], { type: 'text/css' }));
+                const frame = document.createElement('iframe');
+                frame.srcdoc = '<!doctype html><html lang="ja"><head><style>@import url("' + cssURL + '");</style></head><body><p>本文</p></body></html>';
+                const loaded = new Promise(resolve => { frame.onload = resolve; });
+                document.body.append(frame);
+                await loaded;
+                const doc = frame.contentDocument;
+                applyReaderFontStyles(doc);
+                const family = frame.contentWindow.getComputedStyle(doc.querySelector('p')).fontFamily.replace(/^"Comistream Kana Repeat", /, '');
+                expect(embedded ? family === 'serif-ja, serif' : family.startsWith('"Hiragino Mincho ProN"'), 'Imported family: ' + family);
+                frame.remove();
+                URL.revokeObjectURL(cssURL);
+            }
+            window.testDone = true;
+        })().catch(error => {
+            window.testFailed = true;
+            document.getElementById('result').textContent = error.stack;
+        });
+    `, '<meta http-equiv="Content-Security-Policy" content="style-src \'unsafe-inline\' blob:; font-src \'none\'">');
 });
 
 test('browser preserves publisher fonts while chapter defaults and writing modes remain independent', { skip: !chrome }, async () => {

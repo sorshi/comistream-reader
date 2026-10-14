@@ -1854,8 +1854,9 @@ function buildReaderFontCSS(packetSave = false, locale = null, kanaRepeatURL = '
         ? `@import url('https://fonts.googleapis.com/css2?family=${font.web}&display=swap');`
         : '';
     const supplement = profile === 'japanese' && kanaRepeatURL;
+    const family = `${supplement ? '"Comistream Kana Repeat", ' : ''}${packetSave ? font.local : font.normal}`;
     const kanaRepeatFace = supplement ? `
-/* この2文字が必要なときだけ、自サーバーの小さな補助フォントを取得するルン。 */
+/* 補助する字形は2文字だけ。WebKitが本文にも参照する行寸法は1emに揃えてあるルン。 */
 @font-face {
     font-family: "Comistream Kana Repeat";
     src: url(${JSON.stringify(kanaRepeatURL)}) format("truetype");
@@ -1866,7 +1867,8 @@ function buildReaderFontCSS(packetSave = false, locale = null, kanaRepeatURL = '
     return `${fontImport}${kanaRepeatFace}
 /* 書籍のhtml・body・本文指定が優先されるよう、既定値だけを継承させるルン。 */
 :where(html) {
-    font-family: ${supplement ? '"Comistream Kana Repeat", ' : ''}${packetSave ? font.local : font.normal};
+    ${supplement ? `--comistream-reader-mincho-font: ${family};` : ''}
+    font-family: ${family};
     /* 横組み用のpalt・pknaを継承すると縦組みの中黒などがずれるので、標準の字形・字幅を使うルン。 */
     font-feature-settings: normal;
 }
@@ -1874,11 +1876,25 @@ function buildReaderFontCSS(packetSave = false, locale = null, kanaRepeatURL = '
 }
 
 function supplementReaderFontFamilies(doc) {
+    const styles = [];
+    const definedFamilies = new Set();
+    let canResolveAliases = true;
     function supplement(style) {
         const family = style?.getPropertyValue('font-family');
-        // 継承・初期値と変数は書籍の意味を保ち、すでに補った候補は重ねないルン。
+        // 継承・初期値と書籍の変数は、そのままの意味を保つルン。
         if (!family || /^(inherit|initial|unset|revert|revert-layer)$/i.test(family)
-            || /var\(/i.test(family) || family.includes('"Comistream Kana Repeat"')) return;
+            || /var\(/i.test(family)) return;
+        const families = family.replace(/^"Comistream Kana Repeat",\s*/, '').split(',').map(name => name.trim());
+        const aliases = families.map(name => name.match(/^(["']?)(serif-ja(?:-v)?)\1$/i)?.[2].toLowerCase());
+        // 電書協系の明朝名だけの指定を補い、固有名・ゴシック・引用符付きの"serif"は残すルン。
+        if (canResolveAliases && aliases.some(Boolean) && families.every((name, index) =>
+            aliases[index] ? !definedFamilies.has(aliases[index]) : /^serif$/i.test(name))) {
+            // CSS変数で既定書体を参照し、再適用時も節約モードに追従するルン。
+            style.setProperty('font-family', 'var(--comistream-reader-mincho-font)',
+                style.getPropertyPriority('font-family'));
+            return;
+        }
+        if (family.includes('"Comistream Kana Repeat"')) return;
         style.setProperty('font-family', `"Comistream Kana Repeat", ${family}`,
             style.getPropertyPriority('font-family'));
     }
@@ -1887,16 +1903,24 @@ function supplementReaderFontFamilies(doc) {
         if (!sheet || visited.has(sheet)) return;
         visited.add(sheet);
         let rules;
-        // 他オリジンのCSSを読めない場合も、書籍の表示はそのまま続けるルン。
-        try { rules = sheet.cssRules; } catch { return; }
+        // 読めないCSSに独自の@font-faceがある可能性を残し、明朝名の置き換えを控えるルン。
+        try { rules = sheet.cssRules; } catch { canResolveAliases = false; return; }
         for (const rule of rules || []) {
-            // @font-faceの書体名は変更せず、本文の候補だけを補うルン。
-            if (rule.type === 1) supplement(rule.style);
+            if (rule.type === 1) styles.push(rule.style);
+            if (rule.type === 5) {
+                const name = rule.style.getPropertyValue('font-family').trim().replace(/^(["'])(.*)\1$/, '$2');
+                definedFamilies.add(name.toLowerCase());
+            }
             if (rule.styleSheet) visit(rule.styleSheet);
             if (rule.cssRules) visit(rule);
         }
     }
-    for (const sheet of doc.styleSheets) visit(sheet);
+    for (const sheet of doc.styleSheets) {
+        // リーダー自身のGoogle Fontsは別オリジンなので、書籍側の定義調査から除くルン。
+        if (!sheet.ownerNode?.hasAttribute('data-comistream-reader-font')) visit(sheet);
+    }
+    // import先と後置の@font-faceまで確認してから、本文の候補を補うルン。
+    for (const style of styles) supplement(style);
     for (const element of doc.querySelectorAll('[style]')) supplement(element.style);
 }
 
@@ -1906,7 +1930,7 @@ function applyReaderFontStyles(doc) {
     if (locale) doc.documentElement.lang = locale.toString();
     // 章はblob URLなので、リーダー側のURLから配信先を絶対URLにするルン。
     const kanaRepeatURL = !view?.isFixedLayout && getReaderFontProfile(locale) === 'japanese'
-        ? new URL('/theme/fonts/kana-repeat/ComistreamKanaRepeat-v1.ttf', window.location.href).href
+        ? new URL('/theme/fonts/kana-repeat/ComistreamKanaRepeat-v2.ttf', window.location.href).href
         : '';
     const css = buildReaderFontCSS(appConfig.packetSave === true, locale, kanaRepeatURL);
     let style = readerFontStyles.get(doc);
