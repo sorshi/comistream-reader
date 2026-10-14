@@ -112,6 +112,31 @@ test('kana repeat font is restricted to two codepoints in Japanese chapters', ()
     }
 });
 
+test('Japanese default uses proportional Latin faces only within Latin character ranges', () => {
+    const f = fixture();
+    const css = f.buildReaderFontCSS(false, f.parseReaderFontLocale('ja'));
+    assert.match(css, /font-family: "Comistream BIZ UDP Latin", "BIZ UDMincho"/);
+    const faces = [...css.matchAll(/@font-face\s*\{([^}]+)\}/g)].map(match => match[1]);
+    assert.equal(faces.length, 4);
+    for (const weight of [400, 700]) {
+        assert.equal(faces.filter(face => face.includes(`font-weight: ${weight};`)).length, 2);
+    }
+    const urls = faces.map(face => face.match(/src: url\("([^"]+)"\)/)[1]);
+    assert.equal(new Set(urls).size, 4);
+    for (const url of urls) {
+        assert.match(url, /^https:\/\/fonts\.gstatic\.com\/s\/bizudpmincho\/v11\/[\w-]+\.woff2$/);
+    }
+    const ranges = faces.flatMap(face => [...face.matchAll(/U\+([0-9A-F]+)(?:-([0-9A-F]+))?/gi)]
+        .map(match => [parseInt(match[1], 16), parseInt(match[2] || match[1], 16)]));
+    const includes = character => ranges.some(([start, end]) => character.codePointAt(0) >= start && character.codePointAt(0) <= end);
+    for (const character of ['i', 'W', '0', '&', '?', 'é', 'Ā', '\u0301']) assert.ok(includes(character), character);
+    for (const character of ['あ', 'ア', '漢', '、', '。', '「', '・', '〱', 'Ａ', '１', '—', '―', '…']) assert.ok(!includes(character), character);
+    for (const [save, language] of [[true, 'ja'], [false, 'en'], [false, 'zh-TW']]) {
+        assert.doesNotMatch(f.buildReaderFontCSS(save, f.parseReaderFontLocale(language)), /Comistream BIZ UDP Latin|bizudpmincho/);
+    }
+    assert.doesNotMatch(f.buildReaderFontCSS(false, f.parseReaderFontLocale('ja'), '', true), /Comistream BIZ UDP Latin|bizudpmincho/);
+});
+
 test('browser resolves Japanese serif aliases while preserving publisher font choices', { skip: !chrome }, async () => {
     await runBrowserFixture(`
         const view = { book: { metadata: { language: ['ja'] } } };
@@ -144,7 +169,7 @@ test('browser resolves Japanese serif aliases while preserving publisher font ch
             appConfig.packetSave = packetSave;
             applyReaderFontStyles(doc);
             applyReaderFontStyles(doc);
-            const expected = packetSave ? '"Hiragino Mincho ProN"' : '"BIZ UDMincho"';
+            const expected = packetSave ? '"Hiragino Mincho ProN"' : '"Comistream BIZ UDP Latin", "BIZ UDMincho"';
             for (const selector of ['html', 'body', 'p', '.mfont', '.inline', 'rt', 'strong']) {
                 expect(family(selector).startsWith(expected), selector + ': ' + family(selector));
             }

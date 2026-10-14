@@ -1821,7 +1821,33 @@ function getReaderFontProfile(locale) {
     return 'generic';
 }
 
-function buildReaderFontCSS(packetSave = false, locale = null, kanaRepeatURL = '') {
+function buildReaderLatinFontCSS() {
+    // Google Fontsのv11から欧文サブセットを直接読み込み、サーバーへの同梱を不要にするルン。
+    const baseURL = 'https://fonts.gstatic.com/s/bizudpmincho/v11/';
+    const sources = {
+        400: { 'latin-ext': 'ypvfbXOBrmYppy7oWWTg1_58rhFStHb0', latin: 'ypvfbXOBrmYppy7oWWTg1_58rh9StA' },
+        700: { 'latin-ext': 'ypvCbXOBrmYppy7oWWTg1_58pqR3oUfVnKAy', latin: 'ypvCbXOBrmYppy7oWWTg1_58pqR3oUnVnA' }
+    };
+    // 欧文の文字範囲だけを使い、和文約物・全角文字・連続ダッシュの字幅は保つルン。
+    const ranges = {
+        'latin-ext': 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, '
+            + 'U+0300-036F, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2C60-2C7F, U+A720-A7FF',
+        latin: 'U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02BB-02BC, '
+            + 'U+02C6, U+02DA, U+02DC, U+0300-036F'
+    };
+    return [400, 700].flatMap(weight => Object.entries(ranges).map(([subset, range]) => `
+@font-face {
+    font-family: "Comistream BIZ UDP Latin";
+    src: url(${JSON.stringify(`${baseURL}${sources[weight][subset]}.woff2`)}) format("woff2");
+    font-style: normal;
+    font-weight: ${weight};
+    font-display: swap;
+    unicode-range: ${range};
+}
+`)).join('');
+}
+
+function buildReaderFontCSS(packetSave = false, locale = null, kanaRepeatURL = '', fixedLayout = false) {
     const profile = getReaderFontProfile(locale);
     const fonts = {
         japanese: {
@@ -1854,7 +1880,10 @@ function buildReaderFontCSS(packetSave = false, locale = null, kanaRepeatURL = '
         ? `@import url('https://fonts.googleapis.com/css2?family=${font.web}&display=swap');`
         : '';
     const supplement = profile === 'japanese' && kanaRepeatURL;
-    const family = `${supplement ? '"Comistream Kana Repeat", ' : ''}${packetSave ? font.local : font.normal}`;
+    const latinFaces = !packetSave && !fixedLayout && profile === 'japanese'
+        ? buildReaderLatinFontCSS() : '';
+    const family = `${supplement ? '"Comistream Kana Repeat", ' : ''}`
+        + `${latinFaces ? '"Comistream BIZ UDP Latin", ' : ''}${packetSave ? font.local : font.normal}`;
     const kanaRepeatFace = supplement ? `
 /* 補助する字形は2文字だけ。WebKitが本文にも参照する行寸法は1emに揃えてあるルン。 */
 @font-face {
@@ -1864,7 +1893,7 @@ function buildReaderFontCSS(packetSave = false, locale = null, kanaRepeatURL = '
     unicode-range: U+3031-3032;
 }
 ` : '';
-    return `${fontImport}${kanaRepeatFace}
+    return `${fontImport}${kanaRepeatFace}${latinFaces}
 /* 書籍のhtml・body・本文指定が優先されるよう、既定値だけを継承させるルン。 */
 :where(html) {
     ${supplement ? `--comistream-reader-mincho-font: ${family};` : ''}
@@ -1929,10 +1958,11 @@ function applyReaderFontStyles(doc) {
     const locale = getReaderFontLocale(doc);
     if (locale) doc.documentElement.lang = locale.toString();
     // 章はblob URLなので、リーダー側のURLから配信先を絶対URLにするルン。
-    const kanaRepeatURL = !view?.isFixedLayout && getReaderFontProfile(locale) === 'japanese'
+    const japaneseReflow = !view?.isFixedLayout && getReaderFontProfile(locale) === 'japanese';
+    const kanaRepeatURL = japaneseReflow
         ? new URL('/theme/fonts/kana-repeat/ComistreamKanaRepeat-v2.ttf', window.location.href).href
         : '';
-    const css = buildReaderFontCSS(appConfig.packetSave === true, locale, kanaRepeatURL);
+    const css = buildReaderFontCSS(appConfig.packetSave === true, locale, kanaRepeatURL, view?.isFixedLayout === true);
     let style = readerFontStyles.get(doc);
     if (!style || style.parentNode !== doc.head) {
         style = doc.createElement('style');
