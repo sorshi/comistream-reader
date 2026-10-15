@@ -179,6 +179,7 @@ function generateHTML()
     $baseFileJson = json_encode($baseFile);
     $escapedFileJson = json_encode($escapedFile);
     $fileJson = json_encode($file);
+    $cacheGenerationJson = json_encode((string)($conf['reader_cache_generation'] ?? ''));
     $positionJson = json_encode($position);
     $directionJson = json_encode($direction);
     $autosplitJson = json_encode($autosplit);
@@ -351,6 +352,7 @@ function generateHTML()
         const baseFile = $baseFileJson;
         const escapedFile = $escapedFileJson;
         const file = $fileJson;
+        const readerCacheGeneration = $cacheGenerationJson;
         const size = $sizeJson;
         const view_query = $viewQueryJson;
         const global_preload_delay_ms = $preloadDelayJson;
@@ -632,6 +634,7 @@ HTML;
         'publicDir' => (string)($conf['publicDir'] ?? ''),
         'bookIconUrl' => '/theme/icons/book.png',
         'epubPackageBase' => $epubPackageBase,
+        'cacheGeneration' => (string)($conf['reader_cache_generation'] ?? ''),
         'epubUrl' => $epubUrl,
         'packetSave' => $packetSave,
         'escapedFile' => (string)$escapedFile,

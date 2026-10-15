@@ -43,6 +43,7 @@ require_once(__DIR__ . '/lib/lib_image.php');
 require_once(__DIR__ . '/lib/lib_image_quality.php');
 require_once(__DIR__ . '/lib/lib_reader_input.php');
 require_once(__DIR__ . '/lib/lib_preview_status.php');
+require_once(__DIR__ . '/lib/lib_book_cache.php');
 require_once(__DIR__ . '/lib/lib_reader_progress.php');
 require_once(__DIR__ . '/lib/lib_view.php');
 
@@ -295,7 +296,7 @@ function fileRename()
 ##### 表紙/プレビュー画像削除、更新 ###################################################################
 function coverUpdate()
 {
-    global $conf;
+    global $conf, $cacheDir, $sharePath;
     global $publicDir, $user, $file, $coverFile, $previewFile;
 
     if (($user !== "guest") && !empty($user) && (strlen($user) > 0) && !empty($file)) {
@@ -319,10 +320,24 @@ function coverUpdate()
             return;
         }
         try {
+            if (preg_match('/\.(epub|zip|cbz|7z|cb7|rar|cbr|pdf)\s*$/i', $sourcePath)) {
+                $root = (string)($cacheDir ?: ($conf['comistream_tool_dir'] . '/data/cache'));
+                $shared = (string)($sharePath ?: ($conf['sharePath'] ?? ''));
+                if ($shared === '' && !preg_match('/\.epub\s*$/i', $sourcePath)) {
+                    throw new RuntimeException('Book source root is not configured.');
+                }
+                $id = readerBookCacheId($sourcePath, rtrim($shared, '/') . '/' . $sourcePath);
+                acquireReaderBookCacheLock($root, $id);
+                if (preg_match('/\.epub\s*$/i', $sourcePath)) {
+                    removeReaderEpubLink((string)($conf['webRoot'] ?? realpath(__DIR__ . '/../..')), $id);
+                }
+                removeReaderBookCache($root, $id);
+            }
             // 判定解除から画像削除まで、生成プロセスと同じロックを持つルン。
             $previewResetLock = acquirePreviewStatusLock($conf['comistream_tool_dir'], $sourcePath, false);
             $previewReset = clearPreviewUnavailable($conf['comistream_tool_dir'], $sourcePath, false);
         } catch (Throwable $error) {
+            writelog('ERROR coverUpdate() cache reset failed: ' . $error->getMessage());
             $previewReset = false;
         }
         if (!$previewReset) {
@@ -331,14 +346,14 @@ function coverUpdate()
             return;
         }
         if ((is_file($coverFile) || is_link($coverFile)) && !is_dir($coverFile)) {
-            unlink($coverFile);
+            if (!unlink($coverFile)) errorExit('cover_update_failed');
             writelog("INFO coverUpdate() cover deleted:$coverFile");
         } else {
             writelog("ERROR coverUpdate() cover not found:$coverFile");
         }
 
         if ($previewFile !== null && (is_file($previewFile) || is_link($previewFile)) && !is_dir($previewFile)) {
-            unlink($previewFile);
+            if (!unlink($previewFile)) errorExit('cover_update_failed');
             writelog("INFO coverUpdate() preview deleted:$previewFile");
         } else {
             writelog("INFO coverUpdate() preview not present:$previewFile");
@@ -1206,6 +1221,33 @@ function outputPage($isFileout = false)
         }
         http_response_code(400);
         exit;
+    }
+
+    if (isReaderBookCacheId($file)) {
+        try {
+            acquireReaderBookCacheLock((string)$cacheDir, $file, LOCK_SH);
+            // ロック待ちの間に削除・置換されたページは再読み込みへ戻すルン。
+            $record = readReaderBookCacheRecord($bookCacheDirectory);
+            $requestedGeneration = $_GET['cache_version'] ?? null;
+            if (!$isFileout && $requestedGeneration !== null
+                && (!is_string($requestedGeneration) || $record === null || $record['generation'] !== $requestedGeneration)) {
+                header('Cache-Control: no-store');
+                showReloadRequiredImg();
+                return '';
+            }
+            $pagefile = readReaderIndexPage($bookCacheDirectory, $page);
+            if ($pagefile === false || !isSafeReaderPagePath($pagefile)) {
+                if ($isFileout) return '';
+                header('Cache-Control: no-store');
+                showReloadRequiredImg();
+                return '';
+            }
+        } catch (Throwable $error) {
+            if ($isFileout) return '';
+            header('Cache-Control: no-store');
+            showReloadRequiredImg();
+            return '';
+        }
     }
 
     $crop_half_cmd = '';
@@ -2927,6 +2969,17 @@ function deleteCacheEntryForPushout($cacheDirectory, $entryName)
 
     $entryPath = rtrim((string)$cacheDirectory, DIRECTORY_SEPARATOR)
         . DIRECTORY_SEPARATOR . $entryName;
+    if (isReaderBookCacheId($entryName)) {
+        try {
+            $lock = acquireReaderBookCacheLock($cacheDirectory, $entryName, LOCK_EX | LOCK_NB);
+            removeReaderBookCache($cacheDirectory, $entryName);
+            fclose($lock);
+            return true;
+        } catch (Throwable $error) {
+            writelog('NOTICE deleteCacheEntryForPushout() book cache skipped: ' . $error->getMessage());
+            return false;
+        }
+    }
     if (isMusicLyricsCacheEntryName($entryName) || isMusicAudioCacheEntryName($entryName)) {
         $lock = openMusicCacheEvictionLock($cacheDirectory, $entryName);
         if ($lock === false || !@flock($lock, LOCK_EX | LOCK_NB)) {
@@ -2993,7 +3046,7 @@ function findOldestCacheEntryForPushout($cacheDirectory, array $excluded = [])
 ##### 書籍ファイルオープン ###################################################################
 function openPage()
 {
-    global $conf;
+    global $conf, $readerBookCache;
     global $tempDir, $cacheDir, $cacheSize, $sharePath, $publicDir, $md5cmd, $dbh,
         $page, $file, $baseFile, $maxPage, $user, $openFile, $escapedFile, $coverFile,
         $previewFile, $existDir, $direction, $position, $degree, $fileSize, $averagePageBytes, $bookName;
@@ -3073,6 +3126,12 @@ function openPage()
         errorExit('file_not_readable', 'file_not_readable_detail');
     }
 
+    $sourceRelativePath = ltrim($file, '/');
+    if (!isSafeReaderPagePath($sourceRelativePath)
+        || resolveFileWithinBaseDirectory($sharePath, $sourceRelativePath) === false) {
+        errorExit('file_not_readable');
+    }
+
     // 表紙画像のパスを作成
     $file = preg_replace('/^(.*)\..*$/', '$1', $file);
     writelog("DEBUG \$file:" . $file);
@@ -3080,65 +3139,52 @@ function openPage()
     $previewFile = $conf["comistream_tool_dir"] . "/data/theme/preview" . $conf["publicDir"] . '/' . $file . ".webp";
 
     // ファイルIDを作成
-    $command_list = sprintf(
-        "echo %s | %s | awk '{print \$1}'",
-        escapeshellarg($openFile),
-        $md5cmd
-    );
-    $fileHash = shell_exec($command_list);
-    $fileHash = trim($fileHash);
-    if (empty($fileHash)) {
-        writelog("ERROR openPage() md5 hash failed." . $openFile);
+    try {
+        $fileHash = readerBookCacheId($sourceRelativePath, $openFile);
+    } catch (Throwable $error) {
+        writelog('ERROR openPage() cache ID failed: ' . $error->getMessage());
         errorExit('file_processing_failed', 'file_processing_failed_detail');
-    } else {
-        writelog("DEBUG openPage() fileHash:" . $fileHash);
-        $file = $fileHash; // $fileはここでhashに上書き
     }
+    writelog("DEBUG openPage() fileHash:" . $fileHash);
+    $file = $fileHash; // ここからは既存の書籍IDを使うルン。
 
     // ファイル名から著者名/書籍名を作成
     $bookName = basename($openFile);
     list($bookName, $pageTitle, $onlyBookName) = get_book_title($bookName);
 
-    // ディレクトリ存在チェック
-    if (is_dir("$cacheDir/$file")) {
-        $existDir = true;
-        writelog("DEBUG openPage() dir exist $cacheDir/$file");
-        touch("$cacheDir/$file");
-    } else {
-        $existDir = false;
-        writelog("DEBUG openPage() no cache dir exist $cacheDir/$file");
-
-        // キャッシュ領域初期化
-        if (!chkAndMakeDir($cacheDir . '/' . $file)) {
-            errorExit('mkdir_failed', 'cache_dir_creation_failed');
+    try {
+        $readerBookCache = prepareReaderBookCache((string)$cacheDir, $file, $openFile);
+        guardReaderBookCacheAtShutdown($readerBookCache, $openFile);
+        $existDir = $readerBookCache['reused'];
+        $conf['reader_cache_generation'] = $readerBookCache['record']['generation'];
+        $sourceLink = $readerBookCache['directory'] . '/file';
+        if (!is_link($sourceLink) || readlink($sourceLink) !== $openFile) {
+            if (is_link($sourceLink) || is_file($sourceLink)) unlink($sourceLink);
+            if (!symlink($openFile, $sourceLink)) throw new RuntimeException('Cannot link book source.');
         }
-        if (!is_link("$cacheDir/$file/file")) {
-            if (file_exists("$cacheDir/$file/file")) {
-                unlink("$cacheDir/$file/file");
-            }
-            // シンボリックリンクを作成
-            if (!file_exists("$cacheDir/$file/file")) {
-                $linkCreated = symlink($openFile, "$cacheDir/$file/file");
-                if (!$linkCreated) {
-                    writelog("ERROR: シンボリックリンクの作成に失敗しました。:" . $openFile . ": $cacheDir/$file/file");
-                    errorExit('symlink_failed', 'symlink_failed_detail');
-                }
-            }
-        }
+        touch($readerBookCache['directory']);
+    } catch (Throwable $error) {
+        writelog('ERROR openPage() cache preparation failed: ' . $error->getMessage());
+        errorExit('file_processing_failed');
     }
     // ログ出力
     writelog("DEBUG openPage() escapedFile:" . $escapedFile . ' coverFile:' . $coverFile . ' file:' . $file . ' openFile:' . $openFile . ' pageTitle:' . $pageTitle);
 
     // ファイルオープン処理
-    if (preg_match('/\.(zip|cbz|7z|cb7|rar|cbr)\s*$/i', $openFile)) {
-        openZipRar();
-    } elseif (preg_match('/\.rar\s*$/i', $openFile)) {
-        openZipRar();
-    } elseif (preg_match('/\.pdf\s*$/i', $openFile)) {
-        openPdf();
-    } else {
-        writelog("openPage() invalid file type: $openFile");
-        errorExit('invalid_file_type');
+    try {
+        if (preg_match('/\.(zip|cbz|7z|cb7|rar|cbr)\s*$/i', $openFile)) {
+            openZipRar();
+        } elseif (preg_match('/\.pdf\s*$/i', $openFile)) {
+            openPdf();
+        } else {
+            writelog("openPage() invalid file type: $openFile");
+            errorExit('invalid_file_type');
+        }
+        finishReaderBookCache($readerBookCache, $openFile);
+    } catch (Throwable $error) {
+        markReaderBookCacheFailed($readerBookCache['directory']);
+        writelog('ERROR openPage() cache build failed: ' . $error->getMessage());
+        errorExit('file_processing_failed');
     }
     writelog("DEBUG openPage() \$file:" . $file);
 
@@ -3158,7 +3204,7 @@ function openPage()
     // キャッシュ領域のサイズを取得
     if ($cacheSize > 0) {
         $tempSize = (int)trim((string)shell_exec("du -sm " . escapeshellarg($cacheDir) . " | awk '{print $1}'"));
-        $skippedCacheEntries = [];
+        $skippedCacheEntries = [$file];
 
         // 超過時は古いディレクトリを削除する
         while ($tempSize > $cacheSize) {
@@ -3171,7 +3217,7 @@ function openPage()
                 $skippedCacheEntries[] = $cacheSubDir;
                 continue;
             }
-            $skippedCacheEntries = [];
+            $skippedCacheEntries = [$file];
             $tempSize = (int)trim((string)shell_exec("du -sm " . escapeshellarg($cacheDir) . " | awk '{print $1}'"));
         }
     }
@@ -3563,9 +3609,7 @@ function openZipRar()
                 printLoading($fileSizeMB);
                 // nestedExtractor.shをバックグラウンドで実行してPHP-FPMワーカーを即座に解放する
                 // shell_exec()は同期実行でワーカーが占有され続けるため、exec()でバックグラウンド実行に変更
-                $bg_command = $command_list . ' > /dev/null 2>&1 &';
-                writelog("DEBUG openZipRar() executing nestedExtractor in background: " . $bg_command);
-                exec($bg_command);
+                runReaderBookCacheCommand($command_list, true);
                 exit(0);
             } else {
                 // バッチ処理で表紙作成を開いた場合
@@ -3575,7 +3619,7 @@ function openZipRar()
                     errorExit('mkdir_failed', 'mkdir_failed_detail');
                 }
                 // $result = shell_exec("LANG=ja_JP.UTF8 bash " . $conf["comistream_tool_dir"] . "/code/nestedExtracter.sh \"$openFile\" $cacheDir/$file");
-                $result = shell_exec($command_list);
+                runReaderBookCacheCommand($command_list);
             }
         }
         $nestedImagePaths = [];
@@ -3604,11 +3648,12 @@ function openZipRar()
             // 事前キャッシュ作成モードかつキャッシュディレクトリがない場合zipファイル解凍
             writelog("DEBUG openZipRar() isPreCache && no cache dir.");
             // 7zコマンドでアーカイブを展開（__MACOSXディレクトリを除外）
-            $cmd = "LANG=ja_JP.UTF8 $p7zip x -y -bb1 '-x!__MACOSX*' \"$cacheDir/$file/file\" -o\"$cacheDir/$file/\" $async";
+            $cmd = "LANG=ja_JP.UTF8 $p7zip x -y -bb1 '-x!__MACOSX*' \"$cacheDir/$file/file\" -o\"$cacheDir/$file/\"";
             writelog("DEBUG openZipRar() executing command: " . $cmd);
             $output = array();
             $return_var = 0;
-            exec($cmd, $output, $return_var);
+            runReaderBookCacheCommand($cmd, str_contains((string)$async, '&'));
+            $return_var = 0;
 
             // より詳細なエラー情報をログに記録
             // writelog("DEBUG openZipRar() 7zz command output: " . implode("\n", $output));
@@ -3701,7 +3746,9 @@ function openPdf()
 
     if ($isPreCache && !$existDir) {
         // キャッシュファイル保存領域にpdfファイル解凍
-        shell_exec("cd $cacheDir/$file; $cpdf -extract-images -i \"$cacheDir/$file/file\" &>>$traceFile $async");
+        $command = 'cd ' . escapeshellarg("$cacheDir/$file") . ' && ' . $cpdf
+            . ' -extract-images -i ' . escapeshellarg("$cacheDir/$file/file");
+        runReaderBookCacheCommand($command, str_contains((string)$async, '&'));
     }
 
     // 既にPDFタイプが判定済みかチェック
@@ -3937,6 +3984,8 @@ function makeCover($coverProcessFile, $coverFile, $previewFile)
     $previewProcessFile = $coverProcessFile;
     $make_coverpage_path = $conf["comistream_tool_dir"] . "/code";
     $makeCoverScript = escapeshellarg($make_coverpage_path . '/make_cover_preview.php');
+    $generationArgument = empty($conf['reader_cache_generation']) ? ''
+        : ' --generation=' . escapeshellarg($conf['reader_cache_generation']);
     $coverDir = $conf["comistream_tool_dir"] . '/data/theme/covers';
 
     if (!chkAndMakeDir($coverDir)) {
@@ -3953,7 +4002,7 @@ function makeCover($coverProcessFile, $coverFile, $previewFile)
         $coverProcessFile = urldecode($coverProcessFile);
         writelog("DEBUG makeCover() cover file: $make_coverpage_path/make_cover_preview.php " . $coverProcessFile);
         // ファイル名とスクリプトのパスを、それぞれ1つの引数として渡すルン。
-        shell_exec("php $makeCoverScript --file=" . escapeshellarg($coverProcessFile) . " --type=covers --cache=true >/dev/null 2>&1 &");
+        shell_exec("php $makeCoverScript --file=" . escapeshellarg($coverProcessFile) . " --type=covers --cache=true$generationArgument >/dev/null 2>&1 &");
     } else {
         writelog("DEBUG makeCover() cover exist." . $coverFile);
     }
@@ -3963,7 +4012,7 @@ function makeCover($coverProcessFile, $coverFile, $previewFile)
     $previewSource = rtrim((string)($conf['sharePath'] ?? $GLOBALS['sharePath'] ?? ''), '/') . '/' . $previewProcessFile;
     if (!file_exists($previewFile) && !previewUnavailableMatches($conf['comistream_tool_dir'], $previewProcessFile, $previewSource)) {
         writelog("DEBUG makeCover() preview file: $make_coverpage_path/make_cover_preview.php " .  $previewProcessFile);
-        shell_exec("php $makeCoverScript --file=" . escapeshellarg($previewProcessFile) . " --type=preview --cache=true >/dev/null 2>&1 &");
+        shell_exec("php $makeCoverScript --file=" . escapeshellarg($previewProcessFile) . " --type=preview --cache=true$generationArgument >/dev/null 2>&1 &");
     } else {
         writelog("DEBUG makeCover() preview exists or is unavailable: " . $previewFile);
     }
@@ -4703,6 +4752,9 @@ function printLoading($fileSizeMB = 0)
               setTimeout(() => {
                 window.location.reload();
               }, 400); // フェードアウトの時間
+            } else if (data === "error") {
+              window.alert("{$i18n->get('file_processing_failed')}");
+              window.history.back();
             } else {
               setTimeout(checkStatus, 1000); // 1秒後に再度チェック
             }
@@ -4773,8 +4825,13 @@ EOF;
 function checkLoading($file)
 {
     global $cacheDir;
+    if (!isReaderBookCacheId($file)) {
+        http_response_code(400);
+        exit;
+    }
     $isDone = file_exists("$cacheDir/$file/DONE");
-    $response = $isDone ? "true" : "false";
+    $response = file_exists("$cacheDir/$file/_comistream-reader-failed") ? 'error' : ($isDone ? "true" : "false");
+    header('Cache-Control: no-store');
     writelog("DEBUG checkLoading() file:$file isDone:$isDone");
     echo $response;
     exit;
@@ -6190,52 +6247,49 @@ function handleFoliateEpubOpen()
     $escapedFile = urlEncodeFilePath($remotePath);
     $baseFile = basename($remotePath);
     list($bookName, $pageTitle) = get_book_title($baseFile);
-    $fileHash = basefilename2hash(ltrim($remotePath, '/'));
-    if ($fileHash === '') {
+    try {
+        $fileHash = readerBookCacheId($remotePath, $localPath);
+    } catch (Throwable $error) {
+        writelog('ERROR handleFoliateEpubOpen() cache ID failed: ' . $error->getMessage());
         errorExit('file_processing_failed');
     }
 
     $webRoot = (string)($conf['webRoot'] ?? realpath(__DIR__ . '/../..'));
-    $epubCacheDir = rtrim((string)$cacheDir, '/') . '/' . $fileHash;
     $symlinkPath = rtrim($webRoot, '/') . '/theme/bibi/' . $fileHash;
-    $cacheReady = is_dir($epubCacheDir)
-        && is_link($symlinkPath)
-        && is_dir($symlinkPath)
-        && is_file($epubCacheDir . '/DONE');
-
-    if (!$cacheReady) {
-        if (is_link($symlinkPath)) {
-            unlink($symlinkPath);
-        } elseif (is_dir($symlinkPath)) {
-            deleteDirectory($symlinkPath);
+    try {
+        $epubCache = prepareReaderBookCache((string)$cacheDir, $fileHash, $localPath);
+        $epubCacheDir = $epubCache['directory'];
+        $cacheReady = $epubCache['reused'] && is_link($symlinkPath)
+            && realpath($symlinkPath) === $epubCacheDir && is_file($epubCacheDir . '/DONE')
+            && is_file($epubCacheDir . '/META-INF/container.xml');
+        if (!$cacheReady) {
+            removeReaderEpubLink($webRoot, $fileHash);
+            if ($epubCache['reused']) $epubCache = prepareReaderBookCache((string)$cacheDir, $fileHash, $localPath, true);
+            $command = escapeshellcmd((string)$p7zip)
+                . ' x -y -o' . escapeshellarg($epubCacheDir)
+                . ' ' . escapeshellarg($localPath);
+            $output = [];
+            exec($command, $output, $exitCode);
+            if ($exitCode !== 0 || !is_file($epubCacheDir . '/META-INF/container.xml')) {
+                throw new RuntimeException('EPUB extraction failed.');
+            }
+            finishReaderBookCache($epubCache, $localPath);
+            $symlinkDir = dirname($symlinkPath);
+            if (!is_dir($symlinkDir) && !mkdir($symlinkDir, 0755, true) && !is_dir($symlinkDir)) {
+                throw new RuntimeException('Cannot create EPUB public directory.');
+            }
+            if (!symlink($epubCacheDir, $symlinkPath) || !touch($epubCacheDir . '/DONE')) {
+                throw new RuntimeException('Cannot publish EPUB cache.');
+            }
         }
-        deleteDirectory($epubCacheDir);
-        if (!chkAndMakeDir($epubCacheDir)) {
-            errorExit('mkdir_failed', 'cache_dir_creation_failed');
+        $conf['reader_cache_generation'] = $epubCache['record']['generation'];
+    } catch (Throwable $error) {
+        writelog('ERROR handleFoliateEpubOpen() cache failed: ' . $error->getMessage());
+        if (isset($epubCache)) {
+            @unlink($epubCache['directory'] . '/_comistream-reader-source.json');
+            @unlink($epubCache['directory'] . '/DONE');
         }
-
-        $command = escapeshellcmd((string)$p7zip)
-            . ' x -y -o' . escapeshellarg($epubCacheDir)
-            . ' ' . escapeshellarg($localPath);
-        $output = [];
-        $exitCode = 0;
-        exec($command, $output, $exitCode);
-        if ($exitCode !== 0 || !is_file($epubCacheDir . '/META-INF/container.xml')) {
-            deleteDirectory($epubCacheDir);
-            writelog("ERROR handleFoliateEpubOpen() EPUB extraction failed: {$localPath}");
-            errorExit('file_processing_failed');
-        }
-
-        $symlinkDir = dirname($symlinkPath);
-        if (!is_dir($symlinkDir) && !mkdir($symlinkDir, 0755, true) && !is_dir($symlinkDir)) {
-            deleteDirectory($epubCacheDir);
-            errorExit('mkdir_failed');
-        }
-        if (!symlink($epubCacheDir, $symlinkPath)) {
-            deleteDirectory($epubCacheDir);
-            errorExit('symlink_failed');
-        }
-        touch($epubCacheDir . '/DONE');
+        errorExit('file_processing_failed');
     }
 
     $savedCfi = '';

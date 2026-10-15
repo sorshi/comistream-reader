@@ -115,6 +115,29 @@ remove_cache_entry() {
     [ -d "$cache_entry" ] || return 0
     [ -L "$cache_entry" ] && return 1
 
+    # 書籍の生成・配信・手動削除と同じロックを使うルン。
+    if [[ "$entry_name" =~ ^[a-f0-9]{32,128}$ ]]; then
+        local book_cache_root
+        book_cache_root=$(cd "$cacheDir" && pwd -P) || return 1
+        local book_runtime_dir="$(dirname "$book_cache_root")/runtime"
+        local book_lock_dir="$book_runtime_dir/book-cache"
+        local book_lock_file="$book_lock_dir/$entry_name.lock"
+        if [ -L "$book_runtime_dir" ] || [ -L "$book_lock_dir" ] || [ -L "$book_lock_file" ]; then
+            return 1
+        fi
+        mkdir -p "$book_lock_dir" || return 1
+        exec {lock_fd}>"$book_lock_file" || return 1
+        if ! flock -n "$lock_fd"; then
+            exec {lock_fd}>&-
+            return 1
+        fi
+        rm -rf -- "$cache_entry"
+        result=$?
+        flock -u "$lock_fd"
+        exec {lock_fd}>&-
+        return "$result"
+    fi
+
     if is_music_cache_entry "$cache_entry"; then
         entry_name=$(basename "$cache_entry")
         local cache_hash

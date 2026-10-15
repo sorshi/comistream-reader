@@ -32,6 +32,8 @@ try {
     foreach (['data/db', 'data/cache', 'rsrc', 'tmp', 'media'] as $path) mkdir($tool . '/' . $path, 0700, true);
     foreach (['comistream_lib.php', 'make_cover_preview.php'] as $file) copy($source . '/' . $file, $tool . '/code/' . $file);
     foreach (['lib', 'i18n.php'] as $file) symlink($source . '/' . $file, $tool . '/code/' . $file);
+    file_put_contents($tool . '/hash', '#!' . PHP_BINARY . "\n<?php echo md5(stream_get_contents(STDIN));\n");
+    chmod($tool . '/hash', 0700);
     symlink(dirname($source) . '/rsrc/fonts', $tool . '/rsrc/fonts');
     $database = new PDO('sqlite:' . $tool . '/data/db/comistream.sqlite');
     $database->exec('CREATE TABLE system_config (key TEXT PRIMARY KEY, value TEXT)');
@@ -41,6 +43,7 @@ try {
         'comistream_tmp_dir_root' => $tool . '/tmp', 'global_resize' => 'x400',
         'convert' => escapeshellarg($magick), 'p7zip' => escapeshellarg($sevenZip),
         'isLowMemoryMode' => '1', 'mutool' => '', 'isDebugMode' => '0',
+        'md5cmd' => escapeshellarg($tool . '/hash'),
     ] as $key => $value) $statement->execute([$key, $value]);
     $statement = $database = null;
 

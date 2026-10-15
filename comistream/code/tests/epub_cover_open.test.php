@@ -78,7 +78,7 @@ try {
         // 生成コマンドの境界だけ差し替え、実際のオープン処理と非同期起動を検証するルン。
         file_put_contents($tool . '/code/make_cover_preview.php', <<<'PHP'
 <?php
-$options = getopt('', ['file:', 'type:', 'cache:']);
+$options = getopt('', ['file:', 'type:', 'cache:', 'generation:']);
 file_put_contents(dirname(__DIR__) . '/calls/' . $options['type'] . '.json', json_encode($options, JSON_THROW_ON_ERROR));
 PHP);
         $extractor = $caseRoot . '/extract';
@@ -140,7 +140,9 @@ PHP);
         expectEpubCoverOpen($actualTypes === $expectedTypes, $name . ': expected generation commands were not launched.');
         foreach ($calls as $call) {
             $options = json_decode(file_get_contents($call), true, 512, JSON_THROW_ON_ERROR);
-            expectEpubCoverOpen($options === ['file' => $relative, 'type' => basename($call, '.json'), 'cache' => 'true'], $name . ': generation arguments changed the filename or cache mode.');
+            $expectedOptions = ['file' => $relative, 'type' => basename($call, '.json'), 'cache' => 'true'];
+            if ($mode === '--open') $expectedOptions['generation'] = readReaderBookCacheRecord($cache . '/' . $hash)['generation'];
+            expectEpubCoverOpen($options === $expectedOptions, $name . ': generation arguments changed the filename or cache mode.');
         }
         if ($hasCover) expectEpubCoverOpen(file_get_contents($cover) === 'existing cover', $name . ': existing cover changed.');
         if ($hasPreview) expectEpubCoverOpen(file_get_contents($preview) === 'existing preview', $name . ': existing preview changed.');

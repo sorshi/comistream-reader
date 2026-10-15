@@ -1278,16 +1278,7 @@ async function renderReaderPage(reason) {
 function preLoadImages(nextpage) {
   //let nextpage = dir*mode+page;
   if (nextpage > 0 && nextpage <= maxPage) {
-    let nextImageUrl =
-      pageGenerator +
-      "?file=" +
-      file +
-      "&size=" +
-      size +
-      "&page=" +
-      nextpage +
-      view_query +
-      als;
+    const nextImageUrl = getFullImageUrl(nextpage);
     // preCaches.recordPageTurn();
     debugLog("preLoadImages() add:" + nextpage);
     // console.trace('スタックトレースを表示');
@@ -1301,16 +1292,7 @@ async function preLoadInitialImages(startPage) {
   for (let i = 1; i <= preCaches.getSize(); i++) {
     let nextpage = startPage + i;
     if (nextpage > 0 && nextpage <= maxPage) {
-      let nextImageUrl =
-        pageGenerator +
-        "?file=" +
-        file +
-        "&size=" +
-        size +
-        "&page=" +
-        nextpage +
-        view_query +
-        als;
+      const nextImageUrl = getFullImageUrl(nextpage);
       debugLog("preLoadInitialImages() add:" + nextpage);
       await preCaches.add(nextImageUrl);
     }
@@ -2305,6 +2287,10 @@ function getFullImageUrl(page, includeSplit = true) {
   url.searchParams.append("file", file);
   url.searchParams.append("size", size);
   url.searchParams.append("page", page);
+  // 再生成後は、ブラウザに残った同じページ番号の旧画像も更新するルン。
+  if (typeof readerCacheGeneration === "string" && readerCacheGeneration) {
+    url.searchParams.append("cache_version", readerCacheGeneration);
+  }
 
   // $view_queryが空でない場合に追加
   let viewQuery = view_query;

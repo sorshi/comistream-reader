@@ -114,7 +114,7 @@ register_shutdown_function(function () {
 
 // シングルファイルモードなら
 // コマンドライン引数を取得
-$options = getopt("", ["file:", "type:", "cache:", "trimming::"]);
+$options = getopt("", ["file:", "type:", "cache:", "trimming::", "generation:"]);
 
 // 引数のバリデーション
 if (!isset($options['file']) || !isset($options['type'])) {
@@ -124,6 +124,25 @@ if (!isset($options['file']) || !isset($options['type'])) {
 
 $file = $options['file'];
 $type = $options['type'];
+// 手動削除の後に古い生成処理が画像を戻さないよう、本文と同じ順序でロックするルン。
+if (preg_match('/\.(epub|zip|cbz|7z|cb7|rar|cbr|pdf)\s*$/i', $file)) {
+    try {
+        if (!isSafeReaderPagePath($file)) throw new RuntimeException('Invalid book path.');
+        $bookCacheId = readerBookCacheId($file, rtrim($sharePath, '/') . '/' . $file);
+        acquireReaderBookCacheLock($cacheDir, $bookCacheId);
+        if (isset($options['generation'])) {
+            $record = readReaderBookCacheRecord(readerBookCacheRoot($cacheDir) . '/' . $bookCacheId);
+            if ($record === null || $record['generation'] !== $options['generation']
+                || $record['source'] !== readerBookSourceSignature(rtrim($sharePath, '/') . '/' . $file)) {
+                writelog('INFO Skipping obsolete cover generation.', $writelog_process_name);
+                exit(0);
+            }
+        }
+    } catch (Throwable $error) {
+        writelog('ERROR Cannot lock book cache: ' . $error->getMessage(), $writelog_process_name);
+        exit(1);
+    }
+}
 writelog("DEBUG Start process, type:$type", $writelog_process_name);
 // 判定済みなら、一時ディレクトリや画像ライブラリを用意する前に省略するルン。
 if ($type === 'preview' && previewUnavailableMatches($conf['comistream_tool_dir'], $file, $sharePath . '/' . $file)) {

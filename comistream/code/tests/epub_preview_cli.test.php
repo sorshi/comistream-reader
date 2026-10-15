@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 require_once dirname(__DIR__) . '/lib/lib_preview_status.php';
+require_once dirname(__DIR__) . '/lib/lib_book_cache.php';
 
 $sevenZip = trim((string)shell_exec('command -v 7zz 2>/dev/null'));
 $magick = trim((string)shell_exec('command -v magick 2>/dev/null'));
@@ -51,10 +52,11 @@ function makePreviewEpub(string $path, int $count, string $mode, string $png): v
     chmod($path, 0444);
 }
 
-function runPreviewCli(string $tool, string $relative): int
+function runPreviewCli(string $tool, string $relative, string $generation = ''): int
 {
     exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($tool . '/code/make_cover_preview.php')
-        . ' --file=' . escapeshellarg($relative) . ' --type=preview 2>&1', $output, $status);
+        . ' --file=' . escapeshellarg($relative) . ' --type=preview'
+        . ($generation === '' ? '' : ' --generation=' . escapeshellarg($generation)) . ' 2>&1', $output, $status);
     return $status;
 }
 
@@ -66,6 +68,8 @@ try {
     foreach (['data/db', 'data/cache', 'media', 'tmp'] as $directory) mkdir($tool . '/' . $directory, 0700, true);
     foreach (['comistream_lib.php', 'make_cover_preview.php', 'check_preview_status.php'] as $file) copy($source . '/' . $file, $tool . '/code/' . $file);
     foreach (['lib', 'i18n.php'] as $file) symlink($source . '/' . $file, $tool . '/code/' . $file);
+    file_put_contents($tool . '/hash', '#!' . PHP_BINARY . "\n<?php echo md5(stream_get_contents(STDIN));\n");
+    chmod($tool . '/hash', 0700);
     // 実ツールへの呼び出しを記録して、2回目には展開・変換しないことを確かめるルン。
     foreach (['extract' => $sevenZip, 'convert' => $magick, 'montage' => $magick] as $name => $binary) {
         $wrapper = '#!' . PHP_BINARY . "\n<?php\n"
@@ -85,6 +89,7 @@ try {
         'p7zip' => escapeshellarg($tool . '/extract'), 'convert' => escapeshellarg($tool . '/convert'),
         'montage' => escapeshellarg($tool . '/montage') . ' montage', 'isLowMemoryMode' => '1', 'mutool' => '',
         'webRoot' => $tool . '/web', 'cover_subDir' => 'batch',
+        'md5cmd' => escapeshellarg($tool . '/hash'),
     ] as $key => $value) $statement->execute([$key, $value]);
     $statement = $database = null;
     $image = imagecreatetruecolor(60, 90);
@@ -95,7 +100,10 @@ try {
     $epub = $tool . '/media/' . $relative;
     makePreviewEpub($epub, 0, 'text', $png);
     $original = hash_file('sha256', $epub);
-    expectEpubPreview(runPreviewCli($tool, $relative) === 0, 'Image-free EPUB failed.');
+    expectEpubPreview(runPreviewCli($tool, $relative, str_repeat('a', 32)) === 0 && !file_exists($tool . '/calls'), 'Obsolete generation ran after cache deletion.');
+    $bookCache = prepareReaderBookCache($tool . '/data/cache', md5($relative), $epub);
+    fclose(acquireReaderBookCacheLock($tool . '/data/cache', md5($relative)));
+    expectEpubPreview(runPreviewCli($tool, $relative, $bookCache['record']['generation']) === 0, 'Image-free EPUB failed.');
     expectEpubPreview(previewUnavailableMatches($tool, $relative, $epub), 'Image-free result was not saved.');
     expectEpubPreview(file_get_contents($tool . '/calls') === "extract\n", 'Image-free EPUB called image tools.');
     expectEpubPreview(runPreviewCli($tool, $relative) === 0 && file_get_contents($tool . '/calls') === "extract\n", 'Second run extracted the EPUB.');

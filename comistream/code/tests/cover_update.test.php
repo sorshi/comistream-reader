@@ -3,9 +3,16 @@
 declare(strict_types=1);
 require_once dirname(__DIR__) . '/comistream_lib.php';
 
+if (($argv[1] ?? '') === '--hash') {
+    echo md5(stream_get_contents(STDIN)) . "\n";
+    exit(0);
+}
+
 if (($argv[1] ?? '') === '--worker') {
     $fixture = json_decode(file_get_contents($argv[2]), true, 512, JSON_THROW_ON_ERROR);
-    $conf = ['comistream_tool_dir' => $fixture['tool']];
+    $conf = ['comistream_tool_dir' => $fixture['tool'], 'webRoot' => $fixture['tool'] . '/web'];
+    $md5cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' --hash';
+    $sharePath = $fixture['tool'] . '/media';
     $publicDir = '/nas';
     $user = $fixture['user'];
     // フォームの内側のエンコードだけ残った、PHPパラメータ解析後の値を渡すルン。
@@ -32,10 +39,11 @@ function removeCoverUpdateFixture(string $root): void
 $root = sys_get_temp_dir() . '/comistream-cover-update-' . bin2hex(random_bytes(8));
 mkdir($root, 0700);
 try {
-    foreach (['japanese', 'literal-percent', 'without-preview', 'without-preview-root', 'leaf-link', 'traversal', 'parent-link', 'parent-link-missing', 'guest'] as $case) {
+    foreach (['japanese', 'literal-percent', 'cbz', 'pdf', 'cache-link', 'broken-cache-link', 'cache-missing', 'without-preview', 'without-preview-root', 'leaf-link', 'traversal', 'parent-link', 'parent-link-missing', 'guest'] as $case) {
         $tool = $root . '/' . $case;
         $relative = 'Comic/動作検証用特殊ファイル等/epub/[谷崎潤一郎] 春琴抄 + #?&.epub';
         if ($case === 'literal-percent') $relative = 'Comic/%2F %2e%2e 100% +.epub';
+        if (in_array($case, ['cbz', 'pdf'], true)) $relative = 'Comic/同名差し替え +.' . $case;
         if ($case === 'traversal') $relative = '../outside.epub';
         if ($case === 'parent-link') $relative = 'escape/outside.epub';
         if ($case === 'parent-link-missing') $relative = 'escape/missing/outside.epub';
@@ -48,6 +56,23 @@ try {
         mkdir($outside, 0700);
         file_put_contents($outside . '/outside.jpg', 'keep');
         file_put_contents($outside . '/outside.webp', 'keep');
+        $hash = preg_match('/\.epub$/', $relative) ? md5($relative) : md5($tool . '/media/' . $relative . "\n");
+        $cache = $tool . '/data/cache/' . $hash;
+        mkdir(dirname($cache), 0700, true);
+        mkdir($tool . '/web/theme/bibi', 0700, true);
+        $publicLink = $tool . '/web/theme/bibi/' . $hash;
+        if ($case === 'cache-link') symlink($outside, $cache);
+        elseif ($case === 'broken-cache-link') symlink($outside . '/missing', $cache);
+        elseif ($case !== 'cache-missing') {
+            mkdir($cache, 0700);
+            file_put_contents($cache . '/DONE', '');
+            file_put_contents($cache . '/index', 'old content');
+            symlink($outside . '/outside.jpg', $cache . '/file');
+            symlink($outside, $cache . '/external-directory');
+        }
+        if (preg_match('/\.epub$/', $relative)) symlink($cache, $publicLink);
+        mkdir($tool . '/data/cache/unrelated', 0700);
+        file_put_contents($tool . '/data/cache/unrelated/keep', 'keep');
         if ($case !== 'traversal') {
             file_put_contents($tool . '/source.epub', 'source');
             expectCoverUpdate(savePreviewUnavailable($tool, $relative, $tool . '/source.epub', previewSourceSignature($tool . '/source.epub')), 'Could not create unavailable fixture.');
@@ -72,13 +97,17 @@ try {
         if (in_array($case, ['guest', 'traversal', 'parent-link', 'parent-link-missing'], true)) {
             expectCoverUpdate($status !== 0, $case . ': unsafe or unauthenticated deletion succeeded.');
             if ($case === 'guest') expectCoverUpdate(is_file($cover) && is_file($preview), 'Guest removed cached images.');
+            expectCoverUpdate(is_dir($cache), $case . ': rejected deletion removed book cache.');
             if ($case !== 'traversal') expectCoverUpdate(previewUnavailableMatches($tool, $relative, $tool . '/source.epub'), 'Rejected deletion cleared preview status.');
         } else {
             expectCoverUpdate($status === 0 && !file_exists($cover) && !is_link($cover), $case . ': cover was not deleted: ' . implode("\n", $output));
             expectCoverUpdate(!file_exists($preview), $case . ': preview was not deleted.');
             expectCoverUpdate(!previewUnavailableMatches($tool, $relative, $tool . '/source.epub'), $case . ': deletion did not clear preview status.');
+            expectCoverUpdate(!file_exists($cache) && !is_link($cache), $case . ': body cache was not removed.');
+            expectCoverUpdate(!is_link($publicLink), $case . ': public EPUB link was not removed.');
         }
         expectCoverUpdate(file_get_contents($outside . '/outside.jpg') === 'keep' && file_get_contents($outside . '/outside.webp') === 'keep', $case . ': external target changed.');
+        expectCoverUpdate(file_get_contents($tool . '/data/cache/unrelated/keep') === 'keep', $case . ': unrelated cache changed.');
     }
 } finally {
     removeCoverUpdateFixture($root);

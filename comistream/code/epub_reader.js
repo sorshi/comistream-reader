@@ -1142,15 +1142,16 @@ function resolveEpubPath(url, relativeTo) {
 function packageFileUrl(packageBase, innerPath) {
     const normalized = String(innerPath || '').replace(/^\/+/, '');
     const base = packageBase.endsWith('/') ? packageBase : `${packageBase}/`;
-    if (/^https?:\/\//i.test(base)) {
-        return new URL(normalized, base).href;
-    }
     const origin = window.location.origin || '';
     const path = base.startsWith('/') ? base : `/${base}`;
-    return new URL(normalized, origin + path).href;
+    const url = new URL(normalized, /^https?:\/\//i.test(base) ? base : origin + path);
+    // 展開キャッシュの世代を全リソースへ付け、旧本文のHTTPキャッシュを避けるルン。
+    if (appConfig.cacheGeneration) url.searchParams.set('cache_version', appConfig.cacheGeneration);
+    return url.href;
 }
 
 function optionalPackageMissingKey(packageBase) {
+    const generation = appConfig.cacheGeneration ? `:${appConfig.cacheGeneration}` : '';
     try {
         const parsed = new URL(packageBase, window.location.href);
         const segments = parsed.pathname.split('/').filter(Boolean);
@@ -1158,12 +1159,12 @@ function optionalPackageMissingKey(packageBase) {
         const userId = bookIndex !== -1 ? segments[bookIndex + 3] : '';
         const pathHash = bookIndex !== -1 ? segments[bookIndex + 4] : '';
         if (userId && pathHash) {
-            return `${OPTIONAL_PACKAGE_MISSING_PREFIX}${parsed.origin}:${userId}:${pathHash}`;
+            return `${OPTIONAL_PACKAGE_MISSING_PREFIX}${parsed.origin}:${userId}:${pathHash}${generation}`;
         }
     } catch (error) {
         console.warn(error);
     }
-    return `${OPTIONAL_PACKAGE_MISSING_PREFIX}${packageBase}`;
+    return `${OPTIONAL_PACKAGE_MISSING_PREFIX}${packageBase}${generation}`;
 }
 
 function restoreOptionalMissingPaths(packageBase) {
