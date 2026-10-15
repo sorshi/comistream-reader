@@ -16,6 +16,20 @@ foreach (['ja', 'en', 'zh_TW', 'zh_HK'] as $lang) {
         throw new RuntimeException('EPUB translation data is missing.');
     }
     $translations = json_decode($matches[1], true, 512, JSON_THROW_ON_ERROR);
+    foreach (['title', 'label', 'placeholder', 'submit', 'toc', 'close', 'results', 'previous', 'next',
+        'finish', 'collapse', 'return', 'stop', 'more', 'preparing', 'running', 'count', 'none',
+        'no_text', 'stopped', 'partial', 'failed', 'limit', 'too_long', 'empty', 'section',
+        'position', 'shown', 'moving', 'move_failed', 'query', 'at_least'] as $suffix) {
+        $key = 'epub_search_' . $suffix;
+        if (!isset($translations[$key]) || $translations[$key] === $key || $translations[$key] !== $i18n->get($key)) {
+            throw new RuntimeException("EPUB search translation is missing: $lang / $key");
+        }
+    }
+    if (!str_contains($html, '<dialog id="epub-search-panel"')
+        || !str_contains($html, 'global.ComistreamEpubSearch =')
+        || strpos($html, 'id="epub-search-menu-form"') > strpos($html, '<div class="epub-toolbar">')) {
+        throw new RuntimeException("EPUB search entry or panel is missing: $lang");
+    }
     foreach (['title', 'back', 'return'] as $key) {
         $label = $i18n->get('epub_end_' . $key);
         if ($label === 'epub_end_' . $key || !str_contains($html, htmlspecialchars($label, ENT_QUOTES, 'UTF-8'))) {

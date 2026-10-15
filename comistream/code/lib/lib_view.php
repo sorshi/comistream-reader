@@ -546,6 +546,10 @@ function generateEpubHTML(): string
     if ($epubEndJs === false) {
         errorExit('js_file_read_error', 'epub_end.js read failed');
     }
+    $epubSearchJs = file_get_contents($conf["comistream_tool_dir"] . '/code/epub_search.js');
+    if ($epubSearchJs === false) {
+        errorExit('js_file_read_error', 'epub_search.js read failed');
+    }
     $readerInspectorJs = loadReaderInspectorJs();
     $epubReaderJs = file_get_contents($epubJsPath);
     if ($epubReaderJs === false) {
@@ -682,7 +686,13 @@ HTML;
     $tooltipEpubWritingAuto = htmlspecialchars($i18n->get('tooltip_epub_writing_auto'), ENT_QUOTES, 'UTF-8');
     $tooltipEpubWritingHorizontal = htmlspecialchars($i18n->get('tooltip_epub_writing_horizontal'), ENT_QUOTES, 'UTF-8');
     $tooltipEpubWritingVertical = htmlspecialchars($i18n->get('tooltip_epub_writing_vertical'), ENT_QUOTES, 'UTF-8');
-    $i18nJsData = json_encode([
+    $searchI18n = [];
+    $searchText = [];
+    foreach (['title', 'label', 'placeholder', 'submit', 'toc', 'close', 'results', 'previous', 'next', 'finish', 'collapse', 'return', 'stop', 'more', 'preparing', 'running', 'count', 'none', 'no_text', 'stopped', 'partial', 'failed', 'limit', 'too_long', 'empty', 'section', 'position', 'shown', 'moving', 'move_failed', 'query', 'at_least'] as $key) {
+        $searchI18n['epub_search_' . $key] = $i18n->get('epub_search_' . $key);
+        $searchText[$key] = htmlspecialchars($searchI18n['epub_search_' . $key], ENT_QUOTES, 'UTF-8');
+    }
+    $i18nJsData = json_encode(array_merge($searchI18n, [
         'back' => $i18n->get('back'),
         'fullscreen' => $i18n->get('fullscreen'),
         'windowed' => $i18n->get('windowed'),
@@ -754,7 +764,7 @@ HTML;
         'reader_marker_progress' => $i18n->get('reader_marker_progress'),
         'reader_marker_section' => $i18n->get('reader_marker_section'),
         'reader_marker_cluster' => $i18n->get('reader_marker_cluster'),
-    ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+    ]), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
     $title = htmlspecialchars(strip_tags((string)$bookName), ENT_QUOTES, 'UTF-8');
     $lang = htmlspecialchars($i18n->getCurrentLang(), ENT_QUOTES, 'UTF-8');
@@ -1153,6 +1163,15 @@ HTML;
                 <button type="button" class="reader-menu-dismiss" id="epub-menu-close" aria-label="{$altCloseButton}"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
                 <button type="button" class="button button-close reader-menu-back" id="epub-back-button" data-tooltip="{$tooltipBack}"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg><span>{$backLabel}</span></button>
             </div>
+            <form id="epub-search-menu-form" class="epub-search-form">
+                <label for="epub-search-menu-input">{$searchText['label']}</label>
+                <div class="epub-search-input-row">
+                    <input id="epub-search-menu-input" type="search" placeholder="{$searchText['placeholder']}" enterkeyhint="search" autocomplete="off">
+                    <button type="submit" disabled>{$searchText['submit']}</button>
+                </div>
+                <div id="epub-search-menu-error" class="epub-search-error" role="status"></div>
+                <button id="epub-search-menu-results" type="button" hidden>{$searchText['results']}</button>
+            </form>
             <div class="epub-toolbar">
                 <div class="reader-utility-actions">
                     {$langSelectorHtml}
@@ -1251,6 +1270,42 @@ HTML;
             </div>
         </div>
     </div>
+    <dialog id="epub-search-panel" class="epub-search-panel" aria-modal="true" aria-labelledby="epub-search-title">
+        <div class="epub-search-header">
+            <h2 id="epub-search-title">{$searchText['title']}</h2>
+            <button id="epub-search-toc" type="button">{$searchText['toc']}</button>
+            <button id="epub-search-close" type="button" aria-label="{$searchText['close']}">×</button>
+        </div>
+        <div id="epub-search-book" class="epub-search-book"></div>
+        <form id="epub-search-form" class="epub-search-form">
+            <label for="epub-search-input">{$searchText['label']}</label>
+            <div class="epub-search-input-row">
+                <input id="epub-search-input" type="search" placeholder="{$searchText['placeholder']}" enterkeyhint="search" autocomplete="off">
+                <button type="submit">{$searchText['submit']}</button>
+            </div>
+        </form>
+        <div id="epub-search-query" class="epub-search-query"></div>
+        <div class="epub-search-status-row">
+            <div id="epub-search-status" role="status" aria-live="polite" tabindex="-1"></div>
+            <button id="epub-search-stop" type="button" hidden>{$searchText['stop']}</button>
+        </div>
+        <div id="epub-search-error" class="epub-search-error" role="status" aria-live="polite"></div>
+        <div id="epub-search-list" class="epub-search-list"></div>
+        <button id="epub-search-more" type="button" hidden>{$searchText['more']}</button>
+        <div class="epub-search-footer">
+            <button id="epub-search-return" type="button" hidden>{$searchText['return']}</button>
+            <button id="epub-search-finish" type="button">{$searchText['finish']}</button>
+        </div>
+    </dialog>
+    <div id="epub-search-bar" class="epub-search-bar" hidden>
+        <button id="epub-search-results" type="button">{$searchText['results']}</button>
+        <span id="epub-search-bar-actions">
+            <button id="epub-search-previous" type="button">{$searchText['previous']}</button>
+            <button id="epub-search-next" type="button">{$searchText['next']}</button>
+            <button id="epub-search-bar-finish" type="button">{$searchText['finish']}</button>
+        </span>
+        <button id="epub-search-collapse" type="button">{$searchText['collapse']}</button>
+    </div>
     <dialog id="epub-end-panel" class="reader-end-panel" aria-modal="true" aria-labelledby="epub-end-title">
         <h2 id="epub-end-title">{$endTitle}</h2>
         <div id="epub-end-book-title" class="reader-end-book-title"></div>
@@ -1308,6 +1363,7 @@ HTML;
 {$readerMarkerJs}
 {$readerInspectorJs}
 {$epubEndJs}
+{$epubSearchJs}
 {$epubReaderJs}
     </script>
 </body>

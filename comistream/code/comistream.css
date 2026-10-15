@@ -146,6 +146,132 @@ td.center {
   user-select: text;
 }
 
+/* 検索は本文幅を変えず、入力欄と結果だけを専用パネルにまとめるルン。 */
+.epub-search-panel {
+  position: fixed;
+  top: calc(var(--epub-search-top, 0px) + 12px + env(safe-area-inset-top, 0px));
+  left: var(--epub-search-left, 0px);
+  right: auto;
+  bottom: auto;
+  margin: 0 0 0 max(12px, calc((var(--epub-search-width, 100vw) - 560px) / 2));
+  width: min(560px, calc(var(--epub-search-width, 100vw) - 24px));
+  max-height: calc(var(--epub-search-height, 100dvh) - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid #747a82;
+  border-radius: 10px;
+  background: #303337;
+  color: #fff;
+  font: 1rem/1.45 sans-serif;
+  writing-mode: horizontal-tb;
+  overflow: hidden;
+}
+.epub-search-panel[open] { display: flex; flex-direction: column; gap: 8px; }
+.epub-search-panel::backdrop { background: rgba(0, 0, 0, 0.35); }
+.epub-search-header,
+.epub-search-status-row,
+.epub-search-footer,
+.epub-search-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.epub-search-header { flex-wrap: wrap; }
+.epub-search-header h2 { margin: 0; flex: 1; font-size: 1.1em; font-weight: 600; }
+.epub-search-panel button,
+.epub-search-form button,
+.epub-search-bar button {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #747a82;
+  border-radius: 4px;
+  background: #41464d;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.epub-search-panel button:disabled,
+.epub-search-form button:disabled,
+.epub-search-bar button:disabled { opacity: 0.5; cursor: default; }
+.epub-search-panel button:hover:not(:disabled),
+.epub-search-form button:hover:not(:disabled),
+.epub-search-bar button:hover:not(:disabled) { background: #505762; }
+.epub-search-form { margin: 8px 0 12px; font-size: 1rem; }
+.epub-search-panel .epub-search-form { margin: 0; }
+.epub-search-form label { display: block; margin-bottom: 6px; }
+.epub-search-input-row input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  border: 1px solid #747a82;
+  border-radius: 4px;
+  padding: 8px;
+  background: #41464d;
+  color: #fff;
+  font: inherit;
+  font-size: max(16px, 1em);
+}
+.epub-search-input-row input::placeholder { color: #c4c9d0; opacity: 1; }
+.epub-search-input-row button { flex-shrink: 0; }
+.epub-search-book,
+.epub-search-query,
+.epub-search-result-heading { color: #d2d7df; font-size: 0.85em; overflow-wrap: anywhere; }
+.epub-search-error { color: #ffd9a3; overflow-wrap: anywhere; }
+.epub-search-error:empty,
+.epub-search-query:empty { display: none; }
+.epub-search-status-row > div { flex: 1; overflow-wrap: anywhere; }
+.epub-search-list { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.epub-search-panel .epub-search-result {
+  width: 100%;
+  margin: 0 0 8px;
+  display: block;
+  text-align: left;
+}
+.epub-search-result[aria-current="true"] { outline: 2px solid #a9c9eb; outline-offset: -3px; }
+.epub-search-result-heading { display: flex; gap: 4px 10px; flex-wrap: wrap; margin-bottom: 5px; }
+.epub-search-section { flex: 1 1 65%; }
+.epub-search-shown:empty { display: none; }
+.epub-search-shown { flex-basis: 100%; }
+.epub-search-excerpt { display: block; overflow-wrap: anywhere; }
+.epub-search-excerpt mark { background: #ffe3a0; color: #302200; font-weight: 700; }
+.epub-search-footer { flex-wrap: wrap; }
+.epub-search-bar {
+  position: fixed;
+  z-index: 96;
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 6px;
+  border: 1px solid #747a82;
+  border-radius: 8px;
+  box-sizing: border-box;
+  background: #303337;
+  color: #fff;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  font: 0.85rem/1.4 sans-serif;
+}
+#epub-search-bar-actions { display: contents; }
+.epub-search-panel [hidden],
+.epub-search-form [hidden],
+.epub-search-bar[hidden],
+.epub-search-bar [hidden] { display: none !important; }
+@media (max-width: 720px), (max-height: 480px) {
+  .epub-search-panel {
+    width: calc(var(--epub-search-width, 100vw) - 20px);
+    margin-left: 10px;
+    top: calc(var(--epub-search-top, 0px) + 10px + env(safe-area-inset-top, 0px));
+    max-height: calc(var(--epub-search-height, 100dvh) - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+}
+
 .toclink {
   -webkit-touch-callout: default;
   -webkit-user-select: text;
