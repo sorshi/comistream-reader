@@ -21,6 +21,9 @@ function harness(mode) {
     epubProgressManager.record = (cfi, options) => { records.push({cfi, ...options}); return record(cfi, options); };
     openMenu();
     expect(document.activeElement !== $('epub-search-menu-input'), 'Menu must not open keyboard');
+    const formRect = $('epub-search-menu-form').getBoundingClientRect();
+    expect(formRect.top >= document.querySelector('.epub-slider-row').getBoundingClientRect().bottom, 'Search form must follow the position slider');
+    expect(formRect.bottom <= document.querySelector('.epub-panel-grid').getBoundingClientRect().top, 'Search form must precede display settings');
     await controller.search('銀河');
     let state = controller.getState();
     expect(state.status === 'complete', 'Search status: ' + state.status + ' failures:' + state.failures);
@@ -49,9 +52,19 @@ function harness(mode) {
     await controller.move(state.results[0]);
     expect(isSearchTargetVisible(state.results[0].cfi), 'Ruby result CFI is not visible');
     const overlay = getRendererContents().find(item=>item.index===0)?.overlayer;
-    expect(overlay?.element.querySelector('g[stroke] rect'), 'Selected match was not highlighted');
+    const highlight = overlay?.element.querySelector('[data-epub-search-highlight]');
+    expect(highlight?.querySelector('rect[fill]'), 'Selected match was not highlighted');
+    expect(highlight.querySelector('[data-epub-search-focus]'), 'Search navigation did not start the focus');
+    await waitTimeout(400);
+    expect(!highlight.querySelector('[data-epub-search-focus]') && highlight.querySelector('rect'), 'Focus did not finish with a static marker');
+    overlay.redraw();
+    expect(!overlay.element.querySelector('[data-epub-search-focus]'), 'Layout redraw replayed the focus');
+    applyTheme('dark', {persist:false}); await controller.refreshHighlight();
+    expect(overlay.element.querySelector('[data-epub-search-highlight="dark"] rect'), 'Highlight did not follow dark mode');
+    applyTheme('paper', {persist:false}); await controller.refreshHighlight();
     controller.open();
     await controller.move(state.results.at(-1));
+    expect(!highlight.isConnected, 'Old result retained its highlight');
     expect(!panel.open && state.selected, 'Result navigation failed: ' + $('epub-search-error').textContent);
     expect(state.origin === origin, 'Search origin was not captured: '+JSON.stringify({origin,actual:state.origin}));
     expect(isSearchTargetVisible(state.results.at(-1).cfi), 'Target range is not visible');
@@ -122,6 +135,8 @@ function harness(mode) {
         } finally { view.book.sections[0].createDocument = originalCreate; }
     }
     controller.finish();
+    await controller.refreshHighlight();
+    expect(!getRendererContents().some(item => item.overlayer?.element.querySelector('[data-epub-search-highlight]')), 'Finishing search retained a highlight');
     expect(!$('epub-search-panel').open && $('epub-search-bar').hidden, 'Search did not finish');
     await controller.search('銀河');
     panel.style.setProperty('--epub-search-height','350px');

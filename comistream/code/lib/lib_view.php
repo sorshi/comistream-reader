@@ -688,7 +688,7 @@ HTML;
     $tooltipEpubWritingVertical = htmlspecialchars($i18n->get('tooltip_epub_writing_vertical'), ENT_QUOTES, 'UTF-8');
     $searchI18n = [];
     $searchText = [];
-    foreach (['title', 'label', 'placeholder', 'submit', 'toc', 'close', 'results', 'previous', 'next', 'finish', 'collapse', 'return', 'stop', 'more', 'preparing', 'running', 'count', 'none', 'no_text', 'stopped', 'partial', 'failed', 'limit', 'too_long', 'empty', 'section', 'position', 'shown', 'moving', 'move_failed', 'query', 'at_least'] as $key) {
+    foreach (['title', 'label', 'placeholder', 'submit', 'toc', 'close', 'results', 'previous', 'next', 'finish', 'collapse', 'return', 'stop', 'more', 'preparing', 'running', 'count', 'none', 'no_text', 'stopped', 'partial', 'failed', 'limit', 'too_long', 'empty', 'section', 'shown', 'moving', 'move_failed', 'query', 'at_least'] as $key) {
         $searchI18n['epub_search_' . $key] = $i18n->get('epub_search_' . $key);
         $searchText[$key] = htmlspecialchars($searchI18n['epub_search_' . $key], ENT_QUOTES, 'UTF-8');
     }
@@ -1163,15 +1163,6 @@ HTML;
                 <button type="button" class="reader-menu-dismiss" id="epub-menu-close" aria-label="{$altCloseButton}"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
                 <button type="button" class="button button-close reader-menu-back" id="epub-back-button" data-tooltip="{$tooltipBack}"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg><span>{$backLabel}</span></button>
             </div>
-            <form id="epub-search-menu-form" class="epub-search-form">
-                <label for="epub-search-menu-input">{$searchText['label']}</label>
-                <div class="epub-search-input-row">
-                    <input id="epub-search-menu-input" type="search" placeholder="{$searchText['placeholder']}" enterkeyhint="search" autocomplete="off">
-                    <button type="submit" disabled>{$searchText['submit']}</button>
-                </div>
-                <div id="epub-search-menu-error" class="epub-search-error" role="status"></div>
-                <button id="epub-search-menu-results" type="button" hidden>{$searchText['results']}</button>
-            </form>
             <div class="epub-toolbar">
                 <div class="reader-utility-actions">
                     {$langSelectorHtml}
@@ -1207,6 +1198,15 @@ HTML;
                     </span>
                     <span id="epub-slider-value" class="value">1</span>
                 </div>
+                <form id="epub-search-menu-form" class="epub-search-form">
+                    <label for="epub-search-menu-input">{$searchText['label']}</label>
+                    <div class="epub-search-input-row">
+                        <input id="epub-search-menu-input" type="search" placeholder="{$searchText['placeholder']}" enterkeyhint="search" autocomplete="off">
+                        <button type="submit" disabled>{$searchText['submit']}</button>
+                    </div>
+                    <div id="epub-search-menu-error" class="epub-search-error" role="status"></div>
+                    <button id="epub-search-menu-results" type="button" hidden>{$searchText['results']}</button>
+                </form>
                 <div class="epub-panel-grid">
                     <div class="epub-setting-row">
                         <span class="epub-setting-label">{$fontSizeLabel}</span>

@@ -16,6 +16,81 @@
     const escapeLiteral = query => query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const nextTask = () => new Promise(resolve => setTimeout(resolve, 0));
 
+    function createHighlight(doc, { animate = false, isDark = () => false } = {}) {
+        const win = doc.defaultView;
+        const reducedMotion = win.matchMedia('(prefers-reduced-motion: reduce)');
+        const duration = 300, scale = 1.22;
+        let frame = null, rings = [];
+        function stop() {
+            if (frame !== null) win.cancelAnimationFrame(frame);
+            frame = null;
+            for (const ring of rings) ring.element.remove();
+            rings = [];
+        }
+        function motionChanged() { if (reducedMotion.matches) stop(); }
+        reducedMotion.addEventListener('change', motionChanged);
+        function rect(parent, bounds, padding, attributes) {
+            const element = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            for (const [key, value] of Object.entries({ x: bounds.left - padding, y: bounds.top - padding,
+                width: bounds.width + padding * 2, height: bounds.height + padding * 2, rx: 3, ...attributes })) {
+                element.setAttribute(key, value);
+            }
+            parent.append(element);
+            return element;
+        }
+        function draw(rectangles) {
+            stop();
+            const pulse = animate && !reducedMotion.matches;
+            // 再レイアウトでは光を繰り返さず、マーカーだけを描き直すルン。
+            animate = false;
+            const dark = isDark();
+            const group = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+            group.setAttribute('data-epub-search-highlight', dark ? 'dark' : 'light');
+            group.setAttribute('aria-hidden', 'true');
+            for (const bounds of rectangles) {
+                if (!(bounds.width > 0 && bounds.height > 0)
+                    || ![bounds.left, bounds.top, bounds.width, bounds.height].every(Number.isFinite)) continue;
+                const marker = rect(group, bounds, 1, {
+                    fill: dark ? '#cb9422' : '#ffc741', 'fill-opacity': dark ? .46 : .54
+                });
+                marker.style.mixBlendMode = dark ? 'screen' : 'multiply';
+                if (pulse) {
+                    const element = rect(group, bounds, 2, {
+                        'data-epub-search-focus': '', fill: 'none', stroke: dark ? '#edc36d' : '#a36900',
+                        'stroke-width': 2, opacity: .9
+                    });
+                    element.style.filter = 'drop-shadow(0 0 4px ' + (dark ? '#cb9422' : '#ffc741') + ')';
+                    rings.push({ element, bounds });
+                }
+            }
+            if (rings.length) {
+                let start = null;
+                function tick(time) {
+                    if (!group.isConnected || reducedMotion.matches) { stop(); return; }
+                    start ??= time;
+                    const progress = Math.min(1, (time - start) / duration);
+                    if (progress === 1) { stop(); return; }
+                    const eased = 1 - Math.pow(1 - progress, 3);
+                    const factor = .98 + (scale - .98) * eased;
+                    // SVGの座標を直接動かし、Safariのtransform基準点に依存させないルン。
+                    for (const { element, bounds } of rings) {
+                        const width = (bounds.width + 4) * factor;
+                        const height = (bounds.height + 4) * factor;
+                        element.setAttribute('x', bounds.left + bounds.width / 2 - width / 2);
+                        element.setAttribute('y', bounds.top + bounds.height / 2 - height / 2);
+                        element.setAttribute('width', width);
+                        element.setAttribute('height', height);
+                        element.setAttribute('opacity', .9 * (1 - progress));
+                    }
+                    frame = win.requestAnimationFrame(tick);
+                }
+                frame = win.requestAnimationFrame(tick);
+            }
+            return group;
+        }
+        return { draw, destroy() { stop(); reducedMotion.removeEventListener('change', motionChanged); } };
+    }
+
     function excluded(element) {
         const name = element.localName?.toLowerCase();
         const type = element.getAttributeNS?.('http://www.idpf.org/2007/ops', 'type')
@@ -145,8 +220,6 @@
 
         function updateRow(result, row) {
             row.querySelector('.epub-search-section').textContent = result.label || t('section', result.sectionIndex + 1);
-            row.querySelector('.epub-search-position').textContent = Number.isFinite(result.fraction)
-                ? t('position', Math.round(result.fraction * 100)) : '';
             const selected = result.id === state.selected;
             row.setAttribute('aria-current', String(selected));
             row.querySelector('.epub-search-shown').textContent = selected ? t('shown') : '';
@@ -160,7 +233,7 @@
             row.dataset.resultId = result.id;
             const heading = doc.createElement('span');
             heading.className = 'epub-search-result-heading';
-            for (const className of ['section', 'position', 'shown']) {
+            for (const className of ['section', 'shown']) {
                 const span = doc.createElement('span');
                 span.className = 'epub-search-' + className;
                 heading.append(span);
@@ -190,9 +263,6 @@
                         const item = await view.getTOCItemOf(result.cfi);
                         if (!current(version)) break;
                         result.label = item?.label || '';
-                        const progress = await view.getCFIProgress(result.cfi);
-                        if (!current(version)) break;
-                        result.fraction = progress?.fraction;
                     } catch (_) { /* 補助情報がなくても結果は選べるルン。 */ }
                     if (!current(version)) break;
                     result.enriched = true;
@@ -244,18 +314,29 @@
             if (paintTimer === null) paintTimer = setTimeout(paint, 250);
         }
 
-        function refreshHighlight() {
+        function refreshHighlight(animate = false) {
             const version = ++highlightVersion;
             const result = state.results.find(item => item.id === state.selected);
             highlightChain = highlightChain.catch(() => {}).then(async () => {
                 const view = options.getView();
                 if (highlighted) {
                     const old = highlighted; highlighted = null;
-                    await view?.deleteAnnotation(old);
+                    old.painter.destroy();
+                    old.overlayer.remove(old.key);
                 }
                 if (destroyed || version !== highlightVersion || !result) return;
-                highlighted = { value: 'foliate-search:' + result.cfi };
-                await view.addAnnotation(highlighted);
+                const resolved = await view.resolveNavigation(result.cfi);
+                if (destroyed || version !== highlightVersion || options.getView() !== view) return;
+                const content = view.renderer.getContents().find(item => item.index === resolved.index && item.overlayer);
+                if (!content) return;
+                const range = content.doc ? resolved.anchor(content.doc) : resolved.anchor;
+                if (!range) return;
+                const painter = createHighlight(doc, { animate, isDark: options.isDark });
+                const key = 'foliate-search:' + result.cfi;
+                try {
+                    content.overlayer.add(key, range, painter.draw);
+                    highlighted = { key, painter, overlayer: content.overlayer };
+                } catch (error) { painter.destroy(); throw error; }
             }).catch(() => {});
             return highlightChain;
         }
@@ -362,7 +443,7 @@
                     state.selected = result.id;
                     state.visible = Math.max(state.visible, Math.ceil((selectedIndex() + 1) / VISIBLE_BATCH) * VISIBLE_BATCH);
                     state.collapsed = false;
-                    await refreshHighlight();
+                    await refreshHighlight(true);
                     close({ focus: false });
                 } else {
                     state.moving = false;
@@ -457,5 +538,5 @@
             getState: () => state };
     }
 
-    global.ComistreamEpubSearch = { create, scanBook, textRuns, escapeLiteral };
+    global.ComistreamEpubSearch = { create, createHighlight, scanBook, textRuns, escapeLiteral };
 })(typeof window !== 'undefined' ? window : globalThis);

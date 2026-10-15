@@ -4106,6 +4106,7 @@ function applyRendererPrefs() {
         // CSSだけの変更も、最終状態で1回描画するルン。
         if (!view.isFixedLayout) view.renderer.render?.();
     });
+    void epubSearchController?.refreshHighlight();
     updateToolbarState();
 }
 
@@ -5614,6 +5615,7 @@ function initializeEpubSearch() {
         labels: i18n,
         bookTitle: $('epub-book-heading')?.textContent || baseFile,
         getView: () => view,
+        isDark: () => getEffectiveThemeName() === 'dark',
         isReady: () => viewInitialized && !readerClosing,
         loadModules: () => {
             modules ||= Promise.all([

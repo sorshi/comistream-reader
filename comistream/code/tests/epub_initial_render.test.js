@@ -41,7 +41,7 @@ function rendererFixture(packetSave = false) {
     const listeners = new Map();
     const context = vm.createContext({
         appConfig: { packetSave }, recordCssMode: mode => cssModes.push(mode),
-        epubEndController: null,
+        epubEndController: null, epubSearchController: null,
         view: { renderer, isFixedLayout: false, addEventListener: (type, fn) => listeners.set(type, fn) },
         currentFlowMode: 'paginated', currentFontScale: 1,
         currentFontScaleSource: 'auto', lastRendererPrefsSignature: '',
