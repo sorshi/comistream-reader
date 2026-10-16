@@ -13,18 +13,25 @@
 # @link        https://github.com/sorshi/comistream-reader
 # -----------------------------------------------------------------------------
 #
-# ベースイメージとしてAlmaLinux10を使用
-FROM almalinux:10
+# 固定した外部入力を取得し、実変換まで検証するルン。
+FROM almalinux:10 AS tools
+RUN dnf install -y tar xz diffutils fontconfig libX11 harfbuzz fribidi && dnf clean all
+COPY comistream/container/tools.lock comistream/container/install-tools.sh /tmp/tools/
+RUN bash /tmp/tools/install-tools.sh /opt/comistream-tools
+COPY comistream/rsrc/IM7/policy.xml /opt/comistream-tools/lib/imagemagick/usr/etc/ImageMagick-7/policy.xml
+COPY comistream/container/verify-tools.sh /tmp/tools/verify-tools.sh
+ENV PATH="/opt/comistream-tools/bin:${PATH}"
+RUN bash /tmp/tools/verify-tools.sh
+
+# 本体はビルド対象のcheckoutから取り込むルン。
+FROM almalinux:10 AS runtime
 
 # タイムゾーンを日本に設定
-ENV TZ Asia/Tokyo
+ENV TZ=Asia/Tokyo
 
-COPY /comistream-tools/7zz /usr/local/bin/
-COPY /comistream-tools/cpdf /usr/local/bin/
-COPY /comistream-tools/ffmpeg /usr/local/bin/
-COPY /comistream-tools/ffprobe /usr/local/bin/
-COPY /comistream-tools/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.xz /tmp/
-COPY /comistream-tools/comistream.tar.gz /tmp/comistream.tar.gz
+COPY --from=tools /opt/comistream-tools/ /usr/local/
+COPY comistream/ /home/user/comistream/
+COPY LICENSE LICENSING.md /home/user/comistream/
 # システムの更新と必要なパッケージのインストール
 
 # for vips build
@@ -129,19 +136,11 @@ COPY /comistream-tools/comistream.tar.gz /tmp/comistream.tar.gz
 
 RUN dnf update -y &&  \
     dnf install -y tar httpd php php-gd sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release php-intl && \
-    dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig unrar fd-find mupdf-devel php-ffi && \
+    dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig libX11 harfbuzz fribidi unrar fd-find mupdf-devel php-ffi && \
     dnf clean all && \
     useradd -m user && \
     ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime && \
     sed -i 's/audio\/x-flac\s*flac/audio\/flac\t\tflac/' /etc/mime.types && \
-    tar xvaf /tmp/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.xz -C /usr/local/bin && \
-    rm -rf /tmp/ImageMagick--clang-x86_64-7.1.1-23-patch.tar.xz && \
-    ls -lhtr /usr/local/bin/ && \
-    chmod 755 /usr/local/bin/ImageMagick--clang-x86_64-7.1.1-23-patch/AppRun && \
-    ln -s /usr/local/bin/ImageMagick--clang-x86_64-7.1.1-23-patch/AppRun /usr/local/bin/magick && \
-    mkdir -p /home/user/comistream && \
-    tar -xzvf /tmp/comistream.tar.gz -C /home/user/comistream --strip-components=1 && \
-    rm /tmp/comistream.tar.gz && \
     mkdir -p /home/user/comistream/data && \
     # chgrp -R apache /home/user/comistream/data/ && \
     chown -R apache:apache /home/user/comistream/data/ && \
@@ -200,13 +199,6 @@ RUN dnf update -y &&  \
 # ユーザーを作成
 # RUN useradd -m user
 
-# ホストからアーカイブをコピーして展開
-#RUN mkdir -p /home/user/comistream && \
-#    tar -xzvf /tmp/comistream.tar.gz -C /home/user/comistream --strip-components=1 && \
-#    rm /tmp/comistream.tar.gz && \
-#    mkdir -p /home/user/comistream/data && \
-#    chmod 755 /home/user && chgrp apache /home/user 
-
 # シンボリックリンクとパーミッションの設定
 #RUN ln -s /home/user/comistream/code/comistream.php /var/www/cgi-bin/ && \
 #    ln -s /home/user/comistream/code/livestream.php /var/www/cgi-bin/ && \
@@ -218,8 +210,7 @@ RUN dnf update -y &&  \
 
 # Apacheの設定
 # RUN rm -f /etc/httpd/conf.d/welcome.conf && rm -rf /etc/httpd/conf/httpd.conf
-COPY /comistream-tools/httpd.conf /etc/httpd/conf/httpd.conf
-# COPY /comistream-tools/comistream_setup.conf /etc/httpd/conf.d/
+COPY comistream/container/httpd.conf /etc/httpd/conf/httpd.conf
 # RUN chown apache:apache /etc/httpd/conf.d/comistream_setup.conf && \
 #     chmod 775 /etc/httpd/conf.d && \
 #     chgrp apache /etc/httpd/conf.d

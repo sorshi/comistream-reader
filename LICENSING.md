@@ -18,6 +18,8 @@ Comistream Readerには、Apaxy、Faenza icon theme、long-press-event、Foliate
 
 第三者コンポーネントの著作権表示およびライセンス条件は、各ファイルの表示、同梱するライセンス文書、NOTICE、READMEの謝辞を参照してください。
 
+コンテナのビルド時に取得する7-Zip、cpdf、FFmpeg、ImageMagickにも各配布元のライセンスが適用されます。固定した配布物、文書の同梱先、ソースの参照先および公開時の確認事項は[コンテナのビルド入力](comistream/container/README.md)を参照してください。
+
 EPUB定型表紙用のShippori Mincho Regular（しっぽり明朝）は、The Shippori Mincho Project Authorsによるフォントです。SIL Open Font License 1.1で改変せず同梱しています。[取得元と固定リビジョン](comistream/rsrc/fonts/shippori-mincho/README.md)、[著作権表示とライセンス全文](comistream/rsrc/fonts/shippori-mincho/OFL.txt)を参照してください。
 
 EPUB本文のくの字点を補うComistream Kana Repeatは、同梱のShippori Mincho Regularの上下3字形から作成した派生フォントです。U+3031・U+3032用の合成字形を追加し、v2では行寸法を1emへ調整しています。別のフォント名でSIL Open Font License 1.1に従って同梱・配信します。[原作者・変更内容・再生成手順](comistream/theme/fonts/kana-repeat/README.md)、[著作権表示とライセンス全文](comistream/theme/fonts/kana-repeat/OFL.txt)を参照してください。

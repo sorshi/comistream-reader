@@ -1,0 +1,9 @@
+# linux/amd64用の取得物を、ファイル名・版・SHA-256・URLの順に固定するルン。
+7zip.tar.xz	26.04	fc0327ba27e89bd086cf426dff17d77de582953cdbbc10a6576540a06853ffcd	https://github.com/ip7z/7zip/releases/download/26.04/7z2604-linux-x64.tar.xz
+cpdf	2.9.2/38b2556dc111670acb427fd9789a94ada971b2df	74577980b2ed6cf65c673acf8b8a587ce3d6f6ed44b373a9dcd1f3d113b269ed	https://raw.githubusercontent.com/coherentgraphics/cpdf-binaries/38b2556dc111670acb427fd9789a94ada971b2df/Linux-Intel-64bit/cpdf
+cpdf-LICENSE.md	38b2556dc111670acb427fd9789a94ada971b2df	0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0	https://raw.githubusercontent.com/coherentgraphics/cpdf-binaries/38b2556dc111670acb427fd9789a94ada971b2df/LICENSE.md
+cpdf-ACKNOWLEDGEMENTS.md	38b2556dc111670acb427fd9789a94ada971b2df	364b4f11bbfb10ad2d37d66e20d0382f36e19fdf68678251fd63324b3114d9ca	https://raw.githubusercontent.com/coherentgraphics/cpdf-binaries/38b2556dc111670acb427fd9789a94ada971b2df/ACKNOWLEDGEMENTS.md
+ffmpeg.tar.xz	n9.0.2-17-g2a571b6068/2026-09-30	68ee646831adaae2495618346f3bba94ff207ff83bbd34d643e7004730d66269	https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0.tar.xz
+imagemagick.AppImage	7.1.2-34	6e9edfd35d5f30b57c27533afe003d6085faaf8607b207426f398d11751acf93	https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-34/ImageMagick-7.1.2-34-gcc-x86_64.AppImage
+imagemagick-LICENSE	7.1.2-34	131447ad0099069beaa32acf1700716eea294a5bdf936d8211d7026b1849e5d4	https://raw.githubusercontent.com/ImageMagick/ImageMagick/7.1.2-34/LICENSE
+imagemagick-NOTICE	7.1.2-34	a58570cb757bd9223bed229f74cd85c3117c622d23553766427b4e816e65e1e1	https://raw.githubusercontent.com/ImageMagick/ImageMagick/7.1.2-34/NOTICE

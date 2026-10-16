@@ -1,0 +1,8 @@
+**
+!comistream/
+!comistream/**
+!LICENSE
+!LICENSING.md
+comistream/data/
+**/.DS_Store
+**/._*

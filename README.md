@@ -47,7 +47,7 @@ NASに追加すると、ブラウザさえあればどこからでもマンガ�
 
 ## コンテナ
 **【重要】** 注意深く作成したつもりですが、意図しないバグによるファイルの削除などが発生しないようにメディアコンテンツはリードオンリーでマウントしておくと安全だと思います。
-- 【動作環境】 今のところx86_64(amd64)のみです。cpdfのarm64バイナリが見当たらなかったのでarm64は未対応です。
+- 【動作環境】 現在のDockerfileと外部ツールの検証対象はx86_64(amd64)のみです。
 - コンテナ側の/home/user/comistream/data/にDBなど永続的データ用ディレクトリを、/home/user/public/nas/にメディアデータをマウントしてください。
 - コンテナを起動したら手動インストールの「ブラウザでセットアップ」項目からセットアップしてください。
 - 実行例（メディアを読み取り専用でマウント）
@@ -61,6 +61,8 @@ docker run -d -p 8080:80 \
 ```
 
 永続データ用ディレクトリはコンテナ内のApacheから書き込めるようにしてください。コンテナを更新する場合は、このディレクトリをバックアップし、新しいイメージで同じマウントを指定して再作成します。一覧や音楽プレーヤーが404になる場合は、手動インストールの配置手順にあるCGIのリンクを確認してください。
+
+ソースからビルドする場合の取得元・固定バージョン・外部ツールの検証方法は、[コンテナのビルド入力](comistream/container/README.md)を参照してください。開発版のDockerfileはcheckoutしたコードを取り込み、外部ツールをSHA-256で検証して取得します。
 
 ## 手動インストール
 **【重要】** 既存環境のweb rootにthemeというディレクトリと.htaccessがある場合は競合するので別環境で動かしてください。
@@ -80,12 +82,12 @@ AlmaLinux9の例だと以下のコマンドを実行します。
    ```
 3. 追加で必要なツールをインストール：
 以下コマンドを展開してpathの切られてる/usr/local/bin/あたりにコピーします。
-**【重要】** ImageMagick AppImage版は7.1.1-23まではAVIFの読み書きができましたが7.1.1-24以降で対応が外されています。また7.1.1-35までは[CVE-2024-41817](https://nvd.nist.gov/vuln/detail/CVE-2024-41817)の脆弱性(深刻度7.8)があります。コンテナ版にはセキュリティパッチをバックポートした7.1.1-23を同梱しています。
+ImageMagickは必要な画像形式を読み書きできるビルドを使用してください。開発版Dockerfileでは公式7.1.2-34 AppImageを採用し、AVIF・WebPの書き込みと読み戻しをビルド時に検証します。旧コンテナ用の独自パッチ版7.1.1-23は使用しません。配布済みイメージの内容とは異なる場合があります。
 
 - [cpdf](https://github.com/coherentgraphics/cpdf-binaries)
 - [ImageMagick](https://imagemagick.org/script/download.php)
-- [7-zip](https://7-zip.opensource.jp/download.html)
-- [ffmpeg static build](https://johnvansickle.com/ffmpeg/)
+- [7-Zip](https://7-zip.org/download.html)
+- [FFmpeg（ソースとビルド済み配布物の案内）](https://ffmpeg.org/download.html)
 
 PHPはPDO SQLite、mbstring、intl、XML関連の拡張が利用できる構成にしてください。`sqlite-devel`だけではPHPのSQLiteドライバーは有効になりません。ディストリビューションに応じたPHP拡張パッケージを追加し、`php -m`とWeb側のPHP設定を確認してください。動画の再生時間取得とALAC互換再生には`ffprobe`が必要です。`ffmpeg`と同じディレクトリかPATH上に配置し、管理画面の`ffprobe`設定で変更できます。履歴エクスポートには`tar`、`zstd`、`b3sum`が必要です。
 
@@ -112,11 +114,7 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
    sudo chmod -R 775 /home/user/comistream/data/
    ```
 
-初期設定は`comistream/theme/htaccess`を参照します。リポジトリのルートにある`_htaccess`を、配置先のその名前でコピーしてください（次の例はクローンしたリポジトリのルートで実行）。`comistream/theme/.htaccess`はthemeディレクトリ内の一覧表示を禁止する別のファイルです。
-
-   ```sh
-   sudo cp _htaccess /home/user/comistream/theme/htaccess
-   ```
+初期設定は`comistream/rsrc/apache/_htaccess`を参照し、Web公開ディレクトリ直下の`.htaccess`へコピーします。`comistream/`全体を配置すれば、この設定ファイルも含まれます。`comistream/theme/.htaccess`はthemeディレクトリ内の一覧表示を禁止する別のファイルです。
 
 5. コンテンツのマウント:
 - /home/user/public/や/home/user/public/nas/などにコンテンツをマウントや配置します。
@@ -146,7 +144,7 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 11. アップデート
 - 先に`comistream/data/`と、独自に変更した設定・テーマをバックアップします。ソースを`git pull`または上書きで更新し、dataは保持してください。
 - `comistream/theme/`の更新ファイルをWeb公開ディレクトリの`theme/`へ、所有者・権限を維持してコピーします。表紙・プレビューなどのデータ用リンクは保持してください。既存のthemeディレクトリは、設定画面を開くだけでは全ファイルが更新されません。
-- 一覧表示用の`.htaccess`も、独自設定を確認しながらリポジトリの`_htaccess`と差分を反映してください。CGIのリンクは配置手順を確認し、不足分を追加します。その後config画面で設定を更新し、ブラウザを再読み込みしてください。
+- 一覧表示用の`.htaccess`も、独自設定を確認しながらリポジトリの`comistream/rsrc/apache/_htaccess`と差分を反映してください。CGIのリンクは配置手順を確認し、不足分を追加します。その後config画面で設定を更新し、ブラウザを再読み込みしてください。
 - 読書位置同期用テーブル、EPUBの読書位置用カラム、しおり・音楽プレイリスト用テーブルは、対応機能の利用時に自動作成されます。DBへの書き込み権限が必要です。
 
 ## 使い方

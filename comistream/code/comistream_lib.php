@@ -5405,7 +5405,7 @@ function installThemeFiles($dbh)
         || file_put_contents($hlsRoot . '/.htaccess', "<Files \"file\">\nRequire all denied\n</Files>\n") === false) {
         return false;
     }
-    $sourceFile = $conf["comistream_tool_dir"] . "/theme/htaccess";
+    $sourceFile = $conf["comistream_tool_dir"] . "/rsrc/apache/_htaccess";
     $destinationFile = $conf["webRoot"] . "/.htaccess";
     $themeDir = $conf["webRoot"] . "/theme";
 
