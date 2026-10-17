@@ -1,4 +1,5 @@
 const FOLIATE_MODULE_BASE = 'https://cdn.jsdelivr.net/gh/sorshi/comistream-foliate-js@a4aa5c17aee2d383dc79aba3ef8dc56920706e82/';
+const EPUB_SYNTHETIC_COVER_CFI = 'epubcfi(/6/2[comistream-cover]!/2)';
 
 const TAP_MAX_DISTANCE_PX = 10;
 const TAP_MAX_DURATION_MS = 300;
@@ -2138,7 +2139,7 @@ function refreshReaderDashes() {
     for (const doc of docs) prepareReaderDashes(doc);
 }
 
-function buildReaderCSS(fontScale) {
+function buildReaderCSS(fontScale, flowMode = 'paginated') {
     const effectiveLayout = resolveEffectiveReadingMode();
     const theme = getEffectiveTheme();
     const shouldOverrideDirection = currentDirectionOverride !== 'auto';
@@ -2224,6 +2225,13 @@ html[data-comistream-image-page] [data-comistream-page-media] {
 html[data-comistream-image-page] svg[data-comistream-page-media][viewBox] {
     width: 100% !important;
 }
+${flowMode === 'scrolled' ? `
+/* 表紙全体を表示範囲として取得できるよう、スクロール用の上下余白を合わせるルン。 */
+html[data-comistream-generated-cover] [data-comistream-media-wrapper] {
+    margin-top: var(--page-margin-top, 0px) !important;
+    margin-bottom: var(--page-margin-bottom, 0px) !important;
+}
+` : ''}
 html[data-comistream-illustration-break-page] [data-comistream-illustration-break] {
     -webkit-column-break-after: always !important;
     break-after: column !important;
@@ -4065,7 +4073,7 @@ function applyRendererPrefs() {
     }
     lastRendererPrefsSignature = prefsSignature;
     latestRendererPageLocation = null;
-    const css = buildReaderCSS(currentFontScale);
+    const css = buildReaderCSS(currentFontScale, currentFlowMode);
 
     batchRendererUpdates(() => {
         if (typeof view.renderer.toggleAttribute === 'function') {
@@ -5705,11 +5713,11 @@ async function goToMarkerCfi(marker) {
     await view.goTo(marker.locator);
     return {
         target: marker.locator,
-        expectedIndex: marker.sectionIndex !== null
+        expectedIndex: resolveNavigationIndex(marker.locator) ?? (marker.sectionIndex !== null
             && typeof marker.sectionIndex !== 'undefined'
             && Number.isInteger(Number(marker.sectionIndex))
             ? Number(marker.sectionIndex)
-            : null
+            : null)
     };
 }
 
@@ -5733,9 +5741,13 @@ function initializeEpubReaderMarkers() {
         isRtl: () => getNavigationIsRtl(),
         getMarkerSliderValue: (marker, range) => {
             if (!view?.isFixedLayout) {
-                const sectionIndex = Number(marker.sectionIndex);
+                const storedIndex = Number(marker.sectionIndex);
+                const sectionIndex = view.book.comistreamCover
+                    ? resolveNavigationIndex(marker.locator) ?? storedIndex : storedIndex;
                 const fraction = Number(marker.progressFraction);
-                const offset = fraction * getBookSectionCount() - sectionIndex;
+                const sectionCount = view.book.comistreamCover?.synthetic && storedIndex !== sectionIndex
+                    ? view.book.comistreamCover.originalSectionCount : getBookSectionCount();
+                const offset = fraction * sectionCount - storedIndex;
                 if (Number.isInteger(sectionIndex) && marker.progressFraction !== null
                     && Number.isFinite(offset) && offset >= -0.000001 && offset <= 1.000001) {
                     return sectionIndex === getBookSectionCount() - 1 && offset >= 1
@@ -5802,6 +5814,106 @@ function initializeEpubReaderMarkers() {
     void readerMarkerManager.init();
 }
 
+async function createEpubCoverSection(book) {
+    let blob;
+    try {
+        blob = await book.getCover?.();
+    } catch (error) {
+        console.warn('Could not load EPUB cover image.', error);
+        return null;
+    }
+    if (!blob?.size || !blob.type.startsWith('image/')) {
+        return null;
+    }
+    const imageUrl = URL.createObjectURL(blob);
+    const image = document.createElement('img');
+    image.src = imageUrl;
+    image.alt = t('toc_cover', 'Cover');
+    try {
+        await image.decode();
+    } catch (error) {
+        URL.revokeObjectURL(imageUrl);
+        console.warn('Could not decode EPUB cover image.', error);
+        return null;
+    }
+    const doc = document.implementation.createHTMLDocument(t('toc_cover', 'Cover'));
+    doc.documentElement.setAttribute('data-comistream-generated-cover', '');
+    doc.body.setAttribute('epub:type', 'cover');
+    // スクロール時も空でない表示範囲を取得できるよう、画像を要素で包むルン。
+    const wrapper = doc.createElement('div');
+    wrapper.appendChild(image);
+    doc.body.appendChild(wrapper);
+    const html = '<!doctype html>' + doc.documentElement.outerHTML;
+    let pageUrl = null;
+    const unload = () => {
+        if (pageUrl) URL.revokeObjectURL(pageUrl);
+        pageUrl = null;
+    };
+    const destroy = book.destroy?.bind(book);
+    book.destroy = () => {
+        unload();
+        URL.revokeObjectURL(imageUrl);
+        destroy?.();
+    };
+    return {
+        id: 'comistream:cover',
+        cfi: EPUB_SYNTHETIC_COVER_CFI,
+        linear: 'yes',
+        size: 1,
+        load: () => pageUrl ??= URL.createObjectURL(new Blob([html], { type: 'text/html' })),
+        unload,
+        createDocument: () => new DOMParser().parseFromString(html, 'text/html')
+    };
+}
+
+async function prepareEpubCover(book) {
+    const sections = book?.sections;
+    if (!Array.isArray(sections) || !sections.length || book.comistreamCover
+        || book.rendition?.layout === 'pre-paginated') {
+        return book;
+    }
+    let coverIndex = -1;
+    for (const landmark of book.landmarks || []) {
+        if (!landmark?.type?.includes('cover') || !landmark.href) continue;
+        const index = book.resolveHref?.(landmark.href)?.index;
+        if (Number.isInteger(index) && index >= 0 && index < sections.length) {
+            coverIndex = index;
+            break;
+        }
+    }
+    if (coverIndex < 0) {
+        // 表紙参照のない画像ページも調べ、同じ表紙を二重に作らないルン。
+        let doc;
+        try {
+            doc = await sections[0].createDocument?.();
+        } catch (error) {
+            console.warn('Could not inspect EPUB first section for a cover.', error);
+        }
+        if (hasEpubTypeToken(doc?.body, 'cover')
+            || (doc?.body && getNormalizedBodyText(doc) === '' && doc.body.querySelector('img, svg'))) {
+            coverIndex = 0;
+        }
+    }
+    const cover = coverIndex >= 0 ? sections[coverIndex] : await createEpubCoverSection(book);
+    if (!cover) return book;
+
+    cover.linear = 'yes';
+    const ordered = [cover, ...sections.filter(section => section !== cover)];
+    const positions = new Map(ordered.map((section, index) => [section, index]));
+    const indices = sections.map(section => positions.get(section));
+    const remap = resolved => resolved && Number.isInteger(resolved.index) && resolved.index >= 0
+        ? { ...resolved, index: indices[resolved.index] } : resolved;
+    const resolveHref = book.resolveHref?.bind(book);
+    const resolveCFI = book.resolveCFI?.bind(book);
+    book.resolveHref = href => href === cover.id ? { index: 0, anchor: () => 0 } : remap(resolveHref?.(href));
+    book.resolveCFI = cfi => coverIndex < 0 && cfi === EPUB_SYNTHETIC_COVER_CFI
+        ? { index: 0, anchor: () => 0 } : remap(resolveCFI?.(cfi));
+    // 本文のCFIは書き換えず、元のspineの位置を表示順へ対応させるルン。
+    book.comistreamCover = { synthetic: coverIndex < 0, originalSectionCount: sections.length };
+    book.sections = ordered;
+    return book;
+}
+
 async function openEpubBook() {
     const perf = createPerfTimer('openEpubBook()');
     if (epubPackageBase) {
@@ -5814,11 +5926,12 @@ async function openEpubBook() {
             sections: Array.isArray(book?.sections) ? book.sections.length : 0,
             tocItems: Array.isArray(book?.toc) ? book.toc.length : 0
         });
-        return book;
+        return await prepareEpubCover(book);
     }
     if (epubUrl) {
         perf('using monolithic epub url');
-        return null;
+        const { makeBook } = await import(`${FOLIATE_MODULE_BASE}view.js`);
+        return await prepareEpubCover(await makeBook(epubUrl));
     }
     throw new Error('epubPackageBase or epubUrl is required');
 }
@@ -5924,6 +6037,9 @@ function getDefaultStartTarget() {
     const sections = view?.book?.sections;
     if (!Array.isArray(sections) || sections.length === 0) {
         return null;
+    }
+    if (view.book.comistreamCover) {
+        return 0;
     }
     const landmarks = Array.isArray(view.book.landmarks) ? view.book.landmarks : [];
     // 表紙の参照先を優先し、画像だけの参照やspineにない参照は使わないルン。
@@ -6308,6 +6424,11 @@ async function init() {
         await view.open(prebuiltBook);
     } else {
         await view.open(epubUrl);
+    }
+    if (view.book.comistreamCover?.synthetic) {
+        // 仮の表紙は先頭sectionの専用assertionで保存し、既存のCFI形式を維持するルン。
+        const getCFI = view.getCFI.bind(view);
+        view.getCFI = (index, range) => index === 0 ? EPUB_SYNTHETIC_COVER_CFI : getCFI(index, range);
     }
     setupRendererLoadingFeedback();
     bindRendererPagePositionEvents();

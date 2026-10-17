@@ -59,6 +59,11 @@ expectProgress(readerProgressState($db,'reader','book')['revision']===0,'Invalid
 saveReaderProgress($db,'reader','book',progressOperation($state,1,'epubcfi(/6/2!/4/1:20)'));
 saveReaderProgress($db,'reader','book',progressOperation($state,2,'epubcfi(/6/2!/4/1:9)'));
 expectProgress(readerProgressState($db,'reader','book')['locator']==='epubcfi(/6/2!/4/1:9)','Backward EPUB movement was not saved.');
+// ブラウザ内の表紙も既存CFI形式で保存し、本文より手前として比較するルン。
+$coverCfi = 'epubcfi(/6/2[comistream-cover]!/2)';
+saveReaderProgress($db,'reader','book',progressOperation($state,3,$coverCfi),['total'=>1,'linear'=>[true]]);
+expectProgress(readerProgressState($db,'reader','book')['locator']===$coverCfi,'Generated EPUB cover position was not saved.');
+expectProgress(compareReaderProgressCfi($coverCfi,'epubcfi(/6/2!/4/2/1:0)')<0,'Generated cover did not precede the first body position.');
 $linear=['total'=>3,'linear'=>[true,true,false]];
 [$db,$state]=progressFixture('epub');
 saveReaderProgress($db,'reader','book',progressOperation($state,1,'epubcfi(/6/6!/4/1:5)'),$linear);

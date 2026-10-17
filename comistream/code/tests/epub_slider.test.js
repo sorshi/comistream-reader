@@ -198,6 +198,12 @@ test('bookmark ticks retain legacy section positions and place new bookmarks wit
     assert.equal(marker.sectionIndex, 1);
     assert.equal(marker.locator, 'screen-cfi');
     assert.ok(Math.abs(value(marker) - f.context.getLocationProgressMetrics().sliderValue) < 1e-12);
+    f.context.view.book.sections.push({});
+    f.context.view.book.comistreamCover = { synthetic: true, originalSectionCount: 3 };
+    f.context.resolveNavigationIndex = () => 2;
+    const expected = 3 + 0.5 * f.context.REFLOW_SECTION_SLIDER_SPAN;
+    assert.equal(value({ locator: 'old-body-cfi', sectionIndex: 1, progressFraction: 0.5 }), expected);
+    assert.equal(value({ locator: 'new-body-cfi', sectionIndex: 2, progressFraction: 0.625 }), expected);
 });
 
 test('selecting the same screen returns its CFI to navigation recovery', async () => {
