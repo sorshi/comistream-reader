@@ -20,6 +20,7 @@ function harness(mode) {
     await waitAnimationFrame();
     await navigate(() => view.goTo(0), { recordProgress: false, allowReadCompletion: false });
     const controller = epubSearchController;
+    const historyLength = window.history.length;
     let origin = currentLocation.cfi;
     const records = [];
     const record = epubProgressManager.record.bind(epubProgressManager);
@@ -33,6 +34,7 @@ function harness(mode) {
     let state = controller.getState();
     expect(state.status === 'complete', 'Search status: ' + state.status + ' failures:' + state.failures);
     expect(state.results.length === 3, 'Ruby and section-end matches: ' + state.results.length);
+    expect(window.history.length === historyLength, 'Search added browser history entries');
     expect(records.length === 0, 'Search alone changed progress');
     expect($('epub-search-panel').open, 'Search panel is not open');
     const panel = $('epub-search-panel');
@@ -233,13 +235,14 @@ function harness(mode) {
     expect(input.getBoundingClientRect().right <= panel.getBoundingClientRect().right, 'Enlarged input overflows panel');
     document.documentElement.style.fontSize = '';
     controller.finish();
+    expect(window.history.length === historyLength, 'Repeated or canceled searches changed browser history');
     if (${JSON.stringify(Boolean(process.env.COMISTREAM_SEARCH_SCREENSHOT))}) await controller.search('銀河');
     window.__progressNativeResult = {ok:true};
 })().catch(error => { window.__progressNativeResult = {ok:false,error:error.stack}; });
 `;
 }
 
-function router(mode) {
+function router(mode, harnessCode = harness(mode)) {
     const vertical = mode === 'vertical';
     const layout = mode === 'fixed' ? '<meta property="rendition:layout">pre-paginated</meta>' : '';
     const bodyStyle = vertical ? 'writing-mode:vertical-rl' : 'writing-mode:horizontal-tb';
@@ -273,7 +276,7 @@ $conf = ['comistream_tool_dir'=>dirname(${library},2), 'publicDir'=>'/nas', 'epu
 $bookName = $baseFile = $escapedFile = 'Search fixture.epub'; $user = 'guest'; $readerMarkerCsrfToken = '';
 I18n::getInstance()->setLang('${mode === 'english' ? 'en' : 'ja'}');
 $html = generateEpubHTML();
-$harness = json_decode(${JSON.stringify(JSON.stringify(harness(mode)))});
+$harness = json_decode(${JSON.stringify(JSON.stringify(harnessCode))});
 echo preg_replace('~(\\s*</script>\\s*</body>)~', $harness . '$1', $html);
 `;
 }
@@ -287,4 +290,55 @@ for (const mode of ['paged', 'vertical', 'scrolled', 'fixed', 'english']) {
             screenshotPath: process.env.COMISTREAM_SEARCH_SCREENSHOT || undefined
         }));
     });
+}
+
+function exitHarness(action, finishSearch) {
+    return `
+(async () => {
+    const expect = (value, message) => { if (!value) throw new Error(message); };
+    for (let i = 0; !viewInitialized && i < 150; i++) await waitTimeout(100);
+    expect(viewInitialized && epubSearchController, 'Search initialization');
+    await waitForDocumentAssets(getPreferredContentDoc());
+    // 一覧とReaderの履歴を用意し、1回の戻る操作が一覧へ届くか確かめるルン。
+    window.history.pushState({ searchExitListing: true }, '', '/listing');
+    window.history.pushState(null, '', '/');
+    openMenu();
+    await epubSearchController.search('銀河');
+    const state = epubSearchController.getState();
+    expect(state.status === 'complete' && state.results.length === 3, 'Search results');
+    await epubSearchController.move(state.results.at(-1));
+    expect(state.selected === state.results.at(-1).id && !$('epub-search-panel').open, 'Search result navigation');
+    expect(!$('epub-search-bar').hidden, 'Search bar is missing');
+    if (${JSON.stringify(finishSearch)}) {
+        $('epub-search-bar-finish').click();
+        expect(state.status === 'idle' && $('epub-search-bar').hidden, 'Search did not finish');
+    }
+    openMenu();
+    expect($('epub-menu-panel').style.display === 'block', 'TOC did not reopen');
+    const timeout = window.setTimeout(() => {
+        window.__progressNativeResult = { ok: false, error: 'Reader did not return to the listing after search' };
+    }, 5000);
+    window.addEventListener('popstate', () => {
+        window.clearTimeout(timeout);
+        const ok = window.location.pathname === '/listing' && window.history.state?.searchExitListing === true;
+        window.__progressNativeResult = { ok, error: ok ? '' : 'Reader returned to search iframe history instead of the listing' };
+    }, { once: true });
+    const button = $('epub-back-button');
+    button.focus();
+    if (${JSON.stringify(action)} === 'button') button.click();
+    else button.dispatchEvent(new KeyboardEvent('keydown', {
+        key: ${JSON.stringify(action)}, code: ${JSON.stringify(action)}, bubbles: true, cancelable: true
+    }));
+})().catch(error => { window.__progressNativeResult = { ok: false, error: error.stack }; });
+`;
+}
+
+for (const action of ['button', 'Delete']) {
+    for (const finishSearch of [false, true]) {
+        test(`EPUB search exit via ${action}, search ${finishSearch ? 'finished' : 'retained'}: one action returns to listing`, {
+            skip: !chrome || process.env.COMISTREAM_EPUB_BROWSER_TESTS !== '1' || process.env.COMISTREAM_HTTP_TESTS !== '1'
+        }, async () => {
+            await withPhpFixture(router('paged', exitHarness(action, finishSearch)), url => runEpubBrowserFixture(url));
+        });
+    }
 }

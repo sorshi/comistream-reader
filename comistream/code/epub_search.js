@@ -236,7 +236,8 @@
             await waitFor(new Promise((resolve, reject) => {
                 frame.onload = () => { if (frame.contentDocument?.URL === url) resolve(); };
                 frame.onerror = () => reject(new Error('Search document unavailable'));
-                frame.src = url;
+                // 検索用の章移動をブラウザの「戻る」履歴に積まないルン。
+                frame.contentWindow.location.replace(url);
             }));
             global.URL.revokeObjectURL(url);
             urls.delete(url);
