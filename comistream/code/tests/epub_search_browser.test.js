@@ -14,6 +14,11 @@ function harness(mode) {
         currentFlowMode = 'scrolled'; applyRendererPrefs();
     }
     await navigate(() => view.goTo(0), { recordProgress: false, allowReadCompletion: false });
+    // フォント適用後の再配置を待ち、キー操作と読書位置の検証を始めるルン。
+    await waitForDocumentAssets(getPreferredContentDoc());
+    await waitAnimationFrame();
+    await waitAnimationFrame();
+    await navigate(() => view.goTo(0), { recordProgress: false, allowReadCompletion: false });
     const controller = epubSearchController;
     let origin = currentLocation.cfi;
     const records = [];
@@ -84,6 +89,23 @@ function harness(mode) {
     expect(state.status === 'idle', 'Return did not end search: '+JSON.stringify({origin:state.origin,current:currentLocation.cfi,error:$('epub-search-error').textContent,index:getLocationSectionIndex(currentLocation),visible:getRendererContents().map(item=>item.index)}));
     expect(isSearchTargetVisible(origin), 'Original reading range not restored');
     expect(!records.some(item => item.completed), 'Return marked completion');
+    for (const [query, count] of [
+        ['割込非表示語', 0], ['インライン非表示語', 0], ['不可視指定語', 0], ['折畳不可視語', 0], ['外部CSS非表示語', 0],
+        ['親要素非表示語', 0], ['継承不可視語', 0], ['取込CSS非表示語', 0],
+        ['変数非表示語', 0], ['重要指定非表示語', 0], ['メディア非表示語', 0],
+        ['対応機能非表示語', 0], ['名前空間非表示語', 0], ['埋込取込非表示語', 0],
+        ['固定寸法判定語', ${JSON.stringify(mode === 'fixed' ? 0 : 1)}],
+        ['子要素表示復帰語', 1], ['一覧指定表示語', 1], ['直接指定表示語', 1],
+        ['印刷限定表示語', 1], ['階層指定表示語', 1], ['無効CSS表示語', 1]
+    ]) {
+        if (${JSON.stringify(mode !== 'paged')} && !['インライン非表示語', '不可視指定語', '外部CSS非表示語', '子要素表示復帰語', '固定寸法判定語'].includes(query)) continue;
+        await controller.search(query);
+        expect(state.status === 'complete' && state.results.length === count,
+            'CSS visibility: '+query+' '+state.status+' '+state.results.length);
+    }
+    await controller.search('子要素表示復帰語');
+    await controller.move(state.results[0]);
+    expect(isSearchTargetVisible(state.results[0].cfi), 'Styled result CFI changed');
     if (${JSON.stringify(mode)} === 'paged') {
         const cases = [['ぎんが',0],['隠された語',0],['片方',0],['境界',0],['a.b',1],['(a+)',1],['galaxy',1],['かく',1]];
         for (const [query, count] of cases) {
@@ -118,7 +140,70 @@ function harness(mode) {
         for(let i=0;!release && i<50;i++) await waitTimeout(10);
         expect(release, 'Delayed scan not started'); valid=false; release(); await pending;
         expect(!results.length, 'Canceled document load published results');
-        const makeDocument = body => new DOMParser().parseFromString('<html xmlns="http://www.w3.org/1999/xhtml"><body>'+body+'</body></html>', 'application/xhtml+xml');
+        const makeDocument = body => new DOMParser().parseFromString('<html xmlns="http://www.w3.org/1999/xhtml"><head></head><body>'+body+'</body></html>', 'application/xhtml+xml');
+        const styledDoc = makeDocument('<p class="hidden">銀河</p><p>銀河</p><img src="unused.png" onerror="parent.__searchScriptRan=true"/>');
+        styledDoc.head.innerHTML = '<link rel="stylesheet" href="../styles/main.css"/>';
+        const styledDocs = [styledDoc, styledDoc.cloneNode(true)];
+        const originals = styledDocs.map(item => item.documentElement.outerHTML);
+        const reads = [];
+        const stylesheets = {
+            'styles/main.css': '@' + String.fromCharCode(92) + '69mport "nested/hidden.css"; @import "a%26b.css"; @font-face { font-family:Unused; src:url(unused.woff) } p { background-image:url(unused.png) }',
+            'styles/nested/hidden.css': '@import "../main.css"; .hidden { display:none }',
+            'styles/a&b.css': 'p { color:blue }'
+        };
+        fake.book.sections = styledDocs.map(item => ({
+            id: 'chapters/a.xhtml', createDocument: async () => item
+        }));
+        fake.book.loadText = async path => {
+            reads.push(path);
+            expect(path in stylesheets, 'Search loaded a non-CSS resource: '+path);
+            return stylesheets[path];
+        };
+        fake.getCFI = (index, range) => {
+            expect(range.startContainer.ownerDocument === styledDocs[index], 'CFI used the style clone');
+            return 'test-cfi';
+        };
+        results = [];
+        const focused = document.activeElement;
+        const styled = await scan({view:fake,query:'銀河',loadModules,current:()=>true,onMatch:item=>results.push(item)});
+        expect(!styled.failures && results.length === 2, 'Imported or cyclic stylesheet filtering');
+        expect(reads.length === 3 && new Set(reads).size === 3, 'Stylesheets were not cached across sections');
+        expect(styledDocs.every((item, index) => item.documentElement.outerHTML === originals[index]), 'Search modified the original DOM');
+        expect(!window.__searchScriptRan && document.activeElement === focused, 'Style evaluation ran book handlers or stole focus');
+        expect(!document.querySelector('[data-epub-search-document]'), 'Completed search retained its style frame');
+        const cancelDoc = makeDocument('<p>銀河</p>');
+        cancelDoc.head.innerHTML = '<link rel="stylesheet" href="cancel.css"/>';
+        let releaseCss;
+        valid = true;
+        fake.book.sections = [{id:'a.xhtml',createDocument:async()=>cancelDoc}];
+        fake.book.loadText = () => new Promise(resolve => { releaseCss = resolve; });
+        results = [];
+        const canceledCss = scan({view:fake,query:'銀河',loadModules,current:()=>valid,onMatch:item=>results.push(item)});
+        for (let i = 0; !releaseCss && i < 50; i++) await waitTimeout(10);
+        expect(releaseCss, 'Stylesheet load did not start');
+        valid = false;
+        const canceledStyleScan = await canceledCss;
+        expect(canceledStyleScan.canceled && !results.length && !document.querySelector('[data-epub-search-document]'), 'Canceled stylesheet load retained results or a frame');
+        releaseCss('p { display:none }');
+        fake.book.loadText = async () => { throw Error('unavailable stylesheet'); };
+        fake.book.sections = [{id:'a.xhtml',createDocument:async()=>cancelDoc},{createDocument:async()=>doc}];
+        fake.getCFI = () => 'test-cfi';
+        results = [];
+        const failedCss = await scan({view:fake,query:'銀河',loadModules,current:()=>true,onMatch:item=>results.push(item)});
+        expect(failedCss.failures === 1 && results.length === 3, 'Stylesheet failure was silently searched or lost other sections');
+        expect(!document.querySelector('[data-epub-search-document]'), 'Failed search retained its style frame');
+        const htmlDoc = new DOMParser().parseFromString('<!doctype html><style>.hidden { display:none }</style><p class="hidden">銀河</p><table><tr><td>銀河</td></tr></table>', 'text/html');
+        fake.book.sections = [{createDocument:async()=>htmlDoc}];
+        fake.getCFI = (_, range) => {
+            const rendered = document.querySelector('[data-epub-search-document]').contentDocument;
+            expect(rendered.compatMode === htmlDoc.compatMode, 'Search changed the HTML rendering mode');
+            expect(range.startContainer.ownerDocument === htmlDoc, 'HTML search used the clone for CFI');
+            return 'test-cfi';
+        };
+        results = [];
+        const htmlScan = await scan({view:fake,query:'銀河',loadModules,current:()=>true,onMatch:item=>results.push(item)});
+        expect(!htmlScan.failures && results.length === 1, 'HTML fallback changed the parsed structure or visibility');
+        fake.getCFI = () => 'test-cfi';
         const largeDoc = makeDocument('<p>'+'星'.repeat(1000000)+'</p>');
         fake.book.sections = [{createDocument:async()=>largeDoc}];
         const started = performance.now();
@@ -163,19 +248,24 @@ require ${library};
 require_once dirname(${library}) . '/i18n.php';
 $package = __DIR__ . '/package';
 @mkdir($package); @mkdir($package . '/META-INF');
+@mkdir($package . '/styles'); @mkdir($package . '/styles/imports');
+file_put_contents($package . '/styles/hidden.css', '@import "imports/hidden.css" layer(imported) screen; @namespace epub url("http://www.idpf.org/2007/ops"); @media (width:600px) and (height:800px) { .viewport-hidden { display:none } } .css-hidden { display:none } .css-invisible { visibility:hidden } .visible-child { visibility:visible } #absent, .selector-visible { display:none } p.selector-visible { display:block } p#inline-visible { display:none } .variable-hidden { --search-display:none; display:var(--search-display) } .important-hidden { display:none !important } @media screen and (min-width:1px) { .media-hidden { display:none } } @media print { .print-visible { display:none } } @supports (display:grid) { .supports-hidden { display:none } } [epub|type~="note"] { display:none } @layer lower, higher; @layer lower { .layer-visible { display:none } } @layer higher { .layer-visible { display:block } }');
+file_put_contents($package . '/styles/imports/hidden.css', '.import-hidden { display:none }');
+file_put_contents($package . '/styles/inline.css', '.inline-import-hidden { display:none }');
+file_put_contents($package . '/styles/disabled.css', '.disabled-visible { display:none }');
 file_put_contents($package . '/META-INF/container.xml', '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
-file_put_contents($package . '/book.opf', '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">search-fixture</dc:identifier><dc:title>Search fixture</dc:title><dc:language>ja</dc:language>${layout}</metadata><manifest><item id="a" href="a.xhtml" media-type="application/xhtml+xml"/><item id="b" href="b.xhtml" media-type="application/xhtml+xml"/><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="a"/><itemref idref="b"/><itemref idref="c"/></spine></package>');
+file_put_contents($package . '/book.opf', '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">search-fixture</dc:identifier><dc:title>Search fixture</dc:title><dc:language>ja</dc:language>${layout}</metadata><manifest><item id="a" href="a.xhtml" media-type="application/xhtml+xml"/><item id="b" href="b.xhtml" media-type="application/xhtml+xml"/><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/><item id="style" href="styles/hidden.css" media-type="text/css"/><item id="import-style" href="styles/imports/hidden.css" media-type="text/css"/><item id="inline-style" href="styles/inline.css" media-type="text/css"/><item id="disabled-style" href="styles/disabled.css" media-type="text/css"/></manifest><spine><itemref idref="a"/><itemref idref="b"/><itemref idref="c"/></spine></package>');
 $bodies = [
-    'a'=>'<h1>丘の上</h1><p><ruby>銀河<rt>ぎんが</rt></ruby>の光。観<strong>測</strong>所。</p><p>片</p><p>方</p><p>境<br/>界</p><p hidden="hidden">隠された語</p><p aria-hidden="true">隠された語</p><p>a.b axb (a+) Galaxy がくとかく。</p><p>&lt;img src=x onerror=alert(1)&gt;</p>',
+    'a'=>'<h1>丘の上</h1><p><ruby>銀河<rt>ぎんが</rt></ruby>の光。観<span style="display:none">割込非表示語</span><strong>測</strong>所。</p><p>片</p><p>方</p><p>境<br/>界</p><p hidden="hidden">隠された語</p><p aria-hidden="true">隠された語</p><p style="display:none">インライン非表示語</p><p style="visibility:hidden">不可視指定語</p><p style="visibility:collapse">折畳不可視語</p><p class="css-hidden">外部CSS非表示語</p><div style="display:none"><p>親要素非表示語</p></div><div class="css-invisible"><p>継承不可視語</p><p class="visible-child">子要素表示復帰語</p></div><p class="import-hidden">取込CSS非表示語</p><p class="variable-hidden">変数非表示語</p><p class="important-hidden" style="display:block">重要指定非表示語</p><p class="media-hidden">メディア非表示語</p><p class="supports-hidden">対応機能非表示語</p><p xmlns:epub="http://www.idpf.org/2007/ops" epub:type="note">名前空間非表示語</p><p class="inline-import-hidden">埋込取込非表示語</p><p class="selector-visible">一覧指定表示語</p><p id="inline-visible" style="display:block">直接指定表示語</p><p class="print-visible">印刷限定表示語</p><p class="layer-visible">階層指定表示語</p><p class="disabled-visible">無効CSS表示語</p><p class="viewport-hidden">固定寸法判定語</p><p>a.b axb (a+) Galaxy がくとかく。</p><p>&lt;img src=x onerror=alert(1)&gt;</p>',
     'b'=>'<h1>夜の観測所</h1><p>🌌銀河</p>',
     'c'=>'<p>銀河</p>'
 ];
-foreach ($bodies as $name=>$body) file_put_contents($package . '/' . $name . '.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title><meta name="viewport" content="width=600,height=800"/></head><body style="${bodyStyle}">' . $body . '</body></html>');
+foreach ($bodies as $name=>$body) file_put_contents($package . '/' . $name . '.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title><meta name="viewport" content="width=600,height=800"/><link rel="stylesheet" href="styles/hidden.css"/><link rel="stylesheet" disabled="disabled" href="styles/disabled.css"/><style>@import "styles/inline.css";</style></head><body style="${bodyStyle}">' . $body . '</body></html>');
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 if (str_starts_with($path, '/theme/bibi/search-fixture/')) {
     $file = resolveReaderCacheFile($package, substr($path, strlen('/theme/bibi/search-fixture/')));
     if ($file === false) { http_response_code(404); exit; }
-    header('Content-Type: ' . (str_ends_with($file, '.xhtml') ? 'application/xhtml+xml' : 'application/xml'));
+    header('Content-Type: ' . (str_ends_with($file, '.xhtml') ? 'application/xhtml+xml' : (str_ends_with($file, '.css') ? 'text/css' : 'application/xml')));
     readfile($file); exit;
 }
 if ($path !== '/') { http_response_code(404); exit; }

@@ -101,11 +101,177 @@
                 || element.getAttribute('role') === 'doc-toc'));
     }
 
-    async function* textRuns(doc, current, checkpoint) {
+    function createStyleContext(view, current, checkpoint) {
+        const frame = global.document.createElement('iframe');
+        const bounds = view.renderer?.getBoundingClientRect?.();
+        const contentWindow = view.renderer?.getContents?.().find(item => item.doc)?.doc.defaultView;
+        const viewport = { width: contentWindow?.innerWidth || bounds?.width || global.innerWidth,
+            height: contentWindow?.innerHeight || bounds?.height || global.innerHeight };
+        frame.setAttribute('sandbox', 'allow-same-origin');
+        frame.setAttribute('aria-hidden', 'true');
+        frame.setAttribute('data-epub-search-document', '');
+        frame.tabIndex = -1;
+        frame.inert = true;
+        Object.assign(frame.style, { position: 'fixed', left: '-100000px', top: '0',
+            width: viewport.width + 'px', height: viewport.height + 'px',
+            opacity: '0', pointerEvents: 'none', border: '0' });
+        global.document.body.append(frame);
+        let target = frame.contentDocument;
+        // 本文のスクリプトやメディアを動かさず、CSSだけを評価するルン。
+        target.open();
+        target.write('<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'self\' \'unsafe-inline\' blob: data: https:;"></head><body></body></html>');
+        target.close();
+        const cssCache = new Map(), urls = new Set();
+
+        async function waitFor(promise) {
+            let timer;
+            try {
+                return await Promise.race([promise, new Promise((_, reject) => {
+                    const deadline = Date.now() + 10000;
+                    timer = global.setInterval(() => {
+                        if (!current() || Date.now() >= deadline) reject(new Error('Search stylesheet load interrupted'));
+                    }, 50);
+                })]);
+            } finally { global.clearInterval(timer); }
+        }
+
+        function resolve(href, base) {
+            if (/^(?:[a-z][\w+.-]*:|\/\/)/i.test(href)) return new URL(href, global.location.href).href;
+            const basePath = base.split('/').map(encodeURIComponent).join('/');
+            const path = new URL(href, 'https://epub.invalid/' + basePath).pathname.slice(1);
+            // 書庫の名前へ戻し、符号化された区切り文字はそのまま残すルン。
+            try { return decodeURIComponent(path.replace(/%(2f|23)/gi, '%25$1')); }
+            catch (_) { return path; }
+        }
+
+        async function compile(css, base, parents) {
+            if (!css) return '';
+            const parser = target.createElement('style');
+            parser.media = 'not all';
+            parser.textContent = css;
+            target.head.append(parser);
+            const rules = Array.from(parser.sheet.cssRules, rule => ({ text: rule.cssText, href: rule.href }));
+            parser.remove();
+            const output = [];
+            for (const [index, rule] of rules.entries()) {
+                if (!current()) throw new Error('Search canceled');
+                let text = rule.text;
+                if (rule.href) {
+                    const url = await stylesheet(resolve(rule.href, base), parents);
+                    if (!url) continue;
+                    // CSSOMが直列化したURLだけを差し替え、layerやmediaの条件を保つルン。
+                    text = text.replace(/^@import\s+url\("(?:[^"\\]|\\.)*"\)/i,
+                        () => '@import url("' + url + '")');
+                }
+                output.push(text);
+                if (index % 100 === 99) await checkpoint();
+            }
+            return output.join('\n');
+        }
+
+        async function stylesheet(path, parents = []) {
+            if (/^[a-z][\w+.-]*:/i.test(path)) return path;
+            if (parents.includes(path)) return '';
+            if (!cssCache.has(path)) {
+                cssCache.set(path, (async () => {
+                    const css = await waitFor(Promise.resolve().then(() => view.book.loadText(path)));
+                    if (!current()) throw new Error('Search canceled');
+                    const text = await compile(css, path, parents.concat(path));
+                    const url = global.URL.createObjectURL(new Blob([text], { type: 'text/css' }));
+                    urls.add(url);
+                    return url;
+                })());
+            }
+            return cssCache.get(path);
+        }
+
+        async function prepare(doc, section) {
+            target = frame.contentDocument;
+            const pageSize = view.isFixedLayout
+                ? doc.querySelector('meta[name="viewport"]')?.getAttribute('content') || '' : '';
+            const width = Number(pageSize.match(/\bwidth\s*=\s*([\d.]+)/i)?.[1]);
+            const height = Number(pageSize.match(/\bheight\s*=\s*([\d.]+)/i)?.[1]);
+            frame.style.width = (width > 0 && Number.isFinite(width) ? width : viewport.width) + 'px';
+            frame.style.height = (height > 0 && Number.isFinite(height) ? height : viewport.height) + 'px';
+            const root = target.importNode(doc.documentElement, true);
+            const originals = Array.from(doc.querySelectorAll('*'));
+            const copies = [root, ...root.querySelectorAll('*')];
+            const elements = new WeakMap(), styles = new WeakMap();
+            const sheets = Array.from(root.querySelectorAll('style, link[rel~="stylesheet"]'), element => {
+                const media = element.getAttribute('media');
+                const href = element.getAttribute('href');
+                element.setAttribute('media', 'not all');
+                element.removeAttribute('href');
+                return { element, media, href };
+            });
+            for (const meta of root.querySelectorAll('meta[http-equiv]')) meta.removeAttribute('http-equiv');
+            const head = root.querySelector('head') || root.insertBefore(target.createElement('head'), root.firstChild);
+            const base = target.createElement('base');
+            base.href = 'about:blank';
+            head.prepend(base);
+            target.replaceChild(root, target.documentElement);
+            for (const { element, media, href } of sheets) {
+                if (element.hasAttribute('disabled')) continue;
+                if (element.localName.toLowerCase() === 'style') {
+                    element.textContent = await compile(element.textContent, section.id || '', []);
+                } else if (href) {
+                    const path = section.resolveHref?.(href) || resolve(href, section.id || '');
+                    element.setAttribute('href', await stylesheet(String(path)));
+                } else continue;
+                if (media === null) element.removeAttribute('media');
+                else element.setAttribute('media', media);
+            }
+            const policy = target.createElement('meta');
+            policy.httpEquiv = 'Content-Security-Policy';
+            policy.content = "default-src 'none'; style-src 'self' 'unsafe-inline' blob: data: https:;";
+            head.prepend(policy);
+            // 解析方式と要素の対応を保ち、CFIは元のDOMから作るルン。
+            const indices = new Map([root, ...root.querySelectorAll('*')].map((element, index) => [element, index]));
+            const serializer = new XMLSerializer();
+            const doctype = doc.doctype ? serializer.serializeToString(doc.doctype) : '';
+            const html = doc.contentType === 'text/html' ? root.outerHTML : serializer.serializeToString(root);
+            const url = global.URL.createObjectURL(new Blob([doctype, html], { type: doc.contentType }));
+            urls.add(url);
+            // Safariでもスクリプト禁止を保てるよう、親側のiframeで読み込み完了を待つルン。
+            await waitFor(new Promise((resolve, reject) => {
+                frame.onload = () => { if (frame.contentDocument?.URL === url) resolve(); };
+                frame.onerror = () => reject(new Error('Search document unavailable'));
+                frame.src = url;
+            }));
+            global.URL.revokeObjectURL(url);
+            urls.delete(url);
+            target = frame.contentDocument;
+            const rendered = Array.from(target.querySelectorAll('*'));
+            if (rendered.length !== indices.size) throw new Error('Search document structure changed');
+            for (const [index, element] of originals.entries()) {
+                elements.set(element, rendered[indices.get(copies[index])]);
+                if (index % 500 === 499) await checkpoint();
+                if (!current()) throw new Error('Search canceled');
+            }
+            return element => {
+                if (!styles.has(element)) {
+                    const style = frame.contentWindow.getComputedStyle(elements.get(element));
+                    styles.set(element, { display: style.display, visibility: style.visibility });
+                }
+                return styles.get(element);
+            };
+        }
+
+        return { prepare, destroy() {
+            frame.remove();
+            for (const url of urls) global.URL.revokeObjectURL(url);
+        } };
+    }
+
+    async function* textRuns(doc, current, checkpoint, getStyle = () => null) {
         const root = doc.body || doc.documentElement;
         if (!root || excluded(root)) return;
+        for (let parent = root; parent; parent = parent.parentElement) {
+            if (getStyle(parent)?.display === 'none') return;
+        }
         const walker = doc.createTreeWalker(root, 13, {
-            acceptNode: node => node.nodeType === 1 && excluded(node) ? 2 : 1
+            acceptNode: node => node.nodeType === 1
+                && (excluded(node) || getStyle(node)?.display === 'none') ? 2 : 1
         });
         let run = [], block = null, count = 0;
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -113,7 +279,8 @@
             if (node.nodeType === 1 && ['br', 'hr'].includes(node.localName?.toLowerCase())) {
                 if (run.length) yield run;
                 run = []; block = null;
-            } else if ((node.nodeType === 3 || node.nodeType === 4) && node.nodeValue) {
+            } else if ((node.nodeType === 3 || node.nodeType === 4) && node.nodeValue
+                && !['hidden', 'collapse'].includes(getStyle(node.parentElement)?.visibility)) {
                 let parent = node.parentElement;
                 while (parent && parent !== root && !BLOCKS.has(parent.localName?.toLowerCase())) parent = parent.parentElement;
                 if (block !== parent && run.length) { yield run; run = []; }
@@ -130,43 +297,48 @@
         const { searchMatcher, textWalker } = await loadModules();
         if (!current()) return { canceled: true };
         let count = 0, documents = 0, failures = 0, hasText = false;
-        for (const [sectionIndex, section] of view.book.sections.entries()) {
-            if (!current()) return { canceled: true };
-            if (!section.createDocument) continue;
-            await checkpoint();
-            if (!current()) return { canceled: true };
-            try {
-                const doc = await section.createDocument();
+        const styles = createStyleContext(view, current, checkpoint);
+        try {
+            for (const [sectionIndex, section] of view.book.sections.entries()) {
                 if (!current()) return { canceled: true };
-                if (!doc?.documentElement || doc.querySelector('parsererror')) throw new Error('Invalid EPUB document');
-                documents++;
-                for await (const nodes of textRuns(doc, current, checkpoint)) {
+                if (!section.createDocument) continue;
+                await checkpoint();
+                if (!current()) return { canceled: true };
+                try {
+                    const doc = await section.createDocument();
                     if (!current()) return { canceled: true };
-                    if (!nodes.some(node => node.nodeValue.trim())) continue;
-                    hasText = true;
-                    const allowed = new Set(nodes);
-                    const range = doc.createRange();
-                    range.setStart(nodes[0], 0);
-                    range.setEnd(nodes.at(-1), nodes.at(-1).nodeValue.length);
-                    // 元のノードを残し、同じ段落の親文字とインライン要素だけを結ぶルン。
-                    const walk = (_doc, callback) => textWalker(range, callback,
-                        node => node.nodeType === 1 ? 3 : allowed.has(node) ? 1 : 2);
-                    const matcher = searchMatcher(walk, { mode: 'regex', matchCase: false });
-                    for (const match of matcher(doc, escapeLiteral(query))) {
+                    if (!doc?.documentElement || doc.querySelector('parsererror')) throw new Error('Invalid EPUB document');
+                    documents++;
+                    const getStyle = await styles.prepare(doc, section);
+                    if (!current()) return { canceled: true };
+                    for await (const nodes of textRuns(doc, current, checkpoint, getStyle)) {
                         if (!current()) return { canceled: true };
-                        if (count === limit) return { capped: true, failures, documents, hasText };
-                        const cfi = view.getCFI(sectionIndex, match.range);
-                        await onMatch({ id: cfi, sectionIndex, cfi, excerpt: match.excerpt });
-                        if (++count % 25 === 0) await checkpoint();
+                        if (!nodes.some(node => node.nodeValue.trim())) continue;
+                        hasText = true;
+                        const allowed = new Set(nodes);
+                        const range = doc.createRange();
+                        range.setStart(nodes[0], 0);
+                        range.setEnd(nodes.at(-1), nodes.at(-1).nodeValue.length);
+                        // 元のノードを残し、同じ段落の親文字とインライン要素だけを結ぶルン。
+                        const walk = (_doc, callback) => textWalker(range, callback,
+                            node => node.nodeType === 1 ? 3 : allowed.has(node) ? 1 : 2);
+                        const matcher = searchMatcher(walk, { mode: 'regex', matchCase: false });
+                        for (const match of matcher(doc, escapeLiteral(query))) {
+                            if (!current()) return { canceled: true };
+                            if (count === limit) return { capped: true, failures, documents, hasText };
+                            const cfi = view.getCFI(sectionIndex, match.range);
+                            await onMatch({ id: cfi, sectionIndex, cfi, excerpt: match.excerpt });
+                            if (++count % 25 === 0) await checkpoint();
+                        }
                     }
+                } catch (_) {
+                    if (!current()) return { canceled: true };
+                    failures++;
+                    onFailure(sectionIndex);
                 }
-            } catch (_) {
-                if (!current()) return { canceled: true };
-                failures++;
-                onFailure(sectionIndex);
             }
-        }
-        return { failures, documents, hasText };
+            return { failures, documents, hasText };
+        } finally { styles.destroy(); }
     }
 
     function create(options) {
