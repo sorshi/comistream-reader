@@ -3153,7 +3153,12 @@ function openPage()
     list($bookName, $pageTitle, $onlyBookName) = get_book_title($bookName);
 
     try {
-        $readerBookCache = prepareReaderBookCache((string)$cacheDir, $file, $openFile);
+        $readerBookCache = prepareReaderBookCache(
+            (string)$cacheDir, $file, $openFile, false,
+            static function () use ($conf, $sourceRelativePath) {
+                invalidateReaderBookImages($conf['comistream_tool_dir'], $conf['publicDir'], $sourceRelativePath);
+            }
+        );
         guardReaderBookCacheAtShutdown($readerBookCache, $openFile);
         $existDir = $readerBookCache['reused'];
         $conf['reader_cache_generation'] = $readerBookCache['record']['generation'];
@@ -3946,6 +3951,41 @@ function checkContentsIndexArray($indexArray)
     return implode(',', $validatedNumbers);
 } //end function checkContentsIndexArray
 
+
+// 原本の差し替えを検知した書籍だけ、同じ排他ロックの中で画像を無効化するルン。
+function invalidateReaderBookImages(string $toolRoot, string $publicDir, string $relativePath): void
+{
+    if (!isSafeReaderPagePath($relativePath)) throw new RuntimeException('Invalid book image path.');
+    $relativeBase = preg_replace('/\.[^\.\/\\\\]*$/', '', $relativePath);
+    $paths = [];
+    // 両方の保存先を先に検証し、原本や他のディレクトリへは削除を広げないルン。
+    foreach (['covers' => 'jpg', 'preview' => 'webp'] as $type => $extension) {
+        $root = $toolRoot . '/data/theme/' . $type . $publicDir;
+        if (!file_exists($root) && !is_link($root)) continue;
+        $path = resolveGeneratedImageDeletionPath($root, $relativeBase, $extension, true);
+        if ($path === false || (!is_link($path) && file_exists($path) && !is_file($path))) {
+            throw new RuntimeException('Book image path is outside its root or is not a file.');
+        }
+        $paths[] = $path;
+    }
+
+    writelog('INFO Book source changed; invalidating cover and preview: ' . $relativePath);
+    // 生成処理と同じく書籍ロック、プレビュー判定ロックの順で保持するルン。
+    $lock = acquirePreviewStatusLock($toolRoot, $relativePath, false);
+    try {
+        if (!clearPreviewUnavailable($toolRoot, $relativePath, false)) {
+            throw new RuntimeException('Cannot clear changed book preview status.');
+        }
+        foreach ($paths as $path) {
+            if (is_link($path) || is_file($path)) {
+                if (!unlink($path)) throw new RuntimeException('Cannot remove changed book image.');
+                writelog('INFO Removed stale book image: ' . $path);
+            }
+        }
+    } finally {
+        if (is_resource($lock)) fclose($lock);
+    }
+}
 
 /**
  * 別プロセスを起動して表紙画像とプレビュー画像を作成します
@@ -6257,7 +6297,12 @@ function handleFoliateEpubOpen()
     $webRoot = (string)($conf['webRoot'] ?? realpath(__DIR__ . '/../..'));
     $symlinkPath = rtrim($webRoot, '/') . '/theme/bibi/' . $fileHash;
     try {
-        $epubCache = prepareReaderBookCache((string)$cacheDir, $fileHash, $localPath);
+        $epubCache = prepareReaderBookCache(
+            (string)$cacheDir, $fileHash, $localPath, false,
+            static function () use ($conf, $publicDir, $remotePath) {
+                invalidateReaderBookImages($conf['comistream_tool_dir'], (string)$publicDir, $remotePath);
+            }
+        );
         $epubCacheDir = $epubCache['directory'];
         $cacheReady = $epubCache['reused'] && is_link($symlinkPath)
             && realpath($symlinkPath) === $epubCacheDir && is_file($epubCacheDir . '/DONE')

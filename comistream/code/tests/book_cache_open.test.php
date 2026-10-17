@@ -14,7 +14,8 @@ if (($argv[1] ?? '') === '--open') {
     $cacheDir = $conf['cacheDir'];
     $tempDir = $fixture['root'] . '/tmp';
     $publicDir = '/nas';
-    $file = urlEncodeFilePath($fixture['relative']);
+    // PHPがクエリを一度復号した、実際のリクエストと同じ値を渡すルン。
+    $file = $fixture['relative'];
     $md5cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' --hash';
     $p7zip = $fixture['root'] . '/bin/extract';
     $cpdf = $fixture['root'] . '/bin/cpdf';
@@ -30,7 +31,8 @@ if (($argv[1] ?? '') === '--open') {
     $traceFile = '/dev/null';
     putenv('PATH=' . $fixture['root'] . '/bin:' . getenv('PATH'));
     if (str_ends_with($fixture['relative'], '.epub')) handleFoliateEpubOpen();
-    openPage();
+    [$escapedFile, $coverFile, $previewFile] = openPage();
+    makeCover($escapedFile, $coverFile, $previewFile);
     echo json_encode(['pages' => $maxPage, 'generation' => $conf['reader_cache_generation']], JSON_THROW_ON_ERROR);
     exit(0);
 }
@@ -42,14 +44,35 @@ function expectBookCacheOpen(bool $condition, string $message): void
 
 $root = sys_get_temp_dir() . '/comistream-book-open-' . bin2hex(random_bytes(8));
 mkdir($root, 0700);
+$root = realpath($root);
 try {
     $tool = $root . '/tool';
     $cache = $tool . '/data/cache';
     $share = $root . '/media';
-    foreach ([$root . '/bin', $tool . '/code', $cache, $share . '/棚 + %', $root . '/web/theme/bibi'] as $directory) mkdir($directory, 0700, true);
+    foreach ([$root . '/bin', $tool . '/code', $tool . '/calls', $cache, $share . '/棚 + %', $root . '/web/theme/bibi'] as $directory) mkdir($directory, 0700, true);
     foreach (array_merge(glob(dirname(__DIR__) . '/*.js'), glob(dirname(__DIR__) . '/*.css')) as $asset) {
         symlink($asset, $tool . '/code/' . basename($asset));
     }
+    // 画像変換の境界で原本と世代を確認し、旧画像を削除してから起動したか検証するルン。
+    $imageWorker = <<<'PHP'
+$options = getopt('', ['file:', 'type:', 'cache:', 'generation:']);
+$tool = dirname(__DIR__);
+$source = dirname($tool) . '/media/' . $options['file'];
+$id = md5(str_ends_with($source, '.epub') ? $options['file'] : $source . "\n");
+acquireReaderBookCacheLock($tool . '/data/cache', $id);
+$record = readReaderBookCacheRecord($tool . '/data/cache/' . $id);
+if ($record === null || $record['generation'] !== $options['generation']
+    || $record['source'] !== readerBookSourceSignature($source)) exit(1);
+$extension = $options['type'] === 'covers' ? '.jpg' : '.webp';
+$target = $tool . '/data/theme/' . $options['type'] . '/nas/' . preg_replace('/\.[^.]+$/', $extension, $options['file']);
+if (file_exists($target) || is_link($target)) exit(1);
+if (!is_dir(dirname($target))) mkdir(dirname($target), 0700, true);
+$book = json_decode(file_get_contents($source), true, 512, JSON_THROW_ON_ERROR);
+file_put_contents($target, $book['content']);
+file_put_contents($tool . '/calls/' . $id . '-' . $options['type'] . '.json', json_encode($options, JSON_THROW_ON_ERROR));
+PHP;
+    file_put_contents($tool . '/code/make_cover_preview.php', "<?php\nrequire "
+        . var_export(dirname(__DIR__) . '/lib/lib_book_cache.php', true) . ";\n" . $imageWorker);
     // 外部変換コマンドだけを代役にし、PHPの実際のオープン経路を通すルン。
     $extractor = <<<'PHP'
 <?php
@@ -113,6 +136,24 @@ PHP;
             expectBookCacheOpen($status === 0, $extension . ': opening failed: ' . implode("\n", $output));
             return implode("\n", $output);
         };
+        $waitImages = static function (string $content, string $generation) use ($cover, $preview, $tool, $id, $extension): void {
+            $deadline = microtime(true) + 5;
+            do {
+                clearstatcache();
+                $ready = true;
+                foreach (['covers' => $cover, 'preview' => $preview] as $type => $path) {
+                    $call = $tool . '/calls/' . $id . '-' . $type . '.json';
+                    $options = is_file($call) ? json_decode(file_get_contents($call), true) : null;
+                    $ready = $ready && is_file($path) && file_get_contents($path) === $content
+                        && ($options['generation'] ?? null) === $generation;
+                }
+                if ($ready) return;
+                usleep(20000);
+            } while (microtime(true) < $deadline);
+            throw new RuntimeException($extension . ': cover and preview were not regenerated from the current source: '
+                . json_encode(['cover' => @file_get_contents($cover), 'preview' => @file_get_contents($preview),
+                    'calls' => glob($tool . '/calls/' . $id . '-*.json')], JSON_THROW_ON_ERROR));
+        };
         $open();
         $first = readReaderBookCacheRecord($directory);
         expectBookCacheOpen($first !== null, $extension . ': source record missing.');
@@ -121,6 +162,7 @@ PHP;
         file_put_contents($directory . '/preserve-until-change', 'keep');
         $open();
         expectBookCacheOpen(readReaderBookCacheRecord($directory) === $first && is_file($directory . '/preserve-until-change'), $extension . ': unchanged cache was rebuilt.');
+        expectBookCacheOpen(file_get_contents($cover) === 'existing image' && file_get_contents($preview) === 'existing image', $extension . ': unchanged images were replaced.');
 
         file_put_contents($source, json_encode(['pages' => 3, 'content' => 'NEW CONTENT'], JSON_THROW_ON_ERROR));
         touch($source, $first['source']['mtime'] + 10);
@@ -135,13 +177,35 @@ PHP;
         }
         $html = $open();
         if ($extension === 'epub') expectBookCacheOpen(str_contains($html, '"cacheGeneration":"' . $updated['generation'] . '"'), 'EPUB did not receive current generation.');
+        $waitImages('NEW CONTENT', $updated['generation']);
+
+        // サイズとmtimeが同じrename置換でも、旧画像と生成不可判定を残さないルン。
+        if ($extension === 'epub') {
+            unlink($preview);
+            expectBookCacheOpen(savePreviewUnavailable($tool, $relative, $source, previewSourceSignature($source)), 'Could not save unavailable preview.');
+        }
+        $replacement = $root . '/replacement';
+        file_put_contents($replacement, json_encode(['pages' => 3, 'content' => 'ALT CONTENT'], JSON_THROW_ON_ERROR));
+        touch($replacement, $updated['source']['mtime']);
+        rename($replacement, $source);
+        chmod($source, 0444);
+        $open();
+        if ($extension === 'pdf') $open();
+        $replaced = readReaderBookCacheRecord($directory);
+        expectBookCacheOpen($replaced['generation'] !== $updated['generation'], $extension . ': inode replacement was reused.');
+        $waitImages('ALT CONTENT', $replaced['generation']);
+        if ($extension === 'epub') {
+            expectBookCacheOpen(!is_file(previewStatusPaths($tool, $relative)['record']), 'Replacement kept the unavailable preview record.');
+        }
+        $open();
+        $waitImages('ALT CONTENT', $replaced['generation']);
 
         // 属性記録のない旧キャッシュも、一度だけ作り直すルン。
         unlink($directory . '/_comistream-reader-source.json');
         file_put_contents($pageFile, 'LEGACY CONTENT');
         $open();
-        expectBookCacheOpen(file_get_contents($pageFile) === 'NEW CONTENT', $extension . ': legacy cache survived.');
-        expectBookCacheOpen(file_get_contents($source) === json_encode(['pages' => 3, 'content' => 'NEW CONTENT']), $extension . ': source was modified.');
+        expectBookCacheOpen(file_get_contents($pageFile) === 'ALT CONTENT', $extension . ': legacy cache survived.');
+        expectBookCacheOpen(file_get_contents($source) === json_encode(['pages' => 3, 'content' => 'ALT CONTENT']), $extension . ': source was modified.');
     }
 } finally {
     removeReaderBookCacheTree($root);

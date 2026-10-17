@@ -148,7 +148,7 @@ function removeReaderEpubLink(string $webRoot, string $id): void
     }
 }
 
-function prepareReaderBookCache(string $root, string $id, string $source, bool $force = false): array
+function prepareReaderBookCache(string $root, string $id, string $source, bool $force = false, ?callable $onSourceChanged = null): array
 {
     acquireReaderBookCacheLock($root, $id);
     $directory = readerBookCacheRoot($root) . '/' . $id;
@@ -156,6 +156,10 @@ function prepareReaderBookCache(string $root, string $id, string $source, bool $
     $record = readReaderBookCacheRecord($directory);
     $reused = !$force && $record !== null && $record['source'] === $signature;
     if (!$reused) {
+        // 画像削除に失敗しても次回に再試行できるよう、旧属性を残したまま呼ぶルン。
+        if ($record !== null && $record['source'] !== $signature && $onSourceChanged !== null) {
+            $onSourceChanged();
+        }
         removeReaderBookCache($root, $id);
         if (!mkdir($directory, 0775)) throw new RuntimeException('Cannot create book cache directory.');
         $record = ['schema' => 1, 'source' => $signature, 'generation' => bin2hex(random_bytes(16))];
