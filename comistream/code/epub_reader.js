@@ -4197,7 +4197,8 @@ async function goPreviousPage() {
         || Math.abs(beforeLocation.fraction - afterLocation.fraction) > 0.0005;
     const expectedPreviousIndex = getAdjacentLinearSectionIndex(true, getLocationSectionIndexOrNull(beforeLocation));
     if (
-        expectedPreviousIndex !== null
+        !view.isFixedLayout
+        && expectedPreviousIndex !== null
         && afterLocation.section !== beforeLocation.section
         && afterLocation.section !== expectedPreviousIndex
     ) {
@@ -4240,7 +4241,8 @@ async function goNextPage() {
         || Math.abs(beforeLocation.fraction - afterLocation.fraction) > 0.0005;
     const expectedNextIndex = getAdjacentLinearSectionIndex(false, getLocationSectionIndexOrNull(beforeLocation));
     if (
-        expectedNextIndex !== null
+        !view.isFixedLayout
+        && expectedNextIndex !== null
         && afterLocation.section !== beforeLocation.section
         && afterLocation.section !== expectedNextIndex
     ) {

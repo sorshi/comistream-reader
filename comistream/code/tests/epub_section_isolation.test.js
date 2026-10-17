@@ -120,15 +120,21 @@ test('single-column, scrolled, continuous and horizontal layouts clear the trail
     }
 });
 
-function navigationFixture({ start = 0, end = 800, viewSize = 800.8, fraction = 0.4 } = {}) {
+function navigationFixture({ start = 0, end = 800, viewSize = 800.8, fraction = 0.4,
+    fixedLayout = false, section = 1, turnStep = 0 } = {}) {
     const moves = [];
-    const location = { section: 1, fraction, cfi: 'same-position' };
+    const corrections = [];
+    const location = { section, fraction, cfi: 'same-position' };
+    const relocate = (index) => {
+        location.section = index;
+        location.cfi = `section-${index}`;
+    };
     const context = vm.createContext({
         view: {
             renderer: { start, end, viewSize },
-            isFixedLayout: false,
-            next: async () => {},
-            prev: async () => {},
+            isFixedLayout: fixedLayout,
+            next: async () => { if (turnStep) relocate(location.section + turnStep); },
+            prev: async () => { if (turnStep) relocate(location.section - turnStep); },
             lastLocation: location
         },
         currentLocation: location,
@@ -136,16 +142,38 @@ function navigationFixture({ start = 0, end = 800, viewSize = 800.8, fraction = 
         forwardNavigationSeq: 0,
         isEpubAtStartOfLinearReadingOrder: () => false,
         waitForNavigationReady: async () => true,
-        summarizeLocation: (value = location) => value,
+        summarizeLocation: (value = location) => ({ ...value }),
         debugLog: () => {},
         getLocationSectionIndexOrNull: (value) => value.section,
-        getAdjacentLinearSectionIndex: (previous) => previous ? 0 : 2,
+        getAdjacentLinearSectionIndex: (previous, index) => index + (previous ? -1 : 1),
+        goToSpineSection: async (index) => { corrections.push(index); relocate(index); },
         goToAdjacentSpineSection: async (previous) => { moves.push(previous); }
     });
     const startIndex = source.indexOf('async function goPreviousPage(');
     const endIndex = source.indexOf('async function goPhysicalLeft(', startIndex);
     vm.runInContext(source.slice(startIndex, endIndex), context);
-    return { context, moves };
+    return { context, moves, corrections };
+}
+
+for (const previous of [false, true]) {
+    const direction = previous ? -1 : 1;
+    const action = previous ? 'goPreviousPage' : 'goNextPage';
+    test(`fixed-layout spreads keep every ${previous ? 'backward' : 'forward'} two-section turn`, async () => {
+        const section = previous ? 7 : 1;
+        const { context, corrections } = navigationFixture({ fixedLayout: true, section, turnStep: 2 });
+        for (let turn = 1; turn <= 3; turn++) {
+            await context[action]();
+            assert.equal(context.currentLocation.section, section + direction * 2 * turn);
+        }
+        assert.deepEqual(corrections, []);
+    });
+
+    test(`reflow still corrects a skipped section when turning ${previous ? 'backward' : 'forward'}`, async () => {
+        const { context, corrections } = navigationFixture({ section: 7, turnStep: 2 });
+        await context[action]();
+        assert.equal(context.currentLocation.section, 7 + direction);
+        assert.deepEqual(corrections, [7 + direction]);
+    });
 }
 
 test('a stalled turn at a fractional section edge advances even in the middle of the book', async () => {
