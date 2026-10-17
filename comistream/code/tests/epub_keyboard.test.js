@@ -20,7 +20,7 @@ function fixture() {
         view: { isFixedLayout: false }, currentLocation: {}, epubInspectorUI: null,
         menuVisible: false, sliderDragActive: false, pendingSliderValue: null,
         window: { setTimeout, clearTimeout }, console,
-        $: () => null, isEditableTarget: () => false,
+        $: () => null, isEditableTarget: () => false, getNavigationIsRtl: () => true,
         debugLog() {}, summarizeLocation: () => ({}), cancelPageTurnAnimation() {}, clearInitialRestorePin() {},
         waitForNavigationReady: async () => true, waitForNavigationSettled: async () => true,
         normalizeNavigationTarget: () => ({}), stabilizeRendererVisibility: async () => false,
@@ -167,7 +167,11 @@ test('browser key repeats stop without queued turns after release in the documen
         ${keyboardCode}
         window.testDone = false;
         (async () => {
-            for (const doc of [document, document.getElementById('book').contentDocument]) {
+            const frame = document.getElementById('book');
+            if (frame.contentDocument?.URL !== 'about:srcdoc' || frame.contentDocument.readyState !== 'complete') {
+                await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+            }
+            for (const doc of [document, frame.contentDocument]) {
                 bindKeyboardShortcuts(doc);
                 bindKeyboardShortcuts(doc);
                 const key = (type, repeat = false) => {

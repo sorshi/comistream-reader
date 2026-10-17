@@ -5336,13 +5336,13 @@ function handleKeydown(event) {
     if (code === 'Period' || key === '>') {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goToBoundary(true), { skipIfBusy: event.repeat });
+        void navigate(() => goToBoundary(getNavigationIsRtl()), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'Comma' || key === '<') {
         event.preventDefault();
         event.stopPropagation();
-        void navigate(() => goToBoundary(false), { skipIfBusy: event.repeat });
+        void navigate(() => goToBoundary(!getNavigationIsRtl()), { skipIfBusy: event.repeat });
         return;
     }
     if (code === 'Home') {

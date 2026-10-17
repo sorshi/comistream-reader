@@ -1656,8 +1656,8 @@ function funcKey(evt) {
   // 1 : 単ページ表示モード
   // 2 : 見開き表示モード
   // BackSpace or Delete : 閉じる
-  // > : 最初のページへ
-  // < : 最終ページへ
+  // > / . : 右方向の端へ移動するルン（右綴じは先頭、左綴じは末尾）。
+  // < / , : 左方向の端へ移動するルン（右綴じは末尾、左綴じは先頭）。
   // ↓ : 次のページへ
   // ↑ : 前のページへ
   // Space : クイック見開き表示トグル
@@ -1690,11 +1690,11 @@ function funcKey(evt) {
   if (evt.key == "2" || evt.code == "Digit2" || evt.code == "Numpad2") spread();
   if (evt.code == "Backspace" || evt.code == "Delete") backListPage();
   if (evt.code == "Period" || evt.keyCode === 190) {
-    page = 1;
+    page = direction == "left" ? 1 : maxPage;
     loadPage(1);
   } // >
   if (evt.code == "Comma" || evt.keyCode === 188) {
-    page = maxPage;
+    page = direction == "left" ? maxPage : 1;
     loadPage(1);
   } // <
   if (evt.code == "ArrowDown") leftward();
