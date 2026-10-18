@@ -5,7 +5,8 @@ const { spawn } = require('node:child_process');
 const { chrome } = require('./browser_fixture');
 
 // 外部moduleの読み込みと描画を実時間で待つ専用ブラウザルン。
-async function runEpubBrowserFixture(url, { screenshotPath, viewport, verifyFrames } = {}) {
+async function runEpubBrowserFixture(url, { screenshotPath, viewport, verifyFrames, timeoutMs = 30000 } = {}) {
+  const foliateRoot = process.env.COMISTREAM_FOLIATE_DIR && fs.realpathSync(process.env.COMISTREAM_FOLIATE_DIR);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'comistream-epub-browser-'));
   let child, socket;
   const waiting = new Map(); let id = 0;
@@ -33,6 +34,24 @@ async function runEpubBrowserFixture(url, { screenshotPath, viewport, verifyFram
         if (!frames.length || at - frames.at(-1).at >= 100) frames.push({ at, data: message.params.data });
         void call('Page.screencastFrameAck', { sessionId: message.params.sessionId }, message.sessionId).catch(() => {});
       }
+      if (message.method === 'Fetch.requestPaused') {
+        // 指定したローカルforkで、固定SHAのモジュールだけを差し替えるルン。
+        const { requestId, request } = message.params;
+        let body, responseCode = 200;
+        try {
+          const relative = decodeURIComponent(new URL(request.url).pathname.replace(/^\/gh\/sorshi\/comistream-foliate-js@[^/]+\//, ''));
+          const file = fs.realpathSync(path.resolve(foliateRoot, relative));
+          if (!file.startsWith(foliateRoot + path.sep)) throw new Error('Invalid Foliate module path');
+          body = fs.readFileSync(file).toString('base64');
+        } catch (error) {
+          responseCode = 404;
+          body = Buffer.from(error.message).toString('base64');
+        }
+        void call('Fetch.fulfillRequest', { requestId, responseCode, body, responseHeaders: [
+          { name: 'Content-Type', value: 'text/javascript' },
+          { name: 'Access-Control-Allow-Origin', value: '*' }
+        ] }, message.sessionId).catch(() => {});
+      }
     });
     function call(method, params = {}, sessionId) {
       return new Promise((resolve,reject) => {
@@ -42,11 +61,16 @@ async function runEpubBrowserFixture(url, { screenshotPath, viewport, verifyFram
         socket.send(JSON.stringify({ id:command,method,params,...(sessionId ? {sessionId} : {}) }));
       });
     }
-    const { targetId } = await call('Target.createTarget',{url});
+    const { targetId } = await call('Target.createTarget',{url:'about:blank'});
     const { sessionId } = await call('Target.attachToTarget',{targetId,flatten:true});
+    if (foliateRoot) await call('Fetch.enable', { patterns: [{
+      urlPattern: 'https://cdn.jsdelivr.net/gh/sorshi/comistream-foliate-js@*/*', requestStage: 'Request'
+    }] }, sessionId);
     if (viewport) await call('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor:1, mobile:false }, sessionId);
     if (verifyFrames) await call('Page.startScreencast', { format: 'png', everyNthFrame: 1 }, sessionId);
-    for (let attempt = 0; attempt < 300; attempt++) {
+    await call('Page.navigate', { url }, sessionId);
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
       const result = await call('Runtime.evaluate',{expression:'window.__progressNativeResult || null',returnByValue:true},sessionId);
       const value = result.result?.value;
       if (value) {

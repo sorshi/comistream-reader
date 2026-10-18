@@ -1,4 +1,4 @@
-const FOLIATE_MODULE_BASE = 'https://cdn.jsdelivr.net/gh/sorshi/comistream-foliate-js@a4aa5c17aee2d383dc79aba3ef8dc56920706e82/';
+const FOLIATE_MODULE_BASE = 'https://cdn.jsdelivr.net/gh/sorshi/comistream-foliate-js@a308f1a6f3e87350094da11a0712769220bf1ae4/';
 const EPUB_SYNTHETIC_COVER_CFI = 'epubcfi(/6/2[comistream-cover]!/2)';
 
 const TAP_MAX_DISTANCE_PX = 10;
