@@ -53,14 +53,21 @@ NASに追加すると、ブラウザさえあればどこからでもマンガ�
 - 実行例（メディアを読み取り専用でマウント）
 
 ```sh
-docker run -d -p 8080:80 \
+docker run -d -p 8080:8080 \
+  --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+  --shm-size=1g \
   -v /home/path/to/your/data:/home/user/comistream/data \
   -v /home/path/to/your/nas:/home/user/public/nas:ro \
   --restart unless-stopped \
   --name comistream ghcr.io/sorshi/comistream-reader/comistream-reader:latest
 ```
 
-永続データ用ディレクトリはコンテナ内のApacheから書き込めるようにしてください。コンテナを更新する場合は、このディレクトリをバックアップし、新しいイメージで同じマウントを指定して再作成します。一覧や音楽プレーヤーが404になる場合は、手動インストールの配置手順にあるCGIのリンクを確認してください。
+開発版コンテナはApacheユーザー（UID/GID `48:48`）で起動します。永続データ用ディレクトリは、このUID/GIDから読み書き・ディレクトリ作成ができるようホスト側で準備してください。起動時のrootによる所有者変更は行いません。`/tmp`と共有メモリの容量は、同時処理数や書籍・動画の大きさに合わせて調整してください。
+
+Apache設定、PHPコード、固定テーマはイメージに含め、実行中に変更しません。`.htaccess`はメディアや展開物を含めて解釈せず、PHPを実行できるURLも固定しています。`/theme/manifest.json`はDBのサイト名をJSONで返し、EPUBの`/theme/bibi/`は専用処理で展開済み資産だけを配信します。DBや内部キャッシュ全体は公開しません。日次処理は起動後24時間ごとに同じApacheユーザーで実行します。
+
+更新時はdataと独自設定・テーマをバックアップし、同じdata・メディアのマウントを指定して再作成してください。**旧コンテナの内部ポート80は8080へ変わります**。ホスト側のポートを8080のまま使う場合も、指定を`-p 8080:8080`へ更新します。既存DBの履歴やユーザーは保持しますが、配置先の設定はコンテナの固定値へ揃えます。`webRoot`、`sharePath`、`publicDir`、`comistream_tool_dir`、CGIのURL、一時領域のルートは設定画面から変更できません。メディア内の独自`.htaccess`、PHP/CGI/SSIの実行、外部を指すシンボリックリンクには対応しません。独自の固定テーマやApache設定は、派生イメージのビルド時に反映してください。手動設置版は以下の従来の配置方式を維持します。
 
 ソースからビルドする場合の取得元・固定バージョン・外部ツールの検証方法は、[コンテナのビルド入力](comistream/container/README.md)を参照してください。開発版のDockerfileはcheckoutしたコードを取り込み、外部ツールをSHA-256で検証して取得します。
 

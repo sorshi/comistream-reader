@@ -16,6 +16,12 @@
 require_once __DIR__ . '/comistream_lib.php';
 require_once __DIR__ . '/lib/music_queue.php';
 
+// 固定配置の初回アクセスはアプリのセットアップ画面へ案内するルン。
+if (readerUsesManagedDeployment() && !databaseExists()) {
+    header('Location: /cgi-bin/comistream.php');
+    exit;
+}
+
 // Script configuration
 ini_set('zlib.output_compression', '8');
 ini_set('output_buffering', 'On');
@@ -315,7 +321,8 @@ function normalize_kana_for_sort($str)
 
 // Main script execution
 $document_root = $_SERVER['DOCUMENT_ROOT'];
-$request_path = $_GET['path'] ?? '';
+$request_path = $_GET['path'] ?? (readerUsesManagedDeployment()
+    ? (parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/') : '');
 
 writelog("INFO dir_list: Raw path param: " . $request_path, "dir_list");
 

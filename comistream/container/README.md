@@ -1,8 +1,39 @@
 # コンテナのビルド入力
 
-ビルドコンテキストにはリポジトリのルートを指定します。本体は初期設定用の`comistream/rsrc/apache/_htaccess`を含めてcheckoutした`comistream/`からコピーし、ライセンス文書も取り込みます。外部ディスクの`comistream-tools/`や手作業の`comistream.tar.gz`は使用しません。
+ビルドコンテキストにはリポジトリのルートを指定します。本体はcheckoutした`comistream/`からコピーし、ライセンス文書も取り込みます。外部ディスクの`comistream-tools/`や手作業の`comistream.tar.gz`は使用しません。
 
-Apache設定は[httpd.conf](httpd.conf)で管理します。従来の設定の有効な項目を移し、PHPハンドラーの接続先をDockerfileのPHP-FPM設定と同じTCP 9000番に揃えています。
+Apache設定は[httpd.conf](httpd.conf)で管理します。内部ポート8080で待ち受け、[php-fpm.conf](php-fpm.conf)のUnix socketへ固定したPHP入口だけを接続します。`.htaccess`の解釈と汎用CGI実行は無効です。パッケージ付属の`conf.d/*.conf`は自動読み込みしません。
+
+## 配置と実行権限
+
+[configure-runtime.sh](configure-runtime.sh)はビルド時にだけ実行し、設定・コード・テーマとその親ディレクトリをroot所有にします。実行時の[start.sh](start.sh)はUID/GID `48:48`で起動し、[initialize-runtime.php](initialize-runtime.php)でdata配下の必要なディレクトリを準備します。DBから任意のコードや配置命令をrootで実行する処理はありません。
+
+| 領域 | 実行時の扱い |
+| --- | --- |
+| Apache設定、コード、固定テーマ | 読み取り専用。更新はイメージの再ビルドで反映 |
+| `comistream/data/` | Apacheから書き込み可能な永続volume。DB・セッション・内部キャッシュは非公開 |
+| `data/theme/covers`・`preview` | 許可した画像形式だけを既存URLで配信 |
+| `data/theme/hls` | プレイリスト・TSセグメントのみ静的配信。原本リンク・state・ログは非公開 |
+| EPUBキャッシュ | `/theme/bibi/`から、完成済みEPUB内の資産を検証して配信。公開テーマにはリンクを作らない |
+| `/home/user/public/nas` | 読み取り専用メディアvolume。PHP/CGI/SSIとシンボリックリンクの配信は拒否 |
+| `/tmp`・`/dev/shm` | 一時ファイル用。読み取り専用rootでの実行には書き込み可能な領域が必要 |
+
+初回と既存DBでの再作成は同じ起動手順です。既存DBの配置先設定だけを固定値へ揃え、ユーザーや履歴を初期化しません。起動時に権限が足りなければ終了するので、data volumeの所有者・権限はホスト側で準備してください。日次処理は起動後24時間ごとに非rootで実行します。停止中の実行は繰り越しません。
+
+起動例と旧ポート80からの移行は[READMEのコンテナ項目](../../README.md#コンテナ)を参照してください。ロールバック時は停止後に前のイメージと旧ポート指定へ戻し、事前のdataバックアップを保持してください。DB形式はこの構造変更では変更していません。
+
+## 実行時の回帰テスト
+
+リポジトリのルートで、ビルドしたローカルイメージを指定します。
+
+```sh
+COMISTREAM_TEST_IMAGE=comistream-reader:local \
+  node --test comistream/code/tests/container_runtime.test.js
+```
+
+テストは専用のコンテナとvolumeを作成・削除します。実データは使いません。初回設定、設定保存、読み取り専用・非rootでの動作、固定ファイルの変更拒否、データ中の`.htaccess`不解釈、生成物の公開範囲、EPUB配信、既存DBでの再作成を確認します。
+
+Chrome/Chromiumがある環境では`COMISTREAM_BROWSER_TESTS=1`も指定すると、隔離したブラウザプロファイルでEPUBの読み込み完了を確認します。実際のリーダーと同じCDNを参照するため、ブラウザからのインターネット接続が必要です。
 
 ## 固定した外部ツール
 

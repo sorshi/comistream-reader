@@ -23,7 +23,9 @@ printf 'archive verification\n' > payload.txt
 7zz a -tzip sample.zip payload.txt > /dev/null
 7zz t sample.zip > /dev/null
 7zz x -so sample.zip payload.txt > restored.txt
-cmp payload.txt restored.txt
+expected=$(sha256sum payload.txt)
+actual=$(sha256sum restored.txt)
+[[ ${expected%% *} == ${actual%% *} ]]
 
 cpdf -create-pdf -o sample.pdf
 [[ $(cpdf -pages sample.pdf) == 1 ]]

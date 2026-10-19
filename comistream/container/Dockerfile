@@ -30,8 +30,6 @@ FROM almalinux:10 AS runtime
 ENV TZ=Asia/Tokyo
 
 COPY --from=tools /opt/comistream-tools/ /usr/local/
-COPY comistream/ /home/user/comistream/
-COPY LICENSE LICENSING.md /home/user/comistream/
 # システムの更新と必要なパッケージのインストール
 
 # for vips build
@@ -134,102 +132,20 @@ COPY LICENSE LICENSING.md /home/user/comistream/
 # CMD [ "vips" ]
 
 
-RUN dnf update -y &&  \
-    dnf install -y tar httpd php php-gd sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release php-intl && \
+RUN dnf update -y && \
+    dnf install -y tar httpd php php-fpm php-gd php-pdo php-mbstring php-xml sqlite sqlite-devel zstd libzstd-devel ghostscript rsyslog-logrotate cronie cronie-anacron crontabs epel-release php-intl && \
     dnf install -y b3sum php-zstd cifs-utils unzip ImageMagick libavif-devel poppler-utils fontconfig libX11 harfbuzz fribidi unrar fd-find mupdf-devel php-ffi && \
     dnf clean all && \
     useradd -m user && \
     ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime && \
-    sed -i 's/audio\/x-flac\s*flac/audio\/flac\t\tflac/' /etc/mime.types && \
-    mkdir -p /home/user/comistream/data && \
-    # chgrp -R apache /home/user/comistream/data/ && \
-    chown -R apache:apache /home/user/comistream/data/ && \
-    chmod -R 775 /home/user/comistream/data/ && \
-    chmod 775 /home/user && chgrp apache /home/user && \
-    ln -s /home/user/comistream/code/comistream.php /var/www/cgi-bin/ && \
-    ln -s /home/user/comistream/code/livestream.php /var/www/cgi-bin/ && \
-    mkdir -p /home/user/public/nas && \
-    chgrp apache -R /home/user/public && \
-    chmod 775 /home/user/public && \
-    echo "Redirect 302 / /cgi-bin/comistream.php" > /home/user/public/.htaccess && \
-    chmod 666 /home/user/public/.htaccess && \
-    chmod 755 /home/user/comistream/cron/cron_comistream_daily.sh && \
-    ln -s /home/user/comistream/cron/cron_comistream_daily.sh /etc/cron.daily/ && \
-    mkdir -p /usr/etc/ImageMagick-7 && \
-    cp /home/user/comistream/rsrc/IM7/policy.xml /usr/etc/ImageMagick-7/policy.xml && \
-    # テスト用コード
-    # ln -s /home/user/comistream/cron/cron_comistream_daily.sh /etc/cron.hourly/ && \
-    rm -f /etc/httpd/conf.d/welcome.conf && rm -rf /etc/httpd/conf/httpd.conf && \
-    mkdir -p /run/php-fpm && \
-    chown apache:apache /run/php-fpm && \
-    chmod 755 /run/php-fpm && \
-    mkdir -p /var/cache/fontconfig && \
-    chmod 777 /var/cache/fontconfig && \
+    sed -i 's/audio\/x-flac\s*flac/audio\/flac\t\tflac/' /etc/mime.types
 
-    # PHP-FPMの設定を変更(from [#11])
-    sed -i "s|listen = /run/php-fpm/www.sock|listen = 9000|g" /etc/php-fpm.d/www.conf && \
-    sed -i "s|^listen.acl_users|;listen.acl_users|g" /etc/php-fpm.d/www.conf && \
-    sed -i "s|^listen.acl_groups|;listen.acl_groups|g" /etc/php-fpm.d/www.conf && \
-
-    # Apacheの設定を変更(from [#11])
-    sed -i "s#proxy:unix:/run/php-fpm/www.sock|fcgi://localhost#proxy:fcgi://localhost:9000#g" /etc/httpd/conf.d/php.conf && \
-
-    # 権限変更(from [#11])上でやっている
-    # chown -R apache:apache /home/user/comistream/data && \
-    # chmod -R 755 /home/user/comistream/data && \
-
-    echo '#!/bin/bash' > /start.sh && \
-    echo 'trap "echo Shutting down...; kill -TERM \$(jobs -p) 2>/dev/null" SIGTERM SIGINT' >> /start.sh && \
-    echo 'mkdir -p /var/log/php-fpm' >> /start.sh && \
-    echo 'mkdir -p /var/log/sssd' >> /start.sh && \
-    echo 'mkdir -p /var/log/anaconda' >> /start.sh && \
-    echo 'mkdir -p /var/log/private' >> /start.sh && \
-    echo 'mkdir -p /var/log/samba' >> /start.sh && \
-    echo 'mkdir -p /var/log/httpd' >> /start.sh && \
-    echo 'mkdir -p /var/log/audit' >> /start.sh && \
-    echo 'crond' >> /start.sh && \
-    echo '/usr/sbin/php-fpm &' >> /start.sh && \
-    echo 'php /home/user/comistream/code/intstallThemeDir.php' >> /start.sh && \
-    echo '/usr/sbin/httpd -D FOREGROUND &' >> /start.sh && \
-    echo 'wait' >> /start.sh && \
-    chmod +x /start.sh
-
-# 追加のツールをインストール
-
-# ユーザーを作成
-# RUN useradd -m user
-
-# シンボリックリンクとパーミッションの設定
-#RUN ln -s /home/user/comistream/code/comistream.php /var/www/cgi-bin/ && \
-#    ln -s /home/user/comistream/code/livestream.php /var/www/cgi-bin/ && \
-#    chgrp -R apache /home/user/comistream/data/ && \
-#    chmod -R 775 /home/user/comistream/data/
-
-# データディレクトリとコンテンツディレクトリの作成
-# RUN mkdir -p /home/user/public/nas
-
-# Apacheの設定
-# RUN rm -f /etc/httpd/conf.d/welcome.conf && rm -rf /etc/httpd/conf/httpd.conf
-COPY comistream/container/httpd.conf /etc/httpd/conf/httpd.conf
-# RUN chown apache:apache /etc/httpd/conf.d/comistream_setup.conf && \
-#     chmod 775 /etc/httpd/conf.d && \
-#     chgrp apache /etc/httpd/conf.d
-
-# php-fpmの設定
-# RUN mkdir -p /run/php-fpm && \
-# chown apache:apache /run/php-fpm && \
-# chmod 755 /run/php-fpm
-
-# Apacheとphp-fpmを起動するスクリプトを作成
-
-# logrotateの設定
-
-# cronの設定
-
-
-# ポート80を公開
-EXPOSE 80
-
-# 起動スクリプトを実行
-CMD ["/start.sh"]
-
+# 設定・コード・テーマはroot所有で固定し、dataだけを書込可能にするルン。
+COPY comistream/ /home/user/comistream/
+COPY LICENSE LICENSING.md /home/user/comistream/
+RUN bash /home/user/comistream/container/configure-runtime.sh
+ENV COMISTREAM_MANAGED_INSTALL=1 \
+    XDG_CACHE_HOME=/tmp/comistream-fontcache
+USER apache:apache
+EXPOSE 8080
+CMD ["/bin/bash", "/home/user/comistream/container/start.sh"]

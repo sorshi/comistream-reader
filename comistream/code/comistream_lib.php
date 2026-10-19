@@ -33,6 +33,7 @@ require_once(__DIR__ . '/i18n.php');
 require_once(__DIR__ . '/lib/lib_base.php');
 require_once(__DIR__ . '/lib/lib_db.php');
 require_once(__DIR__ . '/lib/lib_config.php');
+require_once(__DIR__ . '/lib/lib_deployment.php');
 require_once(__DIR__ . '/lib/lib_auth.php');
 require_once(__DIR__ . '/lib/lib_book_actions.php');
 require_once(__DIR__ . '/lib/lib_book_info.php');
@@ -132,6 +133,13 @@ function writelog($messages, $processname = 'Comistream')
     }
 
     $messages = str_replace(array("\r\n", "\r", "\n"), ' ', $messages);
+    // 固定配置ではsyslogデーモンを常駐させず、コンテナのログへ送るルン。
+    if (readerUsesManagedDeployment()) {
+        if ($global_debug_flag || preg_match('/EMERG|ALERT|CRIT|ERR|WARN|NOTICE|INFO/', $messages)) {
+            error_log($processname . ': ' . $messages);
+        }
+        return;
+    }
     openlog($processname, LOG_NDELAY, LOG_USER);
     $bt = debug_backtrace();
     $file = preg_replace('/\/.*?\/.*?\//', '', $bt[0]['file']);
@@ -4562,8 +4570,13 @@ function system_config($dbh)
 
                 <div class="section">
                     <h2>諸仕様</h2>
+                    <?php if (readerUsesManagedDeployment()): ?>
+                    <p>コンテナの設定・コード・テーマはイメージに固定されています。配置先の設定値は変更できません。</p>
+                    <p>書影・プレビュー・HLSなどの生成物はdata配下に保存し、必要なファイルだけを配信します。</p>
+                    <?php else: ?>
                     <p>themeディレクトリ、.htaccessは公開ディレクトリの直下に固定配置されます。同名ディレクトリがあると機能しません。</p>
                     <p>表紙画像が格納されるtheme/coverは[comistream_tool_dir]/comistream/data/theme/coverのシンボリックリンクです。プレビュー画像ディレクトリも同様です。</p>
+                    <?php endif; ?>
                     <p>データ領域は[comistream_tool_dir]/comistream/data/に集約されています。</p>
                     <p>コンテンツ領域はリードオンリーでリモートマウントしていても動作します。</p>
                 </div>
@@ -4579,6 +4592,7 @@ function system_config($dbh)
                             <input type="text" id="<?php echo htmlspecialchars($key); ?>"
                                 name="<?php echo htmlspecialchars($key); ?>"
                                 value="<?php echo htmlspecialchars($settings[$key] ?? ''); ?>"
+                                <?php if (array_key_exists($key, readerManagedSettings())) echo 'readonly'; ?>
                                 size="45">
                         <?php endforeach; ?>
                     </div>
@@ -4601,6 +4615,7 @@ function system_config($dbh)
                                 <input type="text" id="<?php echo htmlspecialchars($key); ?>"
                                     name="<?php echo htmlspecialchars($key); ?>"
                                     value="<?php echo htmlspecialchars($value); ?>"
+                                    <?php if (array_key_exists($key, readerManagedSettings())) echo 'readonly'; ?>
                                     size="45">
                         <?php
                             endif;
@@ -4660,12 +4675,13 @@ function getSettings($db)
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
         $settings[$row['key']] = $row['value'];
     }
-    return $settings;
+    return array_replace($settings, readerManagedSettings());
 }
 
 // 設定を更新する関数
 function updateSetting($db, $key, $value)
 {
+    $value = readerManagedSettings()[$key] ?? $value;
     $stmt = $db->prepare("UPDATE system_config SET value = :value WHERE key = :key");
     $stmt->execute(['value' => $value, 'key' => $key]);
     writelog("DEBUG updateSetting() $key:$value");
@@ -5273,35 +5289,35 @@ function handleInitialSetup($postData)
     }
     // コマンド検索してデフォルト値を設定する
     putenv("PATH=/usr/local/bin:/usr/bin:/bin:" . getenv("PATH"));
-    $p7zip = exec('which 7zz');
+    $p7zip = exec('command -v 7zz');
     writelog("DEBUG handleInitialSetup() p7zip:$p7zip");
-    $cpdf = exec('which cpdf');
+    $cpdf = exec('command -v cpdf');
     writelog("DEBUG handleInitialSetup() cpdf:$cpdf");
-    $ffmpeg = exec('which ffmpeg');
+    $ffmpeg = exec('command -v ffmpeg');
     writelog("DEBUG handleInitialSetup() ffmpeg:$ffmpeg");
-    $convert = exec('which magick');
+    $convert = exec('command -v magick');
     writelog("DEBUG handleInitialSetup() convert:$convert");
     $montage = $convert . ' montage';
-    $unzip = exec('which unzip');
+    $unzip = exec('command -v unzip');
     writelog("DEBUG handleInitialSetup() unzip:$unzip");
-    $unrar = exec('which unrar');
+    $unrar = exec('command -v unrar');
     writelog("DEBUG handleInitialSetup() unrar:$unrar");
-    $pdftoppm = exec('which pdftoppm');
+    $pdftoppm = exec('command -v pdftoppm');
     writelog("DEBUG handleInitialSetup() pdftoppm:$pdftoppm");
-    $mutool = exec('which mutool');
+    $mutool = exec('command -v mutool');
     writelog("DEBUG handleInitialSetup() mutool:$mutool");
-    $pdfinfo = exec('which pdfinfo');
+    $pdfinfo = exec('command -v pdfinfo');
     writelog("DEBUG handleInitialSetup() pdfinfo:$pdfinfo");
-    $md5cmd = exec('which b3sum');
+    $md5cmd = exec('command -v b3sum');
     writelog("DEBUG handleInitialSetup() md5cmd:$md5cmd");
     if (empty($md5cmd)) {
-        $md5cmd = exec('which md5sum');
+        $md5cmd = exec('command -v md5sum');
     }
     writelog("DEBUG handleInitialSetup() md5cmd:$md5cmd");
     // libvipsコマンドの検索
-    // $vips = exec('which vips');
+    // $vips = exec('command -v vips');
     // writelog("DEBUG handleInitialSetup() vips:$vips");
-    // $vipsthumbnail = exec('which vipsthumbnail');
+    // $vipsthumbnail = exec('command -v vipsthumbnail');
     // writelog("DEBUG handleInitialSetup() vipsthumbnail:$vipsthumbnail");
 
     // $webRootを定義するために、homeの下にpublicかpublic_htmlがあったらそれをフルpathにして代入する
@@ -5379,6 +5395,11 @@ function handleInitialSetup($postData)
             }
         }
 
+        // 配置先の固定値は初回設定でも同じ値を保存するルン。
+        foreach (readerManagedSettings() as $key => $value) {
+            $stmt->execute([':key' => $key, ':value' => $value]);
+        }
+
         // トランザクションをコミット
         $db->commit();
         writelog("DEBUG handleInitialSetup() DB setup completed:" . print_r($db->errorInfo(), true));
@@ -5404,7 +5425,7 @@ function handleInitialSetup($postData)
 
         // comistream_setup.conf削除
         $setupConfPath = '/home/user/public/.htaccess';
-        if (file_exists($setupConfPath)) {
+        if (!readerUsesManagedDeployment() && file_exists($setupConfPath)) {
             unlink($setupConfPath);
         }
 
@@ -5420,7 +5441,7 @@ function handleInitialSetup($postData)
         errorExit('invalid_config', 'system_error');
     }
 } //end function handleInitialSetup
-##### .htaccess作成、theme設定とfooter.html更新 #################################################
+##### .htaccessとthemeを配置し、manifestを更新するルン。 ########################################
 function installThemeFiles($dbh)
 {
     global $conf;
@@ -5437,6 +5458,11 @@ function installThemeFiles($dbh)
 
     // コンフィグ読み込み
     readConfig($dbh);
+
+    // 固定配置では設定・テーマ・所有者を変更せず、dataだけを準備するルン。
+    if (readerUsesManagedDeployment()) {
+        return prepareReaderRuntimeDirectories(readerManagedSettings()['comistream_tool_dir']);
+    }
 
     // .htaccess作成
     // 既存テーマでも、旧版のHLS原本リンクを公開しないルン。
@@ -5474,8 +5500,7 @@ function installThemeFiles($dbh)
         }
     }
 
-    // theme設定とfooter.html更新theme設定とfooter.html更新
-    // themeディレクトリの作成
+    // themeディレクトリを配置するルン。
     // $themeDir = $conf["sharePath"] . "/theme";
     if (file_exists($themeDir)) {
         // $timestamp = round(microtime(true) * 1000);
@@ -5527,35 +5552,10 @@ function installThemeFiles($dbh)
             writelog("INFO installThemeFiles() hls symlink created:" . $hlsLink);
         }
     }
-    // footer.htmlの更新
-    // footer.htmlのパスを設定
-    $footerHtmlPath = $themeDir . "/footer.html";
 
-    // sedコマンドを使用してconst publicDirの行を書き換え
-    $publicDir = $conf['publicDir'];
-    $command = "sed -i 's|const publicDir =.*|const publicDir = \"$publicDir\";|' $footerHtmlPath";
-    exec($command, $output, $return_var);
-    if ($return_var !== 0) {
-        writelog("ERROR installThemeFiles() failed to update footer.html: " . implode("\n", $output));
-        return false;
-    } else {
-        writelog("INFO installThemeFiles() footer.html updated successfully");
-    }
-    $bibiPath = $conf['bibiPath'];
-    $command = "sed -i 's|const bibiPath =.*|const bibiPath = \"$bibiPath\";|' $footerHtmlPath";
-    exec($command, $output, $return_var);
-    if ($return_var !== 0) {
-        writelog("ERROR installThemeFiles() failed to update footer.html: " . implode("\n", $output));
-        return false;
-    } else {
-        writelog("INFO installThemeFiles() footer.html updated successfully");
-    }
-    writelog("INFO installThemeFiles() theme dir setup completed!");
-
-    // manifest.jsonの更新
+    // manifest.jsonの表示名を設定に合わせるルン。
     $manifestPath = $themeDir . "/manifest.json";
     $siteName = $conf['siteName'];
-    // sedコマンドを使用してconst publicDirの行を書き換え
     $command = "sed -i 's|\"name\":.*|  \"name\": \"$siteName\",|' $manifestPath";
     exec($command, $output, $return_var);
     if ($return_var !== 0) {
@@ -5637,6 +5637,8 @@ function readConfig($dbh)
             $conf[$rowdata['key']] = $rowdata['value'];
         }
     }
+    // コンテナの配置先はDBの値で変更させないルン。
+    $conf = array_replace($conf ?? [], readerManagedSettings());
     //グローバル変数に代入
     // ベースディレクトリの末尾のスラッシュを確実に除去
     if (isset($conf["webRoot"])) {
@@ -5691,7 +5693,7 @@ function readConfig($dbh)
     }
     // mutoolのパスを確認
     if (!(isset($conf["mutool"])) && isset($dbh)) {
-        $mutool = exec('which mutool') ?: '';
+        $mutool = exec('command -v mutool') ?: '';
         sql_query($dbh, "INSERT OR REPLACE INTO system_config (key, value) VALUES('mutool', ?);", "クエリに失敗しました", array($mutool));
         $conf["mutool"] = $mutool;
     }
@@ -6304,8 +6306,9 @@ function handleFoliateEpubOpen()
             }
         );
         $epubCacheDir = $epubCache['directory'];
-        $cacheReady = $epubCache['reused'] && is_link($symlinkPath)
-            && realpath($symlinkPath) === $epubCacheDir && is_file($epubCacheDir . '/DONE')
+        $cacheReady = $epubCache['reused']
+            && (readerUsesManagedDeployment() || (is_link($symlinkPath) && realpath($symlinkPath) === $epubCacheDir))
+            && is_file($epubCacheDir . '/DONE')
             && is_file($epubCacheDir . '/META-INF/container.xml');
         if (!$cacheReady) {
             removeReaderEpubLink($webRoot, $fileHash);
@@ -6319,11 +6322,15 @@ function handleFoliateEpubOpen()
                 throw new RuntimeException('EPUB extraction failed.');
             }
             finishReaderBookCache($epubCache, $localPath);
-            $symlinkDir = dirname($symlinkPath);
-            if (!is_dir($symlinkDir) && !mkdir($symlinkDir, 0755, true) && !is_dir($symlinkDir)) {
-                throw new RuntimeException('Cannot create EPUB public directory.');
+            // 固定配置では専用ハンドラーが配信するので公開リンクは作らないルン。
+            if (!readerUsesManagedDeployment()) {
+                $symlinkDir = dirname($symlinkPath);
+                if (!is_dir($symlinkDir) && !mkdir($symlinkDir, 0755, true) && !is_dir($symlinkDir)) {
+                    throw new RuntimeException('Cannot create EPUB public directory.');
+                }
+                if (!symlink($epubCacheDir, $symlinkPath)) throw new RuntimeException('Cannot publish EPUB cache.');
             }
-            if (!symlink($epubCacheDir, $symlinkPath) || !touch($epubCacheDir . '/DONE')) {
+            if (!touch($epubCacheDir . '/DONE')) {
                 throw new RuntimeException('Cannot publish EPUB cache.');
             }
         }

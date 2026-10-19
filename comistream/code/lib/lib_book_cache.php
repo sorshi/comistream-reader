@@ -4,6 +4,7 @@
  * 原本の属性で書籍キャッシュを更新し、削除と生成を同じロックで守るルン。
  * @license AGPL-3.0-only
  */
+require_once __DIR__ . '/lib_deployment.php';
 
 function isReaderBookCacheId($id): bool
 {
@@ -136,6 +137,7 @@ function removeReaderBookCache(string $root, string $id): void
 function removeReaderEpubLink(string $webRoot, string $id): void
 {
     if (!isReaderBookCacheId($id)) throw new RuntimeException('Invalid book cache ID.');
+    if (readerUsesManagedDeployment()) return;
     $root = rtrim($webRoot, '/') . '/theme/bibi';
     if (!file_exists($root) && !is_link($root)) return;
     if (is_link($root) || !is_dir($root)) throw new RuntimeException('Invalid EPUB public directory.');
