@@ -274,6 +274,39 @@ const initialProgress = (patch = {}) => ({ state_id: 'a'.repeat(32), revision: 0
   has_read: true, locator: '1', last_writer_id: null, last_writer_seq: 0, writer_base_revision: 0,
   resume_policy: 'last_position', ...patch });
 
+for (const preference of ['single', 'spread']) {
+  for (const isGuest of [false, true]) {
+    test(`画像・PDFの${preference}表示は初期先読み範囲を越えて補充する（guest=${isGuest}）`, async () => {
+      const r = reader({ preference, count: 60, progressState: initialProgress({ locator: '2' }) });
+      r.c.page = 2; r.c.prevPage = 2;
+      r.c.readerProgressConfig.isGuest = isGuest;
+      await r.c.restorePage(); await r.settle();
+      assert.equal(r.c.preCaches.imageCache.size, 0);
+      // 通信速度による枚数の変動を止め、初期の3〜14ページを越える動作を確認するルン。
+      r.c.preCaches.adjustPreloadPages = () => {};
+      r.c.preCaches.resize(12);
+      await r.c.preLoadInitialImages(2);
+      const cached = number => r.c.preCaches.imageCache.has(r.c.getFullImageUrl(number));
+      assert.equal(r.c.preCaches.imageCache.size, 12);
+      assert.equal(cached(14), true);
+      assert.equal(cached(15), false);
+
+      const turns = preference === 'single' ? 16 : 8;
+      for (let turn = 0; turn < turns; turn++) {
+        await r.c.next();
+        if (r.c.readerNavigationPromise) await r.c.readerNavigationPromise;
+        await r.settle();
+      }
+      assert.equal(r.c.page, 18);
+      assert.equal(cached(21), true);
+      assert.equal(cached(r.c.displayedEnd + 1), true);
+      assert.equal(cached(r.c.displayedEnd + 12), true);
+      await r.c.readerProgressManager.flush();
+      assert.equal(r.c.readerProgressManager.getState().locator, '18');
+    });
+  }
+}
+
 test('新方式ではサーバーの表紙を復元し、初期表示と回転で保存しない', async () => {
   const r = reader({ progressState: initialProgress(), count: 20 });
   r.storage.set('book', '3');
@@ -340,4 +373,34 @@ test('CBZの終了と続刊移動は戻り位置の描画と保存を待つ', as
     assert.equal(left,true); assert.equal(r.c.readerProgressManager.getState().locator,'5');
     assert.equal(r.posts.length,1);
   }
+});
+
+test('画像・PDFは同期確認中に終了しても受け付けたページへの移動と保存を終える', async () => {
+  const r = reader({ preference: 'single', progressState: initialProgress({ locator: '5' }), count: 30 });
+  await r.c.restorePage();
+  let checking, release, left = false;
+  const started = new Promise(resolve => { checking = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const beforeNavigation = r.c.readerProgressManager.beforeNavigation;
+  r.c.readerProgressManager.beforeNavigation = async () => {
+    const allowed = await beforeNavigation();
+    checking();
+    await gate;
+    return allowed;
+  };
+  r.c.history = { length: 2, back: () => { left = true; } };
+  r.c.page = 6;
+  const moving = r.c.loadPage(1);
+  await started;
+  const closing = r.c.backListPage();
+  try {
+    await r.settle();
+    assert.equal(left, false);
+    assert.equal(r.posts.length, 0);
+  } finally { release(); }
+  await Promise.all([moving, closing]);
+  assert.equal(left, true);
+  assert.equal(r.c.displayedStart, 6);
+  assert.equal(r.c.readerProgressManager.getState().locator, '6');
+  assert.equal(r.posts.length, 1);
 });

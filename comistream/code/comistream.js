@@ -1068,17 +1068,18 @@ async function devicePageSync() {
   }
 }
 
-async function loadPage(dir, { restore = false } = {}) {
-  if (readerClosing && !restore) { page = prevPage; return; }
+async function loadPage(dir, { restore = false, progressChecked = false } = {}) {
+  if (readerClosing && !restore && !progressChecked) { page = prevPage; return; }
   const targetPage = Math.max(1, Math.min(maxPage, parseInt(page, 10) || 1));
-  if (readerProgressManager && !restore) {
+  if (readerProgressManager && !restore && !progressChecked) {
     if (readerNavigationPending) { page = prevPage; return; }
     readerNavigationPending = true;
     page = prevPage;
     readerNavigationPromise = (async () => {
       if (!(await readerProgressManager.beforeNavigation())) return;
       page = targetPage;
-      await loadPage(dir, { restore: true });
+      // 同期確認済みのページ送りも通常の描画として先読みを補充するルン。
+      await loadPage(dir, { progressChecked: true });
       const completed = !readerProgressManager.getState()?.has_read && dir >= 0 && displayedEnd >= maxPage;
       const locator = completed ? maxPage : page;
       readerProgressManager.record(String(locator), { completed, page: locator });
