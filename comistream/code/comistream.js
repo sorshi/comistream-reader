@@ -24,9 +24,8 @@
  * ★ PreCache - ブラウザメモリキャッシュウォーマー ルン！
  *
  * 先読みした画像の Image オブジェクト参照を imageCache (Map) で保持することで、
- * ブラウザのメモリキャッシュにデコード済み画像を維持するルン。
- * サーバーが Pragma: no-cache を返す環境でも、メモリキャッシュから
- * 即座に画像を返せるため、表示済みページへの再リクエストが発生しないルン。
+ * 読み込み済み画像を保持して、表示時のキャッシュ再利用を促すルン。
+ * 表示時の再通信やデコード済みデータの保持はブラウザ側の判断になるルン。
  *
  * このクラスの役割：
  * - 先読みページ数(size)の管理と動的調整
@@ -42,6 +41,9 @@ class PreCache {
   constructor(size) {
     this.size = size;
     this.imageCache = new Map(); // ★ URL→Image参照を保持してメモリキャッシュを維持するルン
+    this.loadingCounts = new Map();
+    this.failedImages = new Set();
+    this.onChange = null;
     this.maxCacheEntries = 50;   // ★ メモリキャッシュの最大保持数ルン
     this.pageLoadTimes = [];     // ページめくり速度の記録ルン
     this.networkSpeed = 0;       // ネットワーク帯域
@@ -54,9 +56,7 @@ class PreCache {
    *
    * Image()オブジェクトを作成してsrcを設定し、ブラウザが画像をダウンロードするルン。
    * 読み込み完了後も Image 参照を imageCache に保持することで、
-   * ブラウザのメモリキャッシュにデコード済み画像を維持するルン。
-   * loadPage() 等で同じURLの background-image が指定されたとき、
-   * ネットワークリクエストなしで即座に表示されるルン！
+   * loadPage() 等で同じURLの background-image を指定するときの再利用を促すルン。
    *
    * @param {string} imageUrl 先読みする画像のURL
    */
@@ -70,12 +70,20 @@ class PreCache {
     // ★ 注意: crossOrigin属性を設定するとCORSヘッダーが必要になるルン
     // 画像配信元がCORSヘッダーを返さない場合、画像自体が読み込めなくなるルン
     // そのため、crossOrigin属性は設定せず、Canvas操作（帯域測定）は諦めるルン
-    img.src = imageUrl;
-
     let startTime = performance.now();
+    this.failedImages.delete(imageUrl);
+    this.loadingCounts.set(imageUrl, (this.loadingCounts.get(imageUrl) || 0) + 1);
 
     await new Promise((resolve) => {
+      const finishLoading = () => {
+        img.onload = null;
+        img.onerror = null;
+        const remaining = this.loadingCounts.get(imageUrl) - 1;
+        if (remaining > 0) this.loadingCounts.set(imageUrl, remaining);
+        else this.loadingCounts.delete(imageUrl);
+      };
       img.onload = () => {
+        finishLoading();
         let endTime = performance.now();
         let durationInMSeconds = endTime - startTime;
 
@@ -101,6 +109,7 @@ class PreCache {
         // ★ Image参照をMapに保持してメモリキャッシュを維持するルン
         // Mapの挿入順序により、古いものから evict できるルン
         this.imageCache.set(imageUrl, img);
+        this.failedImages.delete(imageUrl);
         this.evictOldEntries();
 
         this.adjustPreloadPages();
@@ -108,11 +117,30 @@ class PreCache {
       };
 
       img.onerror = () => {
+        finishLoading();
+        if (!this.imageCache.has(imageUrl)) {
+          this.failedImages.delete(imageUrl);
+          this.failedImages.add(imageUrl);
+          // 失敗した画像の参照は残さず、URLの記録にも上限を設けるルン。
+          while (this.failedImages.size > this.maxCacheEntries) {
+            this.failedImages.delete(this.failedImages.values().next().value);
+          }
+        }
         // ★ エラー時もPromiseを解決してハングを防ぐルン
         debugLog("PreCache.add() image load error: " + imageUrl);
+        this.onChange?.();
         resolve();
       };
+      img.src = imageUrl;
+      this.onChange?.();
     });
+  }
+
+  getStatus(imageUrl) {
+    if (this.imageCache.has(imageUrl)) return "loaded";
+    if (this.loadingCounts.has(imageUrl)) return "loading";
+    if (this.failedImages.has(imageUrl)) return "failed";
+    return "empty";
   }
 
   /**
@@ -120,10 +148,12 @@ class PreCache {
    * Map の挿入順序を利用して、最も古いものから順に削除するルン
    */
   evictOldEntries() {
+    const previousSize = this.imageCache.size;
     while (this.imageCache.size > this.maxCacheEntries) {
       const oldestKey = this.imageCache.keys().next().value;
       this.imageCache.delete(oldestKey);
     }
+    if (this.imageCache.size !== previousSize) this.onChange?.();
   }
 
   /**
@@ -133,6 +163,7 @@ class PreCache {
    */
   resize(newSize) {
     this.size = newSize;
+    this.onChange?.();
   }
 
   getSize() {
@@ -215,6 +246,7 @@ class PreCache {
     // ★ メモリキャッシュの上限も先読み数に連動して調整するルン
     // 先読み数 + 過去閲覧分のバッファ（最低50、最大80）
     this.maxCacheEntries = Math.min(Math.max(this.size * 3, 50), 80);
+    this.onChange?.();
   }
 }
 
@@ -1646,6 +1678,13 @@ function funcKey(evt) {
   if (evt.defaultPrevented || imageInspectorUI?.handleKeydown(evt)) return;
   if (isZoomed()) return; // 拡大表示中はキー操作によるページめくり等を無効化
 
+  // Inspector内では、読書操作とスクロール・閉じるボタンの作動を重ねないルン。
+  if (imageInspectorUI?.isOpen() && (
+    ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'KeyI',
+      'Digit1', 'Digit2', 'Numpad1', 'Numpad2', 'Period', 'Comma'].includes(evt.code) ||
+    ['1', '2'].includes(evt.key) || [32, 188, 190].includes(evt.keyCode)
+  )) evt.preventDefault();
+
   // 【ショートカット一覧】
   // ← + Shift : 次の章へ
   // ← + Control : 最終ページへ
@@ -2202,14 +2241,84 @@ async function quickSpredView() {
 
 let imageInspectorUI = null;
 
+function createImagePreloadStatus() {
+  const item = document.createElement("li");
+  item.id = "inspector-preload";
+  const line = document.createElement("div");
+  line.className = "inspector-preload-line";
+  const label = document.createElement("span");
+  label.className = "inspector-preload-label";
+  const cells = document.createElement("span");
+  cells.className = "inspector-preload-cells";
+  cells.dir = "ltr";
+  cells.setAttribute("role", "group");
+  cells.setAttribute("aria-label", "Upcoming page preload status");
+  const count = document.createElement("span");
+  count.className = "inspector-preload-count";
+  line.append(label, " ", cells, " ", count);
+  item.append(line);
+  return item;
+}
+
+function updateImagePreloadStatus() {
+  const item = document.getElementById("inspector-preload");
+  if (!item) return;
+  const content = document.getElementById("inspector-content");
+  const scrollTop = content.scrollTop;
+  const cells = item.querySelector(".inspector-preload-cells");
+  const size = Math.max(0, Math.floor(preCaches.getSize()));
+  const length = Math.max(0, Math.min(size, maxPage - displayedEnd));
+  const states = {
+    empty: ["□", "Not retained"],
+    loading: ["▃", "Loading"],
+    loaded: ["■", "Loaded"],
+    failed: ["×", "Failed"]
+  };
+  // 変わっていない文字列は触らず、選択中のテキストを保つルン。
+  const setText = (element, value) => {
+    if (element.textContent !== value) element.textContent = value;
+  };
+  setText(item.querySelector(".inspector-preload-label"), "Preload Pages: " + size);
+  let loaded = 0;
+  // 読み込み状況が変わっても同じマスのDOMを使うルン。
+  for (let index = 0; index < length; index++) {
+    const number = displayedEnd + index + 1;
+    const status = preCaches.getStatus(getFullImageUrl(number));
+    const [symbol, label] = states[status];
+    let cell = cells.children[index];
+    if (!cell) {
+      cell = document.createElement("span");
+      cell.className = "inspector-preload-cell";
+      cell.setAttribute("role", "img");
+      cells.appendChild(cell);
+    }
+    cell.dataset.page = String(number);
+    cell.dataset.state = status;
+    setText(cell, symbol);
+    cell.setAttribute("aria-label", "Page " + number + ": " + label);
+    if (status === "loaded") loaded++;
+  }
+  while (cells.children.length > length) {
+    cells.lastElementChild.remove();
+  }
+  const count = item.querySelector(".inspector-preload-count");
+  setText(count, loaded + "/" + length);
+  count.setAttribute("aria-label", loaded + " of " + length + " upcoming pages loaded");
+  content.scrollTop = scrollTop;
+}
+
 function showInspector(forceVisible = null) {
   if (!imageInspectorUI) {
     const menu = document.getElementById("contents");
     imageInspectorUI = window.ComistreamInspector.create({
       menu,
       hideMenu: () => { menu.style.display = "none"; },
-      restoreMenu: () => { menu.style.display = "block"; }
+      restoreMenu: () => { menu.style.display = "block"; },
+      onBack: backListPage
     });
+    preCaches.onChange = () => {
+      if (imageInspectorUI.isOpen()) updateImagePreloadStatus();
+    };
   }
   const visible = forceVisible === null ? !imageInspectorUI.isOpen() : Boolean(forceVisible);
   if (!visible) {
@@ -2220,7 +2329,6 @@ function showInspector(forceVisible = null) {
   const scrollTop = inspector.scrollTop;
   inspector.replaceChildren();
   const aspect = Math.round((imagex / imagey) * 100) / 100;
-  const preLoadCacheSize = preCaches.getSize();
   const networkSpeedKBps = preCaches.getBps();
   const pages = page + " / " + maxPage;
   const list = document.createElement("ul");
@@ -2256,9 +2364,7 @@ function showInspector(forceVisible = null) {
   listItem.textContent = "Aspect: " + aspect;
   list.appendChild(listItem);
 
-  listItem = document.createElement("li");
-  listItem.textContent = "Preload Pages: " + preLoadCacheSize;
-  list.appendChild(listItem);
+  list.appendChild(createImagePreloadStatus());
 
   listItem = document.createElement("li");
   listItem.textContent = "File Size: " + archiveFileMBytes + " MB";
@@ -2274,6 +2380,7 @@ function showInspector(forceVisible = null) {
   list.appendChild(listItem);
 
   inspector.appendChild(list);
+  updateImagePreloadStatus();
   inspector.scrollTop = scrollTop;
   imageInspectorUI.setVisible(true);
 }

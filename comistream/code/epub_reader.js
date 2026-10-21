@@ -4387,7 +4387,8 @@ function toggleInspector(forceVisible = null, error = null, fallbackState = null
             menu: $('epub-menu-panel'),
             hideMenu: closeMenu,
             restoreMenu: () => toggleMenu(true),
-            focusReader
+            focusReader,
+            onBack: backListPage
         });
     }
     const next = forceVisible === null ? !epubInspectorUI.isOpen() : Boolean(forceVisible);

@@ -33,24 +33,131 @@ function section(source, start, end) {
 }
 
 const imageCode = `
-    const page = 3, maxPage = 25, imagex = 1200, imagey = 1800;
+    const maxPage = 25, imagex = 1200, imagey = 1800, direction = 'left';
+    let page = 3, displayedEnd = 3;
+    window.shortcutActions = [];
+    function recordShortcut(action) { window.pageMoves++; window.shortcutActions.push(action); }
     const archiveFileMBytes = 20, averagePageKBytes = 800;
-    const preCaches = { getSize: () => 5, getBps: () => 1500 };
+    const preCaches = { getSize: () => 5, getBps: () => 1500, getStatus: () => 'empty' };
+    function getFullImageUrl(number) { return 'https://reader.invalid/?page=' + number; }
     function isZoomed() { return false; }
     function debugLog() {}
     function closeQuickSpread() {}
-    function quickSpredView() { window.pageMoves++; }
-    function leftward() { window.pageMoves++; }
-    function rightward() { window.pageMoves++; }
-    function leftIndex() { window.pageMoves++; }
-    function rightIndex() { window.pageMoves++; }
+    function quickSpredView() { recordShortcut('quick-spread'); }
+    function leftward() { recordShortcut('left'); }
+    function rightward() { recordShortcut('right'); }
+    function leftIndex() { recordShortcut('section-left'); }
+    function rightIndex() { recordShortcut('section-right'); }
+    function loadPage() { recordShortcut(page === 1 ? 'start' : 'end'); }
+    function single() { recordShortcut('single'); }
+    function spread() { recordShortcut('spread'); }
     function index() { window.menuToggles++; }
+    function backListPage() { window.backCalls++; }
     ${section(imageSource, 'let imageInspectorUI =', 'function getFullImageUrl(')}
     ${section(imageSource, 'function funcKey(', 'function toggleRaw(')}
     window.openInspector = () => showInspector(true);
     window.readerKeydown = funcKey;
 `;
+
+for (const width of [1000, 320]) {
+    test(`image/PDF preload indicators remain selectable without hover details at width ${width}`, { skip: !chrome }, async () => {
+        const body = `<style>${css}</style><button id="reader">Reader</button><div id="contents"></div>${markup}`;
+        await runRealtimeFixture(`
+          (async () => {
+            const frame = document.createElement('iframe');
+            frame.style.cssText = 'width:${width}px;height:700px;border:0';
+            document.body.append(frame);
+            const doc = frame.contentDocument;
+            doc.open(); doc.write(${literal(body)}); doc.close();
+            const win = frame.contentWindow;
+            win.eval(${literal(helper + '\n' + imageCode + `
+                const states = new Map([[5, 'loaded'], [6, 'loading'], [7, 'failed']]);
+                displayedEnd = 4;
+                preCaches.getSize = () => 9;
+                preCaches.getStatus = url => states.get(Number(new URL(url).searchParams.get('page'))) || 'empty';
+                window.setPreloadState = (number, state) => { states.set(number, state); preCaches.onChange(); };
+                window.movePreloadRange = end => { displayedEnd = end; showInspector(true); };
+                window.enlargePreloadRange = () => { preCaches.getSize = () => 52; preCaches.onChange(); };
+            `)});
+            win.pageMoves = 0; win.menuToggles = 0;
+            win.addEventListener('keydown', win.readerKeydown);
+            win.openInspector();
+            await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)));
+            const content = doc.getElementById('inspector-content');
+            const cells = () => [...content.querySelectorAll('.inspector-preload-cell')];
+            const count = () => content.querySelector('.inspector-preload-count').textContent;
+            expect(cells().length === 9 && cells()[0].dataset.page === '5', 'Spread range includes displayed pages');
+            expect(cells().map(cell => cell.textContent).join('') === '■▃×□□□□□□', 'Incorrect status symbols');
+            expect(count() === '1/9', 'Incorrect loaded count');
+            const row = content.querySelector('.inspector-preload-line');
+            expect(!row.querySelector('button, [title]'), 'Preload row still has controls or hover tooltips');
+            expect(cells()[1].getAttribute('aria-label') === 'Page 6: Loading', 'Accessible label missing');
+            const beforeHover = doc.activeElement;
+            const beforeText = content.textContent;
+            for (const cell of cells().slice(0, 4)) {
+                cell.dispatchEvent(new win.PointerEvent('pointerenter', { pointerType: 'mouse' }));
+                cell.click();
+            }
+            expect(!content.querySelector('.inspector-preload-detail'), 'Inline hover detail still exists');
+            expect(content.textContent === beforeText && doc.activeElement === beforeHover, 'Hover or click changed the inspector');
+            for (const element of [row, ...row.querySelectorAll('*')]) {
+                expect(win.getComputedStyle(element).userSelect === 'text', 'Preload text is not selectable');
+                expect(win.getComputedStyle(element).cursor === 'text', 'Preload text has an interactive cursor');
+            }
+            const selection = win.getSelection();
+            const range = doc.createRange();
+            range.selectNodeContents(row);
+            selection.removeAllRanges(); selection.addRange(range);
+            const selectedText = selection.toString();
+            expect(selectedText.includes('Preload Pages: 9') && selectedText.includes('■') &&
+                selectedText.includes('▃') && selectedText.includes('×') && selectedText.includes('□') &&
+                selectedText.includes('1/9'), 'Selection omitted label, status symbols or count');
+            expect(selectedText === 'Preload Pages: 9 ■▃×□□□□□□ 1/9', 'Selection added unwanted line breaks');
+            win.setPreloadState(6, 'loading');
+            expect(selection.toString() === selectedText, 'Unchanged refresh disrupted text selection');
+            selection.removeAllRanges();
+            const loadingCell = cells()[1];
+            const extra = doc.createElement('div');
+            extra.style.height = '1000px'; content.append(extra);
+            content.scrollTop = 100;
+            win.setPreloadState(6, 'loaded');
+            expect(cells()[1] === loadingCell, 'Update replaced a status cell');
+            expect(content.scrollTop === 100, 'Update changed scroll position');
+            expect(cells()[1].textContent === '■' && count() === '2/9', 'Completion did not refresh');
+            cells()[2].dispatchEvent(new win.Event('touchend', { bubbles: true }));
+            cells()[2].click();
+            expect(!content.querySelector('.inspector-preload-detail'), 'Tap opened inline detail');
+            expect(win.pageMoves === 0, 'Pointer interaction turned a page');
+            const arrow = new win.KeyboardEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight', bubbles: true, cancelable: true });
+            cells()[2].dispatchEvent(arrow);
+            expect(win.pageMoves === 1 && arrow.defaultPrevented, 'Preload row blocked the page shortcut or also scrolled');
+            win.setPreloadState(7, 'loading');
+            expect(cells()[2].textContent === '▃', 'Retry did not refresh status');
+            win.setPreloadState(5, 'empty');
+            expect(cells()[0].textContent === '□' && count() === '1/9', 'Eviction left a loaded indicator');
+            win.enlargePreloadRange();
+            expect(cells().length === 21, 'Range did not stop at book end');
+            expect(content.scrollWidth <= content.clientWidth, 'Indicators overflow horizontally');
+            const widths = cells().map(cell => cell.getBoundingClientRect().width);
+            expect(widths.every(value => value === widths[0]), 'Status cells have unequal widths');
+            win.movePreloadRange(23);
+            expect(cells().length === 2 && cells()[0].dataset.page === '24' && count() === '0/2', 'Near-end range incorrect');
+            win.movePreloadRange(25);
+            expect(cells().length === 0 && count() === '0/0', 'Last page has invalid preload cells');
+            doc.getElementById('inspector-close').click();
+            win.setPreloadState(24, 'loaded');
+            expect(content.childElementCount === 0, 'Closed inspector was updated');
+            win.movePreloadRange(23);
+            expect(count() === '1/2', 'Reopened inspector did not show latest state');
+          })().then(() => { window.__progressNativeResult = { ok: true }; }).catch(error => {
+            window.__progressNativeResult = { ok: false, error: error.stack };
+          });
+        `);
+    });
+}
 const epubCode = `
+    window.shortcutActions = [];
+    function recordShortcut(action) { window.pageMoves++; window.shortcutActions.push(action); }
     const $ = id => document.getElementById(id);
     const view = { book: { metadata: { title: '<img src=x onerror=alert(1)>日本語の書名', author: '著者名', language: 'ja' }, sections: [1, 2, 3] } };
     const epubPackageBase = '/package/' + 'x'.repeat(400), epubUrl = '';
@@ -70,8 +177,16 @@ const epubCode = `
     function hidePagePosition() {}
     function focusReader() { document.getElementById('reader').focus(); }
     function navigate(operation) { return operation(); }
-    function goPhysicalLeft() { window.pageMoves++; }
-    function goPhysicalRight() { window.pageMoves++; }
+    function goPhysicalLeft() { recordShortcut('left'); }
+    function goPhysicalRight() { recordShortcut('right'); }
+    function goNextPage() { recordShortcut('next'); }
+    function goPreviousPage() { recordShortcut('previous'); }
+    function goToAdjacentSection(left) { recordShortcut(left ? 'section-left' : 'section-right'); }
+    function goToBoundary(start) { recordShortcut(start ? 'start' : 'end'); }
+    function getNavigationIsRtl() { return true; }
+    function summarizeLocation() { return {}; }
+    function toggleFullScreen() { recordShortcut('fullscreen'); }
+    function backListPage() { window.backCalls++; }
     function debugLog() {}
     function t() { throw new Error('Inspector attempted localization'); }
     ${section(epubSource, 'function formatDateTime(', 'function setStatusText(')}
@@ -100,7 +215,7 @@ for (const [name, menuId, code] of [['CBZ', 'contents', imageCode], ['EPUB', 'ep
                 doc.open(); doc.write(${literal(body)}); doc.close();
                 const win = frame.contentWindow;
                 win.eval(${literal(helper + '\n' + code)});
-                win.pageMoves = 0; win.menuToggles = 0;
+                win.pageMoves = 0; win.menuToggles = 0; win.backCalls = 0;
                 ${name === 'EPUB' ? 'doc' : 'win'}.addEventListener('keydown', win.readerKeydown, ${name === 'EPUB'});
                 const panel = doc.getElementById('inspector');
                 const content = doc.getElementById('inspector-content');
@@ -129,9 +244,97 @@ for (const [name, menuId, code] of [['CBZ', 'contents', imageCode], ['EPUB', 'ep
                 expect(after.top >= 0 && after.bottom <= ${height} && after.left >= 0 && after.right <= ${width}, 'Close button outside viewport');
                 expect(content.scrollWidth <= content.clientWidth, 'Long value causes horizontal overflow');
                 expect(win.getComputedStyle(panel).zIndex > 95, 'Inspector below TOC');
-                panel.dispatchEvent(new win.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true }));
-                panel.dispatchEvent(new win.KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
-                expect(win.pageMoves === 0, 'Inspector keys trigger reading actions');
+                const shortcuts = [
+                    ['ArrowLeft', 'ArrowLeft', {}, 'left'],
+                    ['ArrowRight', 'ArrowRight', {}, 'right'],
+                    ['ArrowLeft', 'ArrowLeft', { shiftKey: true }, 'section-left'],
+                    ['ArrowRight', 'ArrowRight', { shiftKey: true }, 'section-right'],
+                    ['ArrowLeft', 'ArrowLeft', { ctrlKey: true }, 'end'],
+                    ['ArrowRight', 'ArrowRight', { ctrlKey: true }, 'start'],
+                    ['Comma', '<', { shiftKey: true }, 'end'],
+                    ['Period', '>', { shiftKey: true }, 'start'],
+                    ['ArrowLeft', 'ArrowLeft', { repeat: true }, 'left'],
+                    ...${literal(name === 'EPUB' ? [
+                        ['ArrowDown', 'ArrowDown', {}, 'next'], ['ArrowUp', 'ArrowUp', {}, 'previous'],
+                        ['Space', ' ', {}, 'next'], ['Home', 'Home', {}, 'start'],
+                        ['End', 'End', {}, 'end'], ['KeyF', 'f', {}, 'fullscreen']
+                    ] : [
+                        ['ArrowDown', 'ArrowDown', {}, 'left'], ['ArrowUp', 'ArrowUp', {}, 'right'],
+                        ['Space', ' ', {}, 'quick-spread'], ['Digit1', '1', {}, 'single'],
+                        ['Digit2', '2', {}, 'spread'], ['Numpad1', '1', {}, 'single'],
+                        ['Numpad2', '2', {}, 'spread']
+                    ])}
+                ];
+                for (const target of [close, content, panel]) {
+                    for (const [code, key, options, action] of shortcuts) {
+                        const moves = win.pageMoves;
+                        const event = new win.KeyboardEvent('keydown', { code, key, bubbles: true, cancelable: true, ...options });
+                        target.dispatchEvent(event);
+                        expect(win.pageMoves === moves + 1 && win.shortcutActions.pop() === action, code + ' was blocked or executed twice');
+                        expect(event.defaultPrevented, code + ' also triggers native scrolling or button activation');
+                        expect(panel.open, code + ' closed the inspector');
+                    }
+                }
+                const moves = win.pageMoves;
+                for (const options of [{ isComposing: true }, { keyCode: 229 }, { metaKey: true }, { altKey: true }]) {
+                    for (const [code, key] of [['ArrowLeft', 'ArrowLeft'], ['KeyI', 'i'], ['Space', ' ']]) {
+                        const event = new win.KeyboardEvent('keydown', { code, key, bubbles: true, cancelable: true, ...options });
+                        close.dispatchEvent(event);
+                        expect(!event.defaultPrevented && win.pageMoves === moves && panel.open, 'IME/browser shortcut triggered reading action');
+                    }
+                }
+                for (const [code, key, options] of [
+                    ['Tab', 'Tab', {}], ['Tab', 'Tab', { shiftKey: true }], ['Enter', 'Enter', {}],
+                    ['KeyC', 'c', { ctrlKey: true }], ['KeyC', 'c', { metaKey: true }],
+                    ['KeyI', 'i', { ctrlKey: true }]
+                ]) {
+                    const event = new win.KeyboardEvent('keydown', { code, key, bubbles: true, cancelable: true, ...options });
+                    close.dispatchEvent(event);
+                    expect(!event.defaultPrevented && win.pageMoves === moves && panel.open, 'Native keyboard action was intercepted');
+                }
+                for (const [code, key, target] of [
+                    ['Delete', 'Delete', close], ['Backspace', 'Backspace', content], ['', 'Delete', close]
+                ]) {
+                    const exits = win.backCalls;
+                    const event = new win.KeyboardEvent('keydown', { code, key, bubbles: true, cancelable: true });
+                    target.dispatchEvent(event);
+                    expect(event.defaultPrevented && win.backCalls === exits + 1, 'Inspector exit was blocked or called twice');
+                }
+                const exits = win.backCalls;
+                const held = new win.KeyboardEvent('keydown', { code: 'Delete', key: 'Delete', repeat: true, bubbles: true, cancelable: true });
+                close.dispatchEvent(held);
+                expect(held.defaultPrevented && win.backCalls === exits, 'Held Delete repeated exit');
+                for (const options of [
+                    { isComposing: true }, { keyCode: 229 }, { ctrlKey: true },
+                    { metaKey: true }, { altKey: true }, { shiftKey: true }
+                ]) {
+                    const event = new win.KeyboardEvent('keydown', { code: 'Delete', key: 'Delete', bubbles: true, cancelable: true, ...options });
+                    close.dispatchEvent(event);
+                    expect(!event.defaultPrevented && win.backCalls === exits, 'Editing/browser shortcut triggered exit');
+                }
+                for (const tag of ['input', 'textarea', 'select', 'div']) {
+                    const editor = doc.createElement(tag);
+                    let target = editor;
+                    if (tag === 'div') {
+                        editor.contentEditable = 'true';
+                        target = doc.createElement('span');
+                        editor.append(target);
+                    }
+                    content.append(editor);
+                    for (const [code, key] of [
+                        ['Delete', 'Delete'], ['Backspace', 'Backspace'], ['ArrowLeft', 'ArrowLeft'],
+                        ['Space', ' '], ['KeyI', 'i'], ['Digit1', '1'], ['Escape', 'Escape']
+                    ]) {
+                        const event = new win.KeyboardEvent('keydown', { code, key, bubbles: true, cancelable: true });
+                        target.dispatchEvent(event);
+                        expect(!event.defaultPrevented && win.backCalls === exits && win.pageMoves === moves && panel.open, 'Text editing triggered a reader shortcut');
+                    }
+                    editor.remove();
+                }
+                const cancelled = new win.KeyboardEvent('keydown', { code: 'Delete', key: 'Delete', bubbles: true, cancelable: true });
+                cancelled.preventDefault();
+                close.dispatchEvent(cancelled);
+                expect(win.backCalls === exits, 'Cancelled key triggered exit');
                 if (${modal}) {
                     doc.getElementById('reader').focus();
                     expect(doc.activeElement !== doc.getElementById('reader'), 'Focus escapes modal');

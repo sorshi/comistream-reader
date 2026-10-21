@@ -5,7 +5,7 @@
  */
 
 window.ComistreamInspector = {
-  create({ menu, hideMenu, restoreMenu, focusReader }) {
+  create({ menu, hideMenu, restoreMenu, focusReader, onBack }) {
     const panel = document.getElementById('inspector');
     const content = document.getElementById('inspector-content');
     const closeButton = document.getElementById('inspector-close');
@@ -58,6 +58,22 @@ window.ComistreamInspector = {
 
     function handleKeydown(event) {
       if (!panel.open || event.defaultPrevented) return false;
+      const editable = event.target?.isContentEditable || event.target?.closest?.(
+        'input, textarea, select, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]'
+      );
+      // 文字入力・IME・ブラウザの操作は読書ショートカットへ渡さないルン。
+      if (editable || event.isComposing || event.keyCode === 229 || event.metaKey || event.altKey) return true;
+      if (event.ctrlKey && !['ArrowLeft', 'ArrowRight'].includes(event.code)) return true;
+      if (['Delete', 'Backspace'].includes(event.code) || ['Delete', 'Backspace'].includes(event.key)) {
+        if (event.shiftKey) return true;
+        if (onBack) {
+          // 一覧へ戻る操作は、Inspector内からも既存の読書位置保存を通すルン。
+          event.preventDefault();
+          event.stopPropagation();
+          if (!event.repeat) void onBack();
+          return true;
+        }
+      }
       if (event.key === 'Escape' || event.code === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
@@ -70,8 +86,8 @@ window.ComistreamInspector = {
         setVisible(false);
         return true;
       }
-      // 小さい画面では、背後の読書ショートカットを動かさないルン。
-      return modal || panel.contains(event.target);
+      // ページ送りなどは、画面幅やフォーカス位置によらず既存のリーダーへ渡すルン。
+      return false;
     }
 
     closeButton.addEventListener('click', () => setVisible(false));
@@ -80,9 +96,7 @@ window.ComistreamInspector = {
       setVisible(false);
     });
     panel.addEventListener('keydown', (event) => {
-      handleKeydown(event);
-      // パネル内の矢印・Spaceはスクロールやボタン操作へ任せるルン。
-      event.stopPropagation();
+      if (handleKeydown(event)) event.stopPropagation();
     });
     // 情報のタップやスクロールをページ送りへ伝えないルン。
     for (const type of ['click', 'touchstart', 'touchmove', 'touchend', 'long-press']) {

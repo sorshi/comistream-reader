@@ -853,6 +853,36 @@ input[type="range"]::-moz-range-thumb {
   user-select: text;
 }
 
+#inspector-preload,
+#inspector-preload * {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+.inspector-preload-label,
+.inspector-preload-count {
+  white-space: nowrap;
+}
+
+.inspector-preload-cell {
+  display: inline-block;
+  text-align: center;
+  vertical-align: middle;
+  width: 1.5em;
+  min-width: 24px;
+  height: 1.5em;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-family: monospace;
+  line-height: 1.5;
+}
+
 /* 小さい画面と横持ちでは、情報を読む面を広く確保するルン。 */
 @media (max-width: 720px), (max-height: 480px) {
   .inspector {
