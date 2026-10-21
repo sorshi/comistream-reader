@@ -5,6 +5,16 @@
  */
 
 window.ComistreamInspector = {
+  updateText(element, text) {
+    if (element.textContent === text) return;
+    // コピー中の値は保持し、選択解除後の更新で最新値に戻すルン。
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && selection.containsNode(element, true)) return;
+    const content = document.getElementById('inspector-content');
+    const scrollTop = content.scrollTop;
+    element.textContent = text;
+    content.scrollTop = scrollTop;
+  },
   create({ menu, hideMenu, restoreMenu, focusReader, onBack }) {
     const panel = document.getElementById('inspector');
     const content = document.getElementById('inspector-content');

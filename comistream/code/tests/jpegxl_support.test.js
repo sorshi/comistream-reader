@@ -37,6 +37,7 @@ function makeFixture({ probePage, loadSucceeds }) {
   }
 
   const context = vm.createContext({
+    preCaches: { transferMeter: { begin() {}, finish() {} } },
     Image: FakeImage,
     alert(message) {
       alerts.push(message);

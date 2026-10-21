@@ -1,5 +1,7 @@
 const test = require('node:test');
 const fs = require('node:fs');
+const http = require('node:http');
+const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
@@ -38,7 +40,7 @@ const imageCode = `
     window.shortcutActions = [];
     function recordShortcut(action) { window.pageMoves++; window.shortcutActions.push(action); }
     const archiveFileMBytes = 20, averagePageKBytes = 800;
-    const preCaches = { getSize: () => 5, getBps: () => 1500, getStatus: () => 'empty' };
+    const preCaches = { getSize: () => 5, getNetworkSpeed: () => ({ kbps: 1500, stale: false }), getStatus: () => 'empty' };
     function getFullImageUrl(number) { return 'https://reader.invalid/?page=' + number; }
     function isZoomed() { return false; }
     function debugLog() {}
@@ -75,6 +77,7 @@ for (const width of [1000, 320]) {
                 displayedEnd = 4;
                 preCaches.getSize = () => 9;
                 preCaches.getStatus = url => states.get(Number(new URL(url).searchParams.get('page'))) || 'empty';
+                window.setSpeed = (kbps, stale = false) => { preCaches.getNetworkSpeed = () => ({ kbps, stale }); preCaches.onChange(); };
                 window.setPreloadState = (number, state) => { states.set(number, state); preCaches.onChange(); };
                 window.movePreloadRange = end => { displayedEnd = end; showInspector(true); };
                 window.enlargePreloadRange = () => { preCaches.getSize = () => 52; preCaches.onChange(); };
@@ -115,6 +118,20 @@ for (const width of [1000, 320]) {
             expect(selectedText === 'Preload Pages: 9 ■▃×□□□□□□ 1/9', 'Selection added unwanted line breaks');
             win.setPreloadState(6, 'loading');
             expect(selection.toString() === selectedText, 'Unchanged refresh disrupted text selection');
+            const speedRow = content.querySelector('#inspector-network-speed');
+            expect(speedRow.textContent === 'Network Speed: 1,500 kbps', 'Initial speed has wrong units');
+            win.setSpeed(4321);
+            expect(speedRow.textContent === 'Network Speed: 4,321 kbps', 'Speed did not update live');
+            expect(selection.toString() === selectedText, 'Speed update disrupted other selected text');
+            expect(content.querySelector('#inspector-network-speed') === speedRow, 'Speed row was replaced');
+            range.selectNodeContents(speedRow);
+            selection.removeAllRanges(); selection.addRange(range);
+            const selectedSpeed = selection.toString();
+            win.setSpeed(9876);
+            expect(selection.toString() === selectedSpeed && speedRow.textContent === selectedSpeed, 'Speed changed during selection/copy');
+            selection.removeAllRanges();
+            doc.dispatchEvent(new win.Event('selectionchange'));
+            expect(speedRow.textContent === 'Network Speed: 9,876 kbps', 'Deselection did not restore current speed');
             selection.removeAllRanges();
             const loadingCell = cells()[1];
             const extra = doc.createElement('div');
@@ -123,6 +140,12 @@ for (const width of [1000, 320]) {
             win.setPreloadState(6, 'loaded');
             expect(cells()[1] === loadingCell, 'Update replaced a status cell');
             expect(content.scrollTop === 100, 'Update changed scroll position');
+            win.setSpeed(null);
+            expect(speedRow.textContent === 'Network Speed: —', 'Unknown speed must not display zero');
+            expect(content.scrollTop === 100, 'Speed update changed scroll position');
+            win.setSpeed(9876, true);
+            expect(speedRow.textContent === 'Network Speed: 9,876 kbps (last measurement)', 'Retained result missing');
+            expect(content.scrollTop === 100, 'Retained result changed scroll position');
             expect(cells()[1].textContent === '■' && count() === '2/9', 'Completion did not refresh');
             cells()[2].dispatchEvent(new win.Event('touchend', { bubbles: true }));
             cells()[2].click();
@@ -424,3 +447,163 @@ for (const [name, menuId, code] of [['CBZ', 'contents', imageCode], ['EPUB', 'ep
         `);
     });
 }
+
+
+test('real image transfers update the inspector without counting cache, probes or response wait', { skip: !chrome }, async () => {
+    const counts = new Map();
+    let revalidations = 0;
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><!--' +
+        'x'.repeat(65536) + '--><rect width="32" height="32" fill="blue"/></svg>');
+    const precacheCode = section(imageSource, 'class PreCache', 'var preCaches =');
+    const realImageCode = imageCode.replace(
+        "const preCaches = { getSize: () => 5, getNetworkSpeed: () => ({ kbps: 1500, stale: false }), getStatus: () => 'empty' };",
+        "const size = 'FULL';" + precacheCode + "const preCaches = new PreCache(5);"
+    );
+    const probeCode = section(imageSource, 'async function load_image(', 'function changeAutoLightSplitMode(');
+    const server = http.createServer((request, response) => {
+        const url = new URL(request.url, 'http://localhost');
+        if (url.pathname.endsWith('.svg')) {
+            counts.set(request.url, (counts.get(request.url) || 0) + 1);
+            const cache = url.pathname === '/cache.svg';
+            const validate = url.pathname === '/validated.svg';
+            if (validate && request.headers['if-none-match'] === '"test-image"') {
+                revalidations++;
+                response.writeHead(304, { 'Cache-Control': 'no-cache', ETag: '"test-image"' });
+                response.end();
+                return;
+            }
+            setTimeout(() => {
+                response.writeHead(url.pathname === '/error.svg' ? 500 : 200, {
+                    'Content-Type': 'image/svg+xml',
+                    'Cache-Control': cache ? 'max-age=3600' : validate ? 'no-cache' : 'no-store',
+                    ETag: '"test-image"'
+                });
+                response.write(svg.subarray(0, 16384));
+                let offset = 16384;
+                const timer = setInterval(() => {
+                    if (offset >= svg.length) { clearInterval(timer); response.end(); return; }
+                    response.write(svg.subarray(offset, offset + 16384));
+                    offset += 16384;
+                }, 40);
+                response.on('close', () => clearInterval(timer));
+            }, 250);
+            return;
+        }
+        response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        if (url.pathname === '/revalidation') {
+            response.end(`<!doctype html><script>
+                const size = 'FULL', averagePageKBytes = 800;
+                function debugLog() {}
+                ${precacheCode}
+                const cache = new PreCache(5);
+                cache.add('/validated.svg').then(() => setTimeout(() => {
+                    window.revalidationResult = {
+                        samples: cache.transferMeter.samples.length,
+                        entry: performance.getEntriesByType('resource').find(entry => entry.name.endsWith('/validated.svg'))?.toJSON()
+                    };
+                }, 100));
+            </script>`);
+            return;
+        }
+        response.end(`<!doctype html><meta charset="utf-8"><style>${css}</style>
+            <button id="reader">Reader</button><div id="contents"></div>${markup}<script>
+            function expect(value, message) { if (!value) throw new Error(message); }
+            ${helper}
+            ${realImageCode}
+            ${probeCode}
+            const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+            async function waitFor(predicate, message) {
+                const deadline = performance.now() + 4000;
+                while (!predicate()) { if (performance.now() > deadline) throw new Error(message); await pause(20); }
+            }
+            (async () => {
+                expect(preCaches.getBps() === null, 'Speed known before any traffic');
+                // 通常バッファが満杯でもObserverから継続して受け取れることを確認するルン。
+                performance.setResourceTimingBufferSize(1);
+                await preCaches.add('/first.svg');
+                await preCaches.add('/second.svg');
+                await waitFor(() => preCaches.getBps() > 0, 'Closed inspector did not collect timing');
+                expect(!imageInspectorUI, 'Collection opened the inspector');
+                const meter = preCaches.transferMeter;
+                expect(meter.samples.length === 2, 'Sequential samples missing');
+                for (const sample of meter.samples) {
+                    expect(sample.bytes === ${svg.length}, 'encodedBodySize did not equal actual chunked response size');
+                    const entry = sample.request.entry;
+                    expect(entry.responseStart - entry.requestStart >= 200, 'Server wait fixture failed');
+                    expect(entry.responseEnd - sample.start < 240, 'Receive time included server wait');
+                    expect(entry.transferSize === sample.bytes + 300, 'Unexpected transferSize');
+                }
+                openInspector();
+                const row = document.getElementById('inspector-network-speed');
+                const content = document.getElementById('inspector-content');
+                expect(row.textContent.includes('kbps'), 'Opening did not show collected speed');
+                const list = row.parentElement;
+                const extra = document.createElement('div'); extra.style.height = '1200px'; content.append(extra);
+                content.scrollTop = 100;
+                await Promise.all([preCaches.add('/parallel-a.svg'), preCaches.add('/parallel-b.svg')]);
+                await waitFor(() => meter.samples.length === 4, 'Parallel samples missing');
+                const parallel = meter.samples.slice(-2);
+                expect(Math.max(...parallel.map(s => s.start)) < Math.min(...parallel.map(s => s.end)), 'Receives did not overlap');
+                let end = 0, duration = 0;
+                for (const sample of [...meter.samples].sort((a, b) => a.start - b.start)) {
+                    duration += Math.max(0, sample.end - Math.max(end, sample.start));
+                    end = Math.max(end, sample.end);
+                }
+                const expected = Math.floor(4 * ${svg.length} * 8 / duration);
+                expect(preCaches.getBps() === expected, 'Parallel union speed is incorrect');
+                expect(row.textContent === 'Network Speed: ' + expected.toLocaleString('en-US') + ' kbps', 'Open row did not update');
+                expect(row.parentElement === list && content.scrollTop === 100, 'Live update rebuilt content or moved scroll');
+                await preCaches.add('/cache.svg');
+                await waitFor(() => meter.samples.length === 5, 'Initial cacheable transfer missing');
+                preCaches.imageCache.delete('/cache.svg');
+                await preCaches.add('/cache.svg');
+                await pause(100);
+                expect(meter.samples.length === 5, 'Cached Image reused old timing');
+                await Promise.all([preCaches.add('/probe.svg'), load_image('/probe.svg')]);
+                await preCaches.add('/error.svg');
+                await pause(100);
+                expect(meter.samples.length === 5, 'Probe coalescing or HTTP error counted');
+                await preCaches.add('/validated.svg');
+                await waitFor(() => meter.samples.length === 6, 'Initial validated response missing');
+                const frame = document.createElement('iframe'); frame.src = '/revalidation'; document.body.append(frame);
+                await waitFor(() => frame.contentWindow.revalidationResult, 'Revalidation fixture did not finish');
+                const result = frame.contentWindow.revalidationResult;
+                expect(result.entry?.transferSize === 300, 'Browser did not perform 304 revalidation');
+                expect(result.samples === 0, '304 response became a speed sample');
+                frame.remove();
+                document.getElementById('inspector-close').click();
+                await preCaches.add('/closed.svg');
+                await waitFor(() => meter.samples.length === 7, 'Closing inspector stopped collection');
+                expect(content.childElementCount === 0, 'Collection updated closed content');
+                openInspector();
+                expect(document.getElementById('inspector-network-speed').textContent.includes('kbps'), 'Reopen lost measurements');
+                const latestEnd = meter.samples.at(-1).end;
+                const latestText = document.getElementById('inspector-network-speed').textContent;
+                await pause(Math.max(0, latestEnd + 30050 - performance.now()));
+                expect(preCaches.getBps() === null, 'Old speed did not expire');
+                expect(document.getElementById('inspector-network-speed').textContent === latestText + ' (last measurement)', 'Expiry lost final measurement');
+                document.getElementById('inspector-close').click();
+                openInspector();
+                expect(document.getElementById('inspector-network-speed').textContent === latestText + ' (last measurement)', 'Reopening lost final measurement');
+                await preCaches.add('/resumed-a.svg');
+                await pause(100);
+                expect(document.getElementById('inspector-network-speed').textContent === latestText + ' (last measurement)', 'Insufficient new samples replaced final measurement');
+                await preCaches.add('/resumed-b.svg');
+                await waitFor(() => !preCaches.getNetworkSpeed().stale, 'Fresh measurement did not replace retained result');
+                expect(document.getElementById('inspector-network-speed').textContent ===
+                    'Network Speed: ' + preCaches.getBps().toLocaleString('en-US') + ' kbps', 'Resumed measurement not displayed');
+                window.__progressNativeResult = { ok: true };
+            })().catch(error => { window.__progressNativeResult = { ok: false, error: error.stack }; });
+        </script>`);
+    });
+    try {
+        await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+        await runEpubBrowserFixture('http://127.0.0.1:' + server.address().port, { timeoutMs: 45000 });
+        assert.equal(counts.get('/cache.svg'), 1);
+        assert.equal(counts.get('/probe.svg'), 1);
+        assert.equal(revalidations, 1);
+    } finally {
+        server.closeAllConnections();
+        await new Promise(resolve => server.close(resolve));
+    }
+});

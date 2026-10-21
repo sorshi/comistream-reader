@@ -47,7 +47,8 @@ class PreCache {
     this.maxCacheEntries = 50;   // ★ メモリキャッシュの最大保持数ルン
     this.pageLoadTimes = [];     // ページめくり速度の記録ルン
     this.networkSpeed = 0;       // ネットワーク帯域
-    this.networkSpeedKBps = 0;
+    this.preloadSpeedKbps = 0;   // 平均ページサイズとロード時間による従来の制御値ルン。
+    this.transferMeter = new ImageTransferMeter(() => this.onChange?.());
     this.adjustPreloadPages();
   }
 
@@ -69,12 +70,13 @@ class PreCache {
     let img = new Image();
     // ★ 注意: crossOrigin属性を設定するとCORSヘッダーが必要になるルン
     // 画像配信元がCORSヘッダーを返さない場合、画像自体が読み込めなくなるルン
-    // そのため、crossOrigin属性は設定せず、Canvas操作（帯域測定）は諦めるルン
+    // 同一オリジンのResource TimingはcrossOrigin属性なしで観測できるルン。
     let startTime = performance.now();
     this.failedImages.delete(imageUrl);
     this.loadingCounts.set(imageUrl, (this.loadingCounts.get(imageUrl) || 0) + 1);
 
     await new Promise((resolve) => {
+      let transfer;
       const finishLoading = () => {
         img.onload = null;
         img.onerror = null;
@@ -87,12 +89,12 @@ class PreCache {
         let endTime = performance.now();
         let durationInMSeconds = endTime - startTime;
 
-        // ★ ダウンロード時間と平均ページサイズから帯域を推定するルン
+        // 先読み制御の互換性を保つため、従来の式・単位換算を維持するルン。
         if (typeof averagePageKBytes !== "undefined" && averagePageKBytes > 0 && durationInMSeconds > 0) {
           let estimatedFileSizeBytes = averagePageKBytes * 1024;
           let bandwidthInKbps = (estimatedFileSizeBytes * 8) / durationInMSeconds;
 
-          this.networkSpeedKBps = bandwidthInKbps.toFixed(2);
+          this.preloadSpeedKbps = bandwidthInKbps.toFixed(2);
           this.networkSpeed = bandwidthInKbps / 20000;
 
           debugLog(
@@ -105,6 +107,7 @@ class PreCache {
               "KB)"
           );
         }
+        this.transferMeter.finish(transfer, true);
 
         // ★ Image参照をMapに保持してメモリキャッシュを維持するルン
         // Mapの挿入順序により、古いものから evict できるルン
@@ -118,6 +121,7 @@ class PreCache {
 
       img.onerror = () => {
         finishLoading();
+        this.transferMeter.finish(transfer, false);
         if (!this.imageCache.has(imageUrl)) {
           this.failedImages.delete(imageUrl);
           this.failedImages.add(imageUrl);
@@ -131,6 +135,7 @@ class PreCache {
         this.onChange?.();
         resolve();
       };
+      transfer = this.transferMeter.begin(imageUrl);
       img.src = imageUrl;
       this.onChange?.();
     });
@@ -171,7 +176,11 @@ class PreCache {
   }
 
   getBps() {
-    return Math.floor(this.networkSpeedKBps);
+    return this.transferMeter.getKbps();
+  }
+
+  getNetworkSpeed() {
+    return this.transferMeter.getLastMeasurement();
   }
 
   // ★ ページめくり速度の計測ルン
@@ -216,22 +225,22 @@ class PreCache {
     debugLog("Preloading read speed initial " + this.size + " pages");
 
     // ★ ネットワーク帯域に基づいて調整ルン
-    if (this.networkSpeedKBps < 160) {
+    if (this.preloadSpeedKbps < 160) {
       this.size += 15;
-    } else if (this.networkSpeedKBps < 320) {
+    } else if (this.preloadSpeedKbps < 320) {
       this.size += 10;
-    } else if (this.networkSpeedKBps < 640) {
+    } else if (this.preloadSpeedKbps < 640) {
       this.size += 8;
-    } else if (this.networkSpeedKBps < 2048) {
+    } else if (this.preloadSpeedKbps < 2048) {
       this.size += 4;
-    } else if (this.networkSpeedKBps < 4096) {
+    } else if (this.preloadSpeedKbps < 4096) {
       this.size += 2;
     }
     debugLog(
       "Preloading adjust " +
         this.size +
-        " pages. networkSpeedKBps:" +
-        this.networkSpeedKBps
+        " pages. preloadSpeedKbps:" +
+        this.preloadSpeedKbps
     );
     // ★ 平均ページサイズが大きい場合は先読み数を増やすルン！
     if (typeof averagePageKBytes !== "undefined" && averagePageKBytes >= 1000) {
@@ -247,6 +256,182 @@ class PreCache {
     // 先読み数 + 過去閲覧分のバッファ（最低50、最大80）
     this.maxCacheEntries = Math.min(Math.max(this.size * 3, 50), 80);
     this.onChange?.();
+  }
+}
+
+// 先読み通信だけを観測するルン。追加通信や共有Performanceバッファの操作はしないルン。
+class ImageTransferMeter {
+  constructor(onChange) {
+    this.onChange = onChange;
+    this.requests = [];
+    this.samples = [];
+    this.lastMeasurement = null;
+    this.maxRequests = 128;
+    this.maxSamples = 8;
+    this.maxAgeMs = 30000;
+    this.requestMaxAgeMs = 60000;
+    this.blockedUntil = 0;
+    this.expiryTimer = null;
+    this.observer = null;
+    if (typeof PerformanceObserver === "undefined") return;
+    try {
+      if (PerformanceObserver.supportedEntryTypes &&
+          !PerformanceObserver.supportedEntryTypes.includes("resource")) return;
+      this.observer = new PerformanceObserver((list) => this.observe(list.getEntries()));
+      // 過去のエントリは取得せず、要求を登録してから届く通知だけを使うルン。
+      this.observer.observe({ entryTypes: ["resource"] });
+    } catch (_) {
+      this.observer?.disconnect();
+      this.observer = null;
+    }
+  }
+
+  begin(imageUrl, eligible = true) {
+    if (!this.observer) return null;
+    let url;
+    try {
+      url = new URL(imageUrl, document.baseURI).href;
+    } catch (_) {
+      return null;
+    }
+    const start = performance.now();
+    this.requests = this.requests.filter((request) => start - request.start < this.requestMaxAgeMs);
+    if (start < this.blockedUntil) return null;
+    if (this.requests.length >= this.maxRequests) {
+      // 対応記録を失った要求との取り違えを避け、上限時は計測だけを一時休止するルン。
+      for (const other of this.requests) other.ambiguous = true;
+      this.requests = [];
+      this.blockedUntil = start + this.requestMaxAgeMs;
+      this.refresh();
+      return null;
+    }
+    const request = { url, start, eligible, end: null, success: false, ambiguous: false, entry: null };
+    // 同じURLの同時ロードはまとめられることがあるので、双方とも計測から外すルン。
+    for (const other of this.requests) {
+      if (other.url === url && (other.end === null || other.end >= start)) {
+        other.ambiguous = true;
+        request.ambiguous = true;
+      }
+    }
+    this.requests.push(request);
+    if (request.ambiguous) this.refresh();
+    return request;
+  }
+
+  finish(request, success) {
+    if (!request || !this.requests.includes(request)) return;
+    request.end = performance.now();
+    request.success = success;
+    this.accept(request);
+  }
+
+  observe(entries) {
+    const now = performance.now();
+    this.requests = this.requests.filter((request) => now - request.start < this.requestMaxAgeMs);
+    for (const entry of entries) {
+      if (entry.entryType !== "resource" || entry.initiatorType !== "img") continue;
+      // src設定直後50ms以内の開始だけを対応付けるルン。遅延・合流で曖昧なら捨てるルン。
+      const candidates = this.requests.filter((request) => request.url === entry.name &&
+        entry.startTime >= request.start && entry.startTime - request.start <= 50 &&
+        (request.end === null || entry.startTime <= request.end));
+      if (candidates.length !== 1) {
+        for (const request of candidates) request.ambiguous = true;
+        continue;
+      }
+      const request = candidates[0];
+      if (request.entry) {
+        if (request.entry.startTime !== entry.startTime || request.entry.responseEnd !== entry.responseEnd) {
+          request.ambiguous = true;
+        }
+        continue;
+      }
+      request.entry = entry;
+      this.accept(request);
+    }
+    this.refresh();
+  }
+
+  accept(request) {
+    const entry = request.entry;
+    if (!entry || request.end === null || request.counted || !request.success ||
+        !request.eligible || request.ambiguous) return;
+    request.counted = true;
+    const bytes = entry.encodedBodySize;
+    const end = entry.responseEnd;
+    let start = entry.responseStart;
+    // transferSizeは通信量に使わず、0のキャッシュと300の再検証を除くために使うルン。
+    // https://w3c.github.io/resource-timing/#dom-performanceresourcetiming-transfersize
+    if (!Number.isFinite(bytes) || bytes < 16 * 1024 ||
+        !Number.isFinite(entry.transferSize) || entry.transferSize <= 300 || entry.transferSize < bytes ||
+        entry.deliveryType === "cache" || entry.workerStart > 0 ||
+        (entry.responseStatus !== undefined && !(entry.responseStatus >= 200 && entry.responseStatus < 300)) ||
+        !Number.isFinite(entry.requestStart) || entry.requestStart < entry.startTime || entry.requestStart <= 0 ||
+        !Number.isFinite(start) || start < entry.requestStart ||
+        !Number.isFinite(end) || end > request.end || end <= start) return;
+    // 103などの暫定応答があっても、最終応答のヘッダー開始までの待ちを含めないルン。
+    const finalStart = entry.finalResponseHeadersStart;
+    if (Number.isFinite(finalStart) && finalStart >= start && finalStart < end) start = finalStart;
+    else if (entry.firstInterimResponseStart > 0) return;
+    if (end - start < 5 || performance.now() - end >= this.maxAgeMs) return;
+    this.samples.push({ request, bytes, start, end });
+    this.samples.sort((a, b) => a.end - b.end);
+    this.samples = this.samples.slice(-this.maxSamples);
+    this.refresh(true);
+  }
+
+  refresh(updateMeasurement = false) {
+    const now = performance.now();
+    this.samples = this.samples.filter((sample) => !sample.request.ambiguous && now - sample.end < this.maxAgeMs);
+    // 後から対応付けが曖昧になった結果は、最終値としても残さないルン。
+    if (this.lastMeasurement?.samples.some((sample) => sample.request.ambiguous)) {
+      this.lastMeasurement = null;
+      updateMeasurement = true;
+    }
+    if (updateMeasurement) {
+      const kbps = this.getKbps();
+      if (kbps !== null) {
+        this.lastMeasurement = { kbps, end: this.samples[this.samples.length - 1].end, samples: this.samples.slice() };
+      }
+    }
+    clearTimeout(this.expiryTimer);
+    this.expiryTimer = null;
+    const expirations = [];
+    if (this.samples.length) expirations.push(this.samples[0].end + this.maxAgeMs);
+    if (this.lastMeasurement && this.lastMeasurement.end + this.maxAgeMs > now) {
+      expirations.push(this.lastMeasurement.end + this.maxAgeMs);
+    }
+    if (expirations.length) {
+      const delay = Math.max(1, Math.min(...expirations) - now);
+      this.expiryTimer = setTimeout(() => this.refresh(), delay);
+    }
+    this.onChange();
+  }
+
+  getLastMeasurement() {
+    // 集約用サンプルが期限切れになっても、最後の結果は読書中ずっと保持するルン。
+    // 保持したサンプルを次回の速度計算へ戻すことはしないルン。
+    return {
+      kbps: this.lastMeasurement?.kbps ?? null,
+      stale: this.lastMeasurement !== null && performance.now() - this.lastMeasurement.end >= this.maxAgeMs
+    };
+  }
+
+  getKbps() {
+    const now = performance.now();
+    const samples = this.samples.filter((sample) => !sample.request.ambiguous && now - sample.end < this.maxAgeMs);
+    if (samples.length < 2) return null;
+    const bytes = samples.reduce((total, sample) => total + sample.bytes, 0);
+    // 並列転送の受信区間は和集合にし、待ち時間・隙間・重複を分母へ足さないルン。
+    const intervals = samples.slice().sort((a, b) => a.start - b.start);
+    let end = 0;
+    let duration = 0;
+    for (const sample of intervals) {
+      duration += Math.max(0, sample.end - Math.max(end, sample.start));
+      end = Math.max(end, sample.end);
+    }
+    // 少量・短時間の測定を保留して、時計の丸めや瞬間的な揺れを抑えるルン。
+    if (bytes < 128 * 1024 || duration < 50) return null;
+    return Math.floor(bytes * 8 / duration);
   }
 }
 
@@ -1335,13 +1520,18 @@ async function preLoadInitialImages(startPage) {
 async function browserCanDecodeJpegXlPage(pageNumber) {
   const probeImage = new Image();
   return new Promise((resolve) => {
+    let transfer;
     probeImage.onload = () => {
+      preCaches.transferMeter.finish(transfer, false);
       resolve(probeImage.naturalWidth > 0 && probeImage.naturalHeight > 0);
     };
     probeImage.onerror = () => {
+      preCaches.transferMeter.finish(transfer, false);
       resolve(false);
     };
-    probeImage.src = getFullImageUrl(pageNumber);
+    const url = getFullImageUrl(pageNumber);
+    transfer = preCaches.transferMeter.begin(url, false);
+    probeImage.src = url;
   });
 }
 
@@ -2070,20 +2260,25 @@ async function load_image(path) {
   //画像読み込み関数（読み込み完了を待つために使用）
   const t_img = new Image();
   return new Promise((resolve) => {
+    let transfer;
     // 通信停止時もページ操作の保留を必ず解除するルン
     const timer = setTimeout(() => {
       t_img.onload = null;
       t_img.onerror = null;
+      preCaches.transferMeter.finish(transfer, false);
       resolve(null);
     }, 15000);
     t_img.onload = () => {
       clearTimeout(timer);
+      preCaches.transferMeter.finish(transfer, false);
       resolve(t_img);
     };
     t_img.onerror = () => {
       clearTimeout(timer);
+      preCaches.transferMeter.finish(transfer, false);
       resolve(null);
     };
+    transfer = preCaches.transferMeter.begin(path, false);
     t_img.src = path;
   });
 }
@@ -2241,6 +2436,15 @@ async function quickSpredView() {
 
 let imageInspectorUI = null;
 
+function updateImageNetworkSpeed() {
+  const item = document.getElementById("inspector-network-speed");
+  if (!item) return;
+  const { kbps, stale } = preCaches.getNetworkSpeed();
+  const text = "Network Speed: " + (kbps === null ? "—" :
+    kbps.toLocaleString("en-US") + " kbps" + (stale ? " (last measurement)" : ""));
+  window.ComistreamInspector.updateText(item, text);
+}
+
 function createImagePreloadStatus() {
   const item = document.createElement("li");
   item.id = "inspector-preload";
@@ -2317,8 +2521,14 @@ function showInspector(forceVisible = null) {
       onBack: backListPage
     });
     preCaches.onChange = () => {
-      if (imageInspectorUI.isOpen()) updateImagePreloadStatus();
+      if (imageInspectorUI.isOpen()) {
+        updateImagePreloadStatus();
+        updateImageNetworkSpeed();
+      }
     };
+    document.addEventListener("selectionchange", () => {
+      if (imageInspectorUI.isOpen()) updateImageNetworkSpeed();
+    });
   }
   const visible = forceVisible === null ? !imageInspectorUI.isOpen() : Boolean(forceVisible);
   if (!visible) {
@@ -2329,7 +2539,6 @@ function showInspector(forceVisible = null) {
   const scrollTop = inspector.scrollTop;
   inspector.replaceChildren();
   const aspect = Math.round((imagex / imagey) * 100) / 100;
-  const networkSpeedKBps = preCaches.getBps();
   const pages = page + " / " + maxPage;
   const list = document.createElement("ul");
   const listItemArray = [
@@ -2375,12 +2584,12 @@ function showInspector(forceVisible = null) {
   list.appendChild(listItem);
 
   listItem = document.createElement("li");
-  listItem.textContent =
-    "Network Speed: " + networkSpeedKBps.toLocaleString("en-US") + " Kbps";
+  listItem.id = "inspector-network-speed";
   list.appendChild(listItem);
 
   inspector.appendChild(list);
   updateImagePreloadStatus();
+  updateImageNetworkSpeed();
   inspector.scrollTop = scrollTop;
   imageInspectorUI.setVisible(true);
 }
