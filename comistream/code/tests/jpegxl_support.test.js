@@ -23,22 +23,12 @@ function makeFixture({ probePage, loadSucceeds }) {
   let historyBackCount = 0;
   let requestedUrl = null;
 
-  class FakeImage {
-    set src(url) {
-      requestedUrl = url;
-      if (loadSucceeds) {
-        this.naturalWidth = 100;
-        this.naturalHeight = 200;
-        this.onload();
-      } else {
-        this.onerror();
-      }
-    }
-  }
-
   const context = vm.createContext({
-    preCaches: { transferMeter: { begin() {}, finish() {} } },
-    Image: FakeImage,
+    preCaches: { async request(url, foreground) {
+      assert.equal(foreground, true);
+      requestedUrl = url;
+      return loadSucceeds ? { naturalWidth: 100, naturalHeight: 200 } : null;
+    } },
     alert(message) {
       alerts.push(message);
     },

@@ -50,6 +50,7 @@ function reader({ preference = 'auto', width = 900, height = 600, wide = [], cou
     document: { getElementById: element, documentElement: {}, activeElement: null,
       body: { style: {} }, addEventListener() {}, querySelector: () => null },
     Image: class {
+      removeAttribute() {}
       set src(value) {
         this.url = value;
         const number = Number(new URL(value, 'http://reader.test').searchParams.get('page'));
@@ -281,15 +282,15 @@ for (const preference of ['single', 'spread']) {
       r.c.page = 2; r.c.prevPage = 2;
       r.c.readerProgressConfig.isGuest = isGuest;
       await r.c.restorePage(); await r.settle();
-      assert.equal(r.c.preCaches.imageCache.size, 0);
+      assert.equal(r.c.preCaches.enabled, false);
+      assert.ok(r.c.preCaches.imageCache.size > 0);
       // 通信速度による枚数の変動を止め、初期の3〜14ページを越える動作を確認するルン。
-      r.c.preCaches.adjustPreloadPages = () => {};
       r.c.preCaches.resize(12);
       await r.c.preLoadInitialImages(2);
-      const cached = number => r.c.preCaches.imageCache.has(r.c.getFullImageUrl(number));
-      assert.equal(r.c.preCaches.imageCache.size, 12);
-      assert.equal(cached(14), true);
-      assert.equal(cached(15), false);
+      const cached = number => r.c.preCaches.imageCache.has(r.c.getFullImageUrl(number, false));
+      assert.equal(r.c.preCaches.getSize(), 12);
+      assert.equal(cached(r.c.displayedEnd + 12), true);
+      assert.equal(cached(r.c.displayedEnd + 13), false);
 
       const turns = preference === 'single' ? 16 : 8;
       for (let turn = 0; turn < turns; turn++) {

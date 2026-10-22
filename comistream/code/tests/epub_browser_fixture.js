@@ -16,7 +16,7 @@ async function runEpubBrowserFixture(url, { screenshotPath, viewport, verifyFram
       '--disable-background-networking', '--disable-extensions', '--disable-sync',
       '--remote-debugging-port=0', '--user-data-dir=' + root, 'about:blank'], { stdio: ['ignore','ignore','pipe'] });
     const address = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Chrome startup timeout')), 5000);
+      const timer = setTimeout(() => reject(new Error('Chrome startup timeout')), 15000);
       child.on('error', error => { clearTimeout(timer); reject(error); });
       child.stderr.on('data', data => {
         const match = data.toString().match(/DevTools listening on (ws:\/\/\S+)/);

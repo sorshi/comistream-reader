@@ -21,248 +21,621 @@
  */
 
 /**
- * ★ PreCache - ブラウザメモリキャッシュウォーマー ルン！
- *
- * 先読みした画像の Image オブジェクト参照を imageCache (Map) で保持することで、
- * 読み込み済み画像を保持して、表示時のキャッシュ再利用を促すルン。
- * 表示時の再通信やデコード済みデータの保持はブラウザ側の判断になるルン。
- *
- * このクラスの役割：
- * - 先読みページ数(size)の管理と動的調整
- * - Image参照の保持によるメモリキャッシュ維持
- * - ネットワーク帯域の推定
- * - ページめくり速度の計測
- *
- * 注意: 以前のリングバッファは get() で取り出して使うコードが存在せず
- * 構造的に無駄だったため廃止し、代わりにシンプルな Map で
- * Image 参照を保持する方式に変更したルン。
+ * Image要求を共有し、現在表示・近い先読みの順に補充するルン。
+ * ブラウザのキャッシュ再利用を促す仕組みで、オフライン保持の保証ではないルン。
  */
 class PreCache {
-  constructor(size) {
-    this.size = size;
-    this.imageCache = new Map(); // ★ URL→Image参照を保持してメモリキャッシュを維持するルン
-    this.loadingCounts = new Map();
+  constructor() {
+    this.packetSaving = typeof size !== "undefined" && size === "comp";
+    this.imageCache = new Map();
+    this.records = new Map();
+    this.active = new Map();
+    this.timingPending = new Map();
     this.failedImages = new Set();
     this.onChange = null;
-    this.maxCacheEntries = 50;   // ★ メモリキャッシュの最大保持数ルン
-    this.pageLoadTimes = [];     // ページめくり速度の記録ルン
-    this.networkSpeed = 0;       // ネットワーク帯域
-    this.preloadSpeedKbps = 0;   // 平均ページサイズとロード時間による従来の制御値ルン。
-    this.transferMeter = new ImageTransferMeter(() => this.onChange?.());
-    this.adjustPreloadPages();
+    this.maxCacheEntries = 80;
+    this.maxBytes = 64 * 1024 * 1024;
+    this.maxPixels = 96000000;
+    this.readTimes = [];
+    this.readySamples = [];
+    this.networkSamples = [];
+    this.failures = [];
+    this.readPages = 0;
+    this.readSeconds = 0;
+    this.readFrontier = 0;
+    this.viewedRanges = [];
+    this.budgetLimit = 2 * 1024 * 1024;
+    this.budgetHighWater = this.budgetLimit;
+    this.budgetBalance = this.budgetLimit;
+    this.view = null;
+    this.presentation = null;
+    this.intent = null;
+    this.enabled = false;
+    this.hidden = Boolean(document.hidden);
+    this.closing = false;
+    this.pumping = false;
+    this.wakeTimer = null;
+    this.lastActivity = performance.now();
+    this.lastShrinkAt = this.lastActivity;
+    this.lastPressureAt = this.lastActivity;
+    this.performanceTarget = 0;
+    this.unstableUntil = 0;
+    this.slowUntil = 0;
+    this.parallelPenaltyUntil = 0;
+    this.globalRetryAt = 0;
+    this.globalFailures = 0;
+    this.supplyPeriods = [];
+    this.demandSince = null;
+    this.target = 0;
+    this.size = this.packetSaving ? 2 : 21;
+    this.wanted = new Map();
+    this.transferMeter = new ImageTransferMeter(
+      () => this.onChange?.(), (request) => this.observeTransfer(request)
+    );
   }
 
-  /**
-   * ★ 画像をブラウザメモリキャッシュに先読みするルン！
-   *
-   * Image()オブジェクトを作成してsrcを設定し、ブラウザが画像をダウンロードするルン。
-   * 読み込み完了後も Image 参照を imageCache に保持することで、
-   * loadPage() 等で同じURLの background-image を指定するときの再利用を促すルン。
-   *
-   * @param {string} imageUrl 先読みする画像のURL
-   */
-  async add(imageUrl) {
-    // ★ 同じURLが既にキャッシュにある場合はスキップするルン
-    if (this.imageCache.has(imageUrl)) {
-      return;
+  normalizeUrl(url) {
+    try { return new URL(url, document.baseURI).href; }
+    catch (_) { return url; }
+  }
+
+  estimate() {
+    const now = performance.now();
+    this.networkSamples = this.networkSamples.filter(sample => now - sample.end < 120000 && !sample.request.ambiguous);
+    this.readySamples = this.readySamples.filter(sample => now - sample.end < 120000 && sample.cached !== true);
+    const fallback = typeof averagePageKBytes !== "undefined" && Number.isFinite(averagePageKBytes) && averagePageKBytes > 0
+      ? averagePageKBytes * 1000 : 1024 * 1024;
+    const bytes = preloadQuantile(this.networkSamples.map(sample => sample.bytes), 0.75) || fallback;
+    const dimensions = [...this.records.values()].filter(record => record.pixels > 0).map(record => record.pixels);
+    const pixels = preloadQuantile(dimensions, 0.75) || 6000000;
+    const read = preloadQuantile(this.readTimes, 0.3) || 5;
+    const measured = this.transferMeter.getLastMeasurement();
+    const kbps = measured.stale ? null : measured.kbps;
+    const wait = preloadQuantile(this.networkSamples.map(sample => sample.wait), 0.9);
+    const loads = this.transferMeter.observer ? this.networkSamples : this.readySamples;
+    const load = preloadQuantile(loads.map(sample => sample.duration), 0.9);
+    const transfer = kbps > 0 ? bytes * 8 / (kbps * 1000) : null;
+    const ready = Math.max(load || 0, transfer === null ? 0 : (wait || 0) + transfer) || 2;
+    return { bytes, pixels, read, kbps, ready, known: loads.length >= 3 || kbps > 0 };
+  }
+
+  plan() {
+    const now = performance.now();
+    const metrics = this.estimate();
+    const pressure = metrics.known && (metrics.ready > metrics.read / 2 ||
+      (metrics.kbps > 0 && metrics.kbps / (metrics.bytes * 8 / metrics.read / 1000) < 1.5));
+    if (pressure) {
+      this.slowUntil = Math.max(this.slowUntil, now + 120000);
+      this.lastPressureAt = now;
     }
+    const horizon = now < this.unstableUntil ? 180 :
+      (pressure || now < this.slowUntil ? 120 : (metrics.known ? 60 : 90));
+    const result = calculatePreloadPlan({ ...metrics, horizon, packetSaving: this.packetSaving,
+      readPages: this.readPages, readSeconds: this.readSeconds });
+    if (!this.packetSaving) {
+      if (result.target >= this.performanceTarget) this.performanceTarget = result.target;
+      else if (metrics.known && now - this.lastPressureAt >= 120000 && now - this.lastShrinkAt >= 30000) {
+        this.performanceTarget = Math.max(result.target, this.performanceTarget - 2);
+        this.lastShrinkAt = now;
+      }
+      result.target = this.performanceTarget;
+    }
+    if (result.budget > this.budgetHighWater) {
+      this.budgetBalance += result.budget - this.budgetHighWater;
+      this.budgetHighWater = result.budget;
+    }
+    this.budgetLimit = result.budget;
+    this.budgetBalance = Math.min(this.budgetBalance, this.budgetLimit);
+    result.parallel = this.packetSaving || !metrics.known || now < this.parallelPenaltyUntil ||
+      this.globalFailures > 0 || metrics.ready > metrics.read / 2 ? 1 : 2;
+    return { ...metrics, ...result };
+  }
 
-    let img = new Image();
-    // ★ 注意: crossOrigin属性を設定するとCORSヘッダーが必要になるルン
-    // 画像配信元がCORSヘッダーを返さない場合、画像自体が読み込めなくなるルン
-    // 同一オリジンのResource TimingはcrossOrigin属性なしで観測できるルン。
-    let startTime = performance.now();
-    this.failedImages.delete(imageUrl);
-    this.loadingCounts.set(imageUrl, (this.loadingCounts.get(imageUrl) || 0) + 1);
+  getSize() { return this.size; }
+  getBps() { return this.transferMeter.getKbps(); }
+  getNetworkSpeed() { return this.transferMeter.getLastMeasurement(); }
+  getStatus(url) {
+    url = this.normalizeUrl(url);
+    if (this.imageCache.has(url)) return "loaded";
+    if (this.active.has(url)) return "loading";
+    return this.failedImages.has(url) ? "failed" : "empty";
+  }
 
-    await new Promise((resolve) => {
-      let transfer;
-      const finishLoading = () => {
-        img.onload = null;
-        img.onerror = null;
-        const remaining = this.loadingCounts.get(imageUrl) - 1;
-        if (remaining > 0) this.loadingCounts.set(imageUrl, remaining);
-        else this.loadingCounts.delete(imageUrl);
-      };
-      img.onload = () => {
-        finishLoading();
-        let endTime = performance.now();
-        let durationInMSeconds = endTime - startTime;
+  // 手動の範囲指定にも同じ待ち行列を使うルン。
+  resize(count) { this.fixedTarget = Math.max(0, Math.floor(count)); this.replan(); }
+  add(url) { return this.request(url, false); }
 
-        // 先読み制御の互換性を保つため、従来の式・単位換算を維持するルン。
-        if (typeof averagePageKBytes !== "undefined" && averagePageKBytes > 0 && durationInMSeconds > 0) {
-          let estimatedFileSizeBytes = averagePageKBytes * 1024;
-          let bandwidthInKbps = (estimatedFileSizeBytes * 8) / durationInMSeconds;
+  request(url, foreground = false) {
+    url = this.normalizeUrl(url);
+    let record = this.records.get(url);
+    if (this.imageCache.has(url)) return Promise.resolve(this.imageCache.get(url));
+    if (this.closing) return Promise.resolve(null);
+    if (!record) {
+      record = { url, status: "empty", attempts: 0, retryAt: 0, bytes: 0, pixels: 0, credited: false };
+      this.records.set(url, record);
+    }
+    record.foreground ||= foreground;
+    if (!record.promise) {
+      record.promise = new Promise(resolve => { record.resolve = resolve; });
+      record.status = "queued";
+    }
+    const promise = record.promise;
+    this.pump();
+    return promise;
+  }
 
-          this.preloadSpeedKbps = bandwidthInKbps.toFixed(2);
-          this.networkSpeed = bandwidthInKbps / 20000;
+  backgroundAllowed() {
+    return !this.closing && !this.hidden && !this.backgroundPaused && (!this.view || (this.enabled && this.view.ready)) &&
+      (!this.packetSaving || performance.now() - this.lastActivity < 30000);
+  }
 
-          debugLog(
-            "PreCache.add() Estimated bandwidth: " +
-              bandwidthInKbps.toFixed(2) +
-              " Kbps (duration: " +
-              durationInMSeconds.toFixed(0) +
-              "ms, avgPageSize: " +
-              averagePageKBytes +
-              "KB)"
-          );
+  prepareView(start, end, maximum, urlForPage) {
+    this.view = { start, end, maximum, urlForPage, ready: false };
+    // 大きく移動した後に、古い範囲の完了待ちを残さないルン。
+    for (const attempt of [...this.active.values()]) {
+      if (!this.isVisible(attempt.record.url) && !this.isUpcoming(attempt.record.url, 72)) this.cancel(attempt);
+    }
+    for (const record of this.records.values()) {
+      if (record.status === "queued" && record.foreground && !this.isVisible(record.url) &&
+          !this.isUpcoming(record.url, 1)) this.resolve(record, null);
+    }
+  }
+
+  recordPageTurn(target) {
+    const now = performance.now();
+    this.intent = { target, at: now, presentation: this.presentation };
+    if (now - this.lastActivity >= 120000) this.resetReading();
+    this.lastActivity = now;
+  }
+
+  resetReading() {
+    this.readPages = 0; this.readSeconds = 0;
+    this.readFrontier = this.view?.end || 0;
+  }
+
+  present(ready = true, navigation = false) {
+    if (!this.view) return;
+    const now = performance.now();
+    const previous = this.intent?.presentation;
+    const target = this.intent?.target;
+    if (navigation && previous && previous.valid) {
+      const elapsed = (this.intent.at - previous.at) / 1000;
+      if (target === previous.end + 1 && this.view.end > previous.end && elapsed >= 0.5 && elapsed <= 120) {
+        const consumed = previous.end - previous.start + 1;
+        this.readTimes.push(Math.min(120, Math.max(2, elapsed / consumed)));
+        this.readTimes = this.readTimes.slice(-12);
+        if (this.view.end > this.readFrontier) {
+          this.readPages += this.view.end - previous.end;
+          this.readSeconds += Math.min(15, elapsed);
         }
-        this.transferMeter.finish(transfer, true);
+      } else if (Math.abs(target - previous.start) > 3) this.resetReading();
+    }
+    this.intent = null;
+    if (navigation || !this.presentation || this.presentation.start !== this.view.start || this.presentation.end !== this.view.end) {
+      this.presentation = { start: this.view.start, end: this.view.end, at: now, ready, valid: ready && !this.hidden };
+    } else if (!navigation) {
+      // 回転や表示方式の変更に費やした区間を読書速度へ混ぜないルン。
+      this.presentation.at = now;
+      this.presentation.ready = ready;
+      this.presentation.valid = false;
+    }
+    this.readFrontier = Math.max(this.readFrontier, this.view.end);
+    this.view.ready = true;
+    this.creditVisible();
+    this.replan();
+  }
 
-        // ★ Image参照をMapに保持してメモリキャッシュを維持するルン
-        // Mapの挿入順序により、古いものから evict できるルン
-        this.imageCache.set(imageUrl, img);
-        this.failedImages.delete(imageUrl);
-        this.evictOldEntries();
+  creditVisible() {
+    if (!this.view || this.hidden) return;
+    for (let page = this.view.start; page <= this.view.end; page++) {
+      const record = this.records.get(this.normalizeUrl(this.view.urlForPage(page)));
+      if (record) record.page = page;
+      if (record?.status === "loaded" && this.markViewed(page)) this.credit(record);
+    }
+  }
 
-        this.adjustPreloadPages();
-        resolve();
-      };
+  markViewed(page) {
+    if (this.viewedRanges.some(([start, end]) => page >= start && page <= end)) return false;
+    const merged = [];
+    for (const range of [...this.viewedRanges, [page, page]].sort((a, b) => a[0] - b[0])) {
+      const last = merged[merged.length - 1];
+      if (last && range[0] <= last[1] + 1) last[1] = Math.max(last[1], range[1]);
+      else merged.push(range);
+    }
+    // 極端な飛び読みでも履歴を有限にし、不明な古い範囲へ予算を再付与しないルン。
+    if (merged.length > 128) merged.splice(0, 2, [merged[0][0], merged[1][1]]);
+    this.viewedRanges = merged;
+    return true;
+  }
 
-      img.onerror = () => {
-        finishLoading();
-        this.transferMeter.finish(transfer, false);
-        if (!this.imageCache.has(imageUrl)) {
-          this.failedImages.delete(imageUrl);
-          this.failedImages.add(imageUrl);
-          // 失敗した画像の参照は残さず、URLの記録にも上限を設けるルン。
-          while (this.failedImages.size > this.maxCacheEntries) {
-            this.failedImages.delete(this.failedImages.values().next().value);
+  credit(record) {
+    if (!record || record.credited || record.status !== "loaded") return;
+    record.credited = true;
+    if (this.packetSaving) this.budgetBalance = Math.min(this.budgetLimit,
+      this.budgetBalance + (record.bytes || this.estimate().bytes));
+  }
+
+  isVisible(url) {
+    if (!this.view) return false;
+    for (let page = this.view.start; page <= this.view.end; page++) {
+      if (this.normalizeUrl(this.view.urlForPage(page)) === url) return true;
+    }
+    return false;
+  }
+
+  isUpcoming(url, count = this.size) {
+    if (!this.view) return false;
+    for (let page = this.view.end + 1; page <= Math.min(this.view.maximum, this.view.end + count); page++) {
+      if (this.normalizeUrl(this.view.urlForPage(page)) === url) return true;
+    }
+    return false;
+  }
+
+  replan() {
+    if (this.closing) return;
+    const plan = this.plan();
+    this.target = this.fixedTarget ?? plan.target;
+    this.wanted.clear();
+    if (this.view) {
+      // 表示中と取得予定を予算へ先に割り当て、同じ遠方画像の取得・解放を防ぐルン。
+      let bytes = 0, pixels = 0, count = 0, remaining = this.budgetBalance;
+      for (let page = this.view.start; page <= this.view.end; page++) {
+        const record = this.records.get(this.normalizeUrl(this.view.urlForPage(page)));
+        bytes += record?.bytes || plan.bytes;
+        pixels += record?.pixels || plan.pixels;
+        count++;
+      }
+      for (let page = this.view.end + 1; page <= Math.min(this.view.maximum, this.view.end + this.target); page++) {
+        const url = this.normalizeUrl(this.view.urlForPage(page));
+        const record = this.records.get(url);
+        const cost = { bytes: record?.bytes || plan.bytes, pixels: record?.pixels || plan.pixels };
+        if (bytes + cost.bytes > this.maxBytes || pixels + cost.pixels > this.maxPixels || count >= this.maxCacheEntries) break;
+        if (this.packetSaving && !this.imageCache.has(url) && !this.active.has(url)) {
+          if (cost.bytes > remaining) break;
+          remaining -= cost.bytes;
+        }
+        this.wanted.set(url, page);
+        bytes += cost.bytes; pixels += cost.pixels; count++;
+      }
+      this.size = this.wanted.size;
+      if (this.view.ready && !this.hidden && !this.backgroundPaused) {
+        for (let page = this.view.start; page <= this.view.end; page++) {
+          const record = this.records.get(this.normalizeUrl(this.view.urlForPage(page)));
+          if (record && ["failed", "empty"].includes(record.status) && !record.promise) {
+            record.foreground = true;
+            record.promise = new Promise(resolve => { record.resolve = resolve; });
+            record.status = "queued";
           }
         }
-        // ★ エラー時もPromiseを解決してハングを防ぐルン
-        debugLog("PreCache.add() image load error: " + imageUrl);
-        this.onChange?.();
-        resolve();
-      };
-      transfer = this.transferMeter.begin(imageUrl);
-      img.src = imageUrl;
-      this.onChange?.();
-    });
-  }
-
-  getStatus(imageUrl) {
-    if (this.imageCache.has(imageUrl)) return "loaded";
-    if (this.loadingCounts.has(imageUrl)) return "loading";
-    if (this.failedImages.has(imageUrl)) return "failed";
-    return "empty";
-  }
-
-  /**
-   * ★ キャッシュが上限を超えたら古いエントリを削除するルン
-   * Map の挿入順序を利用して、最も古いものから順に削除するルン
-   */
-  evictOldEntries() {
-    const previousSize = this.imageCache.size;
-    while (this.imageCache.size > this.maxCacheEntries) {
-      const oldestKey = this.imageCache.keys().next().value;
-      this.imageCache.delete(oldestKey);
-    }
-    if (this.imageCache.size !== previousSize) this.onChange?.();
-  }
-
-  /**
-   * ★ 先読みページ数のサイズを変更するルン
-   *
-   * @param {number} newSize 新しい先読みページ数
-   */
-  resize(newSize) {
-    this.size = newSize;
+      }
+      for (const record of this.records.values()) {
+        if (record.status === "queued" && !record.foreground && !this.wanted.has(record.url)) this.resolve(record, null);
+      }
+      if (this.backgroundAllowed()) for (const [url, page] of this.wanted) {
+        let record = this.records.get(url);
+        if (!record) {
+          record = { url, page, status: "empty", attempts: 0, retryAt: 0, bytes: 0, pixels: 0, credited: false };
+          this.records.set(url, record);
+        }
+        record.page = page;
+        if (!this.imageCache.has(url) && !record.promise) {
+          record.promise = new Promise(resolve => { record.resolve = resolve; });
+          record.status = "queued";
+        }
+      }
+    } else this.size = this.target;
+    this.evictOldEntries();
+    this.pump();
     this.onChange?.();
   }
 
-  getSize() {
-    return this.size;
+  enable() {
+    this.enabled = true;
+    this.replan();
+    return Promise.all([...this.wanted.keys()].map(url => this.records.get(url)?.promise));
   }
 
-  getBps() {
-    return this.transferMeter.getKbps();
+  usage() {
+    let bytes = 0, pixels = 0;
+    for (const url of this.imageCache.keys()) {
+      const record = this.records.get(url);
+      bytes += record?.bytes || 0; pixels += record?.pixels || 0;
+    }
+    for (const attempt of this.active.values()) { bytes += attempt.bytes; pixels += attempt.pixels; }
+    return { bytes, pixels, count: this.imageCache.size + this.active.size };
   }
 
-  getNetworkSpeed() {
-    return this.transferMeter.getLastMeasurement();
+  evictOldEntries(extra = { bytes: 0, pixels: 0, count: 0 }) {
+    const distance = url => {
+      if (this.isVisible(url)) return -Infinity;
+      const page = this.records.get(url)?.page;
+      if (!this.view || !Number.isFinite(page)) return Infinity;
+      if (page < this.view.start - 4) return 10000 + this.view.start - page;
+      if (page < this.view.start) return 1000 + this.view.start - page;
+      return page - this.view.end;
+    };
+    const candidates = [...this.imageCache.keys()].sort((a, b) => distance(b) - distance(a));
+    let used = this.usage();
+    for (const url of candidates) {
+      if (used.count + extra.count <= this.maxCacheEntries && used.bytes + extra.bytes <= this.maxBytes && used.pixels + extra.pixels <= this.maxPixels) break;
+      if (this.isVisible(url)) continue;
+      const record = this.records.get(url);
+      this.imageCache.delete(url);
+      if (record) { record.status = "empty"; record.image = null; }
+      used = this.usage();
+    }
+    // 本文画像・未完了要求を残し、古い診断用メタデータだけ上限付きで捨てるルン。
+    for (const [url, record] of this.records) {
+      if (this.records.size <= 256) break;
+      if (!record.promise && !this.imageCache.has(url) && !this.wanted.has(url)) this.records.delete(url);
+    }
   }
 
-  // ★ ページめくり速度の計測ルン
-  recordPageTurn() {
-    const now = Date.now();
-    if (this.lastPageTurnTime) {
-      const turnTime = now - this.lastPageTurnTime;
-      this.pageLoadTimes.push(turnTime);
-      if (this.pageLoadTimes.length > 5) {
-        this.pageLoadTimes.shift(); // 古いデータを削除ルン
+  resolve(record, image) {
+    const resolve = record.resolve;
+    record.resolve = null;
+    record.promise = null;
+    record.foreground = false;
+    if (record.status === "queued") record.status = "empty";
+    resolve?.(image);
+  }
+
+  cancel(attempt) {
+    if (this.active.get(attempt.record.url) !== attempt) return;
+    attempt.cancelled = true;
+    attempt.image.onload = null;
+    attempt.image.onerror = null;
+    clearTimeout(attempt.timer);
+    this.active.delete(attempt.record.url);
+    this.transferMeter.finish(attempt.transfer, false);
+    attempt.image.removeAttribute("src");
+    attempt.image = null;
+    attempt.record.status = "empty";
+    this.resolve(attempt.record, null);
+  }
+
+  pump() {
+    if (this.pumping || this.closing) return;
+    this.pumping = true;
+    clearTimeout(this.wakeTimer);
+    this.wakeTimer = null;
+    try {
+      const now = performance.now();
+      const plan = this.plan();
+      const queue = [...this.records.values()].filter(record => record.status === "queued")
+        .sort((a, b) => Number(b.foreground) - Number(a.foreground) || (a.page ?? 0) - (b.page ?? 0));
+      const foreground = queue.some(record => record.foreground);
+      if (foreground && this.active.size >= 2) {
+        const expendable = [...this.active.values()].filter(attempt => !attempt.record.foreground)
+          .sort((a, b) => (b.record.page ?? Infinity) - (a.record.page ?? Infinity));
+        if (expendable.length) this.cancel(expendable[0]);
+      }
+      let nextWake = Infinity;
+      let demand = false;
+      for (const [attempt, deadline] of this.timingPending) {
+        if (deadline <= now) this.timingPending.delete(attempt);
+        else nextWake = Math.min(nextWake, deadline);
+      }
+      for (const record of queue) {
+        if (!record.promise) continue;
+        if (this.hidden || (!record.foreground && (!this.backgroundAllowed() || foreground))) continue;
+        if (!record.foreground && this.timingPending.size) continue;
+        if (!record.foreground && this.packetSaving && (record.bytes || plan.bytes) > this.budgetBalance) continue;
+        demand = true;
+        const retryAt = Math.max(record.retryAt, record.foreground ? 0 : this.globalRetryAt);
+        if (retryAt > now) { nextWake = Math.min(nextWake, retryAt); continue; }
+        if (this.active.size >= (record.foreground ? 2 : plan.parallel)) continue;
+        const bytes = record.bytes || plan.bytes;
+        const pixels = record.pixels || plan.pixels;
+        if (!record.foreground) {
+          if (this.packetSaving && bytes > this.budgetBalance) continue;
+          this.evictOldEntries({ bytes, pixels, count: 1 });
+          const used = this.usage();
+          if (used.count >= this.maxCacheEntries || used.bytes + bytes > this.maxBytes || used.pixels + pixels > this.maxPixels) continue;
+        }
+        this.start(record, { bytes, pixels, timeout: plan.timeout });
+      }
+      this.trackDemand(!this.hidden && !this.backgroundPaused &&
+        (demand || [...this.active.values()].some(attempt => !attempt.record.foreground)));
+      if (this.packetSaving && this.backgroundAllowed()) nextWake = Math.min(nextWake, this.lastActivity + 30000);
+      if (Number.isFinite(nextWake) && (!this.hidden || foreground)) {
+        this.wakeTimer = setTimeout(() => this.replan(), Math.max(1, nextWake - now));
+      }
+    } finally { this.pumping = false; }
+  }
+
+  start(record, estimate) {
+    const image = new Image();
+    const attempt = { record, image, ...estimate, start: performance.now(), foreground: record.foreground,
+      retry: record.attempts > 0, parallel: this.active.size + 1, charge: 0 };
+    record.status = "loading";
+    this.failedImages.delete(record.url);
+    if (this.packetSaving && !record.foreground) {
+      attempt.charge = estimate.bytes;
+      this.budgetBalance -= attempt.charge;
+    }
+    this.active.set(record.url, attempt);
+    for (const running of this.active.values()) running.parallel = Math.max(running.parallel, this.active.size);
+    const finish = (success, timeout = false) => {
+      if (this.active.get(record.url) !== attempt) return;
+      image.onload = null;
+      image.onerror = null;
+      clearTimeout(attempt.timer);
+      this.active.delete(record.url);
+      attempt.end = performance.now();
+      attempt.duration = (attempt.end - attempt.start) / 1000;
+      attempt.success = success;
+      attempt.image = null;
+      if (success) {
+        record.status = "loaded";
+        record.image = image;
+        record.bytes = record.bytes || estimate.bytes;
+        record.pixels = (image.naturalWidth || image.width || 0) * (image.naturalHeight || image.height || 0) || estimate.pixels;
+        this.imageCache.set(record.url, image);
+        record.attempts = 0; record.retryAt = 0;
+        if (!this.transferMeter.observer) { this.globalFailures = 0; this.globalRetryAt = 0; }
+        if (attempt.duration >= 0.005) this.readySamples.push(attempt);
+        this.readySamples = this.readySamples.slice(-20);
+        // Observerの通知を少し待ち、実サイズで残高を直してから次を取得するルン。
+        // キャッシュ等で通知が来なくても50msで補充を再開するルン。
+        if (this.transferMeter.observer) this.timingPending.set(attempt, attempt.end + 50);
+      } else {
+        record.status = "failed";
+        record.attempts++;
+        const backoff = Math.min(30000, 1000 * 2 ** Math.min(5, record.attempts - 1));
+        record.retryAt = attempt.end + backoff * (0.9 + Math.random() * 0.2);
+        this.failedImages.add(record.url);
+        while (this.failedImages.size > this.maxCacheEntries) this.failedImages.delete(this.failedImages.values().next().value);
+        this.failures = this.failures.filter(failure => attempt.end - failure.at < 30000);
+        this.failures.push({ url: record.url, at: attempt.end });
+        if (timeout || new Set(this.failures.map(failure => failure.url)).size >= 2) {
+          this.unstableUntil = attempt.end + 300000;
+          this.lastPressureAt = attempt.end;
+          this.globalFailures++;
+          this.globalRetryAt = attempt.end + Math.min(30000, 1000 * 2 ** Math.min(5, this.globalFailures - 1));
+        }
+        if (timeout) image.removeAttribute("src");
+      }
+      this.transferMeter.finish(attempt.transfer, success);
+      this.resolve(record, success ? image : null);
+      this.evictOldEntries();
+      this.replan();
+      if (success && this.isVisible(record.url) && this.view.ready &&
+          (attempt.retry || !this.presentation?.ready)) this.onVisibleReady?.();
+    };
+    image.onload = () => finish(true);
+    image.onerror = () => finish(false);
+    attempt.timer = setTimeout(() => finish(false, true), estimate.timeout);
+    attempt.transfer = this.transferMeter.begin(record.url, !record.foreground);
+    if (attempt.transfer) attempt.transfer.attempt = attempt;
+    image.src = record.url;
+    this.onChange?.();
+  }
+
+  observeTransfer(request) {
+    const attempt = request.attempt;
+    const entry = request.entry;
+    if (!attempt || !attempt.success || request.ambiguous || !entry) return;
+    this.timingPending.delete(attempt);
+    const bytes = entry.encodedBodySize;
+    if (!Number.isFinite(bytes) || bytes <= 0) return;
+    const record = attempt.record;
+    const cached = entry.transferSize === 0 || entry.transferSize === 300 || entry.deliveryType === "cache";
+    const network = Number.isFinite(entry.transferSize) && entry.transferSize > 300 && entry.transferSize >= bytes &&
+      !(entry.workerStart > 0) && (entry.responseStatus === undefined || (entry.responseStatus >= 200 && entry.responseStatus < 300));
+    attempt.cached = cached;
+    if (cached || network) {
+      record.bytes = bytes;
+      if (attempt.charge) this.budgetBalance = Math.min(this.budgetLimit, this.budgetBalance + attempt.charge - (cached ? 0 : bytes));
+    }
+    let responseStart = entry.responseStart;
+    if (Number.isFinite(entry.finalResponseHeadersStart) && entry.finalResponseHeadersStart >= responseStart && entry.finalResponseHeadersStart < entry.responseEnd) {
+      responseStart = entry.finalResponseHeadersStart;
+    }
+    if (network && Number.isFinite(entry.requestStart) && entry.requestStart > 0 && entry.requestStart >= entry.startTime &&
+        Number.isFinite(responseStart) && Number.isFinite(entry.responseEnd) &&
+        !(entry.firstInterimResponseStart > 0 && !(entry.finalResponseHeadersStart >= entry.responseStart)) &&
+        responseStart >= entry.requestStart && entry.responseEnd > responseStart && entry.responseEnd <= request.end) {
+      this.networkSamples.push({ request, bytes, wait: (responseStart - entry.requestStart) / 1000,
+        duration: attempt.duration, start: attempt.start, end: attempt.end, parallel: attempt.parallel });
+      this.networkSamples = this.networkSamples.slice(-20);
+      this.globalFailures = 0;
+      this.globalRetryAt = 0;
+      const solo = this.networkSamples.filter(sample => sample.parallel === 1);
+      const parallel = this.networkSamples.filter(sample => sample.parallel === 2);
+      if (attempt.parallel === 2 && solo.length >= 3 && parallel.length >= 4 &&
+          preloadGoodput(parallel) <= preloadGoodput(solo) * 1.1 &&
+          preloadQuantile(parallel.map(sample => sample.duration), 0.9) > preloadQuantile(solo.map(sample => sample.duration), 0.9) * 1.3) {
+        this.parallelPenaltyUntil = performance.now() + 60000;
       }
     }
-    this.lastPageTurnTime = now;
-    this.adjustPreloadPages();
+    this.replan();
   }
 
-  // ★ 先読みページ数の動的調整ルン
-  adjustPreloadPages() {
-    let averageTurnTime =
-      this.pageLoadTimes.reduce((a, b) => a + b, 0) / this.pageLoadTimes.length;
-    if (isNaN(averageTurnTime)) {
-      averageTurnTime = 1000; // デフォルト値
-      debugLog(
-        "adjustPreloadPages() default averageTurnTime:" + averageTurnTime
-      );
-    } else {
-      debugLog("adjustPreloadPages() averageTurnTime:" + averageTurnTime);
+  trackDemand(active) {
+    const now = performance.now();
+    if (active && this.demandSince === null) this.demandSince = now;
+    if (!active && this.demandSince !== null) {
+      this.supplyPeriods.push({ start: this.demandSince, end: now });
+      this.demandSince = null;
     }
-
-    // ページめくり速度に基づいて調整ルン
-    let plusPageCacheRate = 1;
-    if (size === "FULL") {
-      plusPageCacheRate = 2;
-    }
-    if (averageTurnTime < 1000) {
-      this.size = 10 * plusPageCacheRate;
-    } else if (averageTurnTime < 2000) {
-      this.size = 6 * plusPageCacheRate;
-    } else {
-      this.size = 4 * plusPageCacheRate;
-    }
-    debugLog("Preloading read speed initial " + this.size + " pages");
-
-    // ★ ネットワーク帯域に基づいて調整ルン
-    if (this.preloadSpeedKbps < 160) {
-      this.size += 15;
-    } else if (this.preloadSpeedKbps < 320) {
-      this.size += 10;
-    } else if (this.preloadSpeedKbps < 640) {
-      this.size += 8;
-    } else if (this.preloadSpeedKbps < 2048) {
-      this.size += 4;
-    } else if (this.preloadSpeedKbps < 4096) {
-      this.size += 2;
-    }
-    debugLog(
-      "Preloading adjust " +
-        this.size +
-        " pages. preloadSpeedKbps:" +
-        this.preloadSpeedKbps
-    );
-    // ★ 平均ページサイズが大きい場合は先読み数を増やすルン！
-    if (typeof averagePageKBytes !== "undefined" && averagePageKBytes >= 1000) {
-      this.size = Math.floor(this.size * 1.5);
-      debugLog(
-        "Large page size detected! Increasing preload pages to " +
-          this.size +
-          " pages"
-      );
-    }
-
-    // ★ メモリキャッシュの上限も先読み数に連動して調整するルン
-    // 先読み数 + 過去閲覧分のバッファ（最低50、最大80）
-    this.maxCacheEntries = Math.min(Math.max(this.size * 3, 50), 80);
-    this.onChange?.();
+    this.supplyPeriods = this.supplyPeriods.filter(period => now - period.end < 60000).slice(-64);
+    const periods = this.demandSince === null ? this.supplyPeriods : [...this.supplyPeriods, { start: this.demandSince, end: now }];
+    const seconds = periods.reduce((sum, period) => sum + Math.max(0, period.end - Math.max(now - 60000, period.start)), 0) / 1000;
+    const completed = this.networkSamples.filter(sample => now - sample.end < 60000).length;
+    const read = preloadQuantile(this.readTimes, 0.3) || 5;
+    if (seconds >= 20 && completed >= 2 && completed / seconds < 1 / read) this.slowUntil = now + 120000;
   }
+
+  setHidden(hidden) {
+    this.hidden = hidden;
+    if (this.presentation) this.presentation.valid = false;
+    if (hidden) {
+      clearTimeout(this.wakeTimer);
+      this.trackDemand(false);
+    } else {
+      if (performance.now() - this.lastActivity >= 120000) this.resetReading();
+      this.lastActivity = performance.now();
+      if (this.presentation) { this.presentation.at = this.lastActivity; this.presentation.valid = false; }
+      this.creditVisible();
+      this.replan();
+    }
+  }
+
+  pauseBackground() {
+    this.backgroundPaused = true;
+    clearTimeout(this.wakeTimer);
+    for (const attempt of [...this.active.values()]) if (!attempt.record.foreground) this.cancel(attempt);
+    this.trackDemand(false);
+  }
+
+  resume() {
+    this.closing = false;
+    this.backgroundPaused = false;
+    this.setHidden(Boolean(document.hidden));
+    this.transferMeter.refresh();
+  }
+
+  stop() {
+    this.closing = true;
+    clearTimeout(this.wakeTimer);
+    for (const attempt of [...this.active.values()]) this.cancel(attempt);
+    for (const record of this.records.values()) if (record.promise) this.resolve(record, null);
+    if (this.presentation) this.presentation.valid = false;
+    clearTimeout(this.transferMeter.expiryTimer);
+    this.trackDemand(false);
+  }
+}
+
+function preloadQuantile(values, percentile) {
+  if (!values.length) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  return sorted[Math.max(0, Math.ceil(sorted.length * percentile) - 1)];
+}
+
+function calculatePreloadPlan({ read, ready, horizon, packetSaving, readPages, readSeconds }) {
+  const stage = readPages >= 20 && readSeconds >= 90 ? 3 :
+    (readPages >= 10 && readSeconds >= 50 ? 2 : (readPages >= 3 && readSeconds >= 15 ? 1 : 0));
+  const target = Math.max(4, Math.min(72, Math.ceil((horizon + 2 * ready) / read) + 2));
+  return { target: packetSaving ? Math.min(target, [2, 3, 6, 8][stage]) : target,
+    budget: [2, 3, 6, 8][stage] * 1024 * 1024,
+    timeout: Math.min(90000, Math.max(20000, ready * 4000)) };
+}
+
+function preloadGoodput(samples) {
+  let duration = 0, end = 0;
+  for (const sample of samples.slice().sort((a, b) => a.start - b.start)) {
+    duration += Math.max(0, sample.end - Math.max(end, sample.start));
+    end = Math.max(end, sample.end);
+  }
+  return duration > 0 ? samples.reduce((sum, sample) => sum + sample.bytes, 0) / duration : 0;
 }
 
 // 先読み通信だけを観測するルン。追加通信や共有Performanceバッファの操作はしないルン。
 class ImageTransferMeter {
-  constructor(onChange) {
+  constructor(onChange, onTiming = () => {}) {
     this.onChange = onChange;
+    this.onTiming = onTiming;
     this.requests = [];
     this.samples = [];
     this.lastMeasurement = null;
@@ -323,6 +696,14 @@ class ImageTransferMeter {
     request.end = performance.now();
     request.success = success;
     this.accept(request);
+    this.publish(request);
+  }
+
+  publish(request) {
+    if (request.success && request.entry && !request.ambiguous && !request.published) {
+      request.published = true;
+      this.onTiming(request);
+    }
   }
 
   observe(entries) {
@@ -347,6 +728,7 @@ class ImageTransferMeter {
       }
       request.entry = entry;
       this.accept(request);
+      this.publish(request);
     }
     this.refresh();
   }
@@ -435,7 +817,10 @@ class ImageTransferMeter {
   }
 }
 
-var preCaches = new PreCache(global_preload_pages);
+var preCaches = new PreCache();
+preCaches.onVisibleReady = () => {
+  if (readerReady && !readerRenderPending && !readerClosing) renderReaderPage("recovery");
+};
 var nextimage1 = new Image();
 var nextimage2 = new Image();
 // pageは回転で変えない読書位置、displayedStart/Endは実際の表示範囲ルン
@@ -782,6 +1167,14 @@ window.addEventListener(
 );
 
 window.addEventListener("pagehide", saveCurrentPage);
+window.addEventListener("pagehide", () => preCaches.stop());
+window.addEventListener("pageshow", (event) => { if (event.persisted) preCaches.resume(); });
+document.addEventListener("visibilitychange", () => preCaches.setHidden(Boolean(document.hidden)));
+window.addEventListener("online", () => {
+  // 接続通知は成功の証拠にせず、必要な画像の復旧試行を早めるだけルン。
+  preCaches.globalRetryAt = 0;
+  preCaches.replan();
+});
 
 // 長押しでクイック見開きモード
 // https://github.com/john-doherty/long-press-event
@@ -1288,6 +1681,7 @@ async function devicePageSync() {
 async function loadPage(dir, { restore = false, progressChecked = false } = {}) {
   if (readerClosing && !restore && !progressChecked) { page = prevPage; return; }
   const targetPage = Math.max(1, Math.min(maxPage, parseInt(page, 10) || 1));
+  if (!restore && !progressChecked) preCaches.recordPageTurn(targetPage);
   if (readerProgressManager && !restore && !progressChecked) {
     if (readerNavigationPending) { page = prevPage; return; }
     readerNavigationPending = true;
@@ -1352,11 +1746,6 @@ async function loadPage(dir, { restore = false, progressChecked = false } = {}) 
     }, 5000);
   }
   writeReaderStorage(file, String(page));
-  preCaches.recordPageTurn();
-  if (Math.abs(prevPage - page) > 3) {
-    const preloadPage = page;
-    setTimeout(() => preLoadInitialImages(preloadPage), global_preload_delay_ms);
-  }
   prevPage = page;
   await renderReaderPage(restore ? "restore" : "navigation");
 }
@@ -1444,6 +1833,7 @@ async function renderReaderPage(reason) {
   autoLightSplitMode = false;
   als = "";
   let layout = { start: target, end: target, paired: false };
+  preCaches.prepareView(target, target, maxPage, number => getFullImageUrl(number, false));
   try {
     if (targetMode === 2) {
       const start = window.ComistreamViewport.spreadStart(target, fixPage);
@@ -1454,6 +1844,9 @@ async function renderReaderPage(reason) {
     displayedStart = Math.max(1, layout.start);
     displayedEnd = Math.min(maxPage, layout.end);
     spreadLayoutPaired = layout.paired;
+    preCaches.prepareView(displayedStart, displayedEnd, maxPage, number => getFullImageUrl(number, false));
+    const visibleImages = Promise.all(Array.from({ length: displayedEnd - displayedStart + 1 },
+      (_, index) => load_image(getFullImageUrl(displayedStart + index, false))));
     autoLightSplitMode = false;
     als = "";
     const first = document.getElementById("image");
@@ -1475,13 +1868,11 @@ async function renderReaderPage(reason) {
     updatePageModeButton();
     if (document.getElementById("contents").style.display === "block") setSlider();
     document.getElementById("progress").style.width = (page / maxPage) * 100 + "%";
-    await refreshAutoLightSplitLayout(reason);
+    const loadedImages = await visibleImages;
     if (renderId !== readerRenderId) return;
-    if (reason === "navigation") {
-      preLoadImages(displayedEnd + 1);
-      preLoadImages(displayedEnd + 2);
-      preLoadImages(displayedEnd + preCaches.getSize());
-    }
+    if (loadedImages.every(Boolean)) await refreshAutoLightSplitLayout(reason);
+    if (renderId !== readerRenderId) return;
+    preCaches.present(loadedImages.every(Boolean), reason === "navigation");
   } finally {
     if (renderId === readerRenderId) {
       readerRenderPending = false;
@@ -1492,47 +1883,18 @@ async function renderReaderPage(reason) {
   }
 }
 
-// 分割モード時の先読み処理
-function preLoadImages(nextpage) {
-  //let nextpage = dir*mode+page;
-  if (nextpage > 0 && nextpage <= maxPage) {
-    const nextImageUrl = getFullImageUrl(nextpage);
-    // preCaches.recordPageTurn();
-    debugLog("preLoadImages() add:" + nextpage);
-    // console.trace('スタックトレースを表示');
-    preCaches.add(nextImageUrl);
-    // preCaches.measureNetworkSpeed();
-  }
+// 初期・通常・ジャンプ後を同じ計画で補充するルン。
+function preLoadImages() {
+  preCaches.replan();
 }
 
-// 初期ロード時の先読み処理
-async function preLoadInitialImages(startPage) {
-  for (let i = 1; i <= preCaches.getSize(); i++) {
-    let nextpage = startPage + i;
-    if (nextpage > 0 && nextpage <= maxPage) {
-      const nextImageUrl = getFullImageUrl(nextpage);
-      debugLog("preLoadInitialImages() add:" + nextpage);
-      await preCaches.add(nextImageUrl);
-    }
-  }
+function preLoadInitialImages() {
+  return preCaches.enable();
 }
 
 async function browserCanDecodeJpegXlPage(pageNumber) {
-  const probeImage = new Image();
-  return new Promise((resolve) => {
-    let transfer;
-    probeImage.onload = () => {
-      preCaches.transferMeter.finish(transfer, false);
-      resolve(probeImage.naturalWidth > 0 && probeImage.naturalHeight > 0);
-    };
-    probeImage.onerror = () => {
-      preCaches.transferMeter.finish(transfer, false);
-      resolve(false);
-    };
-    const url = getFullImageUrl(pageNumber);
-    transfer = preCaches.transferMeter.begin(url, false);
-    probeImage.src = url;
-  });
+  const image = await preCaches.request(getFullImageUrl(pageNumber, false), true);
+  return Boolean(image && image.naturalWidth > 0 && image.naturalHeight > 0);
 }
 
 async function ensureJpegXlSupport() {
@@ -1742,6 +2104,8 @@ function spread() {
 async function backListPage() {
   if (readerClosing) return;
   readerClosing = true;
+  preCaches.pauseBackground();
+  let navigating = false;
   try {
     // 戻ったページの描画と位置登録が完了してから終了保存するルン。
     if (readerNavigationPromise) await readerNavigationPromise;
@@ -1765,6 +2129,8 @@ async function backListPage() {
       document.msExitFullscreen();
     }
 
+    navigating = true;
+    preCaches.stop();
     if (window.history.length > 1) {
       window.history.back();
     } else {
@@ -1772,6 +2138,7 @@ async function backListPage() {
     }
   } finally {
     readerClosing = false;
+    if (!navigating) preCaches.resume();
   }
 }
 
@@ -2021,6 +2388,8 @@ async function sugguestbook() {
 async function toNextBook(nextlocation) {
   if (readerClosing) return;
   readerClosing = true;
+  preCaches.pauseBackground();
+  let navigating = false;
   try {
     if (readerNavigationPromise) await readerNavigationPromise;
     if (readerProgressManager) await readerProgressManager.finish();
@@ -2033,9 +2402,12 @@ async function toNextBook(nextlocation) {
     lastSaveTime = Date.now();
     debugLog("saveCurrentPage() executed before moving to next book");
 
+    navigating = true;
+    preCaches.stop();
     location.replace(nextlocation);
   } finally {
     readerClosing = false;
+    if (!navigating) preCaches.resume();
   }
 }
 
@@ -2257,29 +2629,11 @@ function extractURLFromStyleString(styleString) {
 }
 
 async function load_image(path) {
-  //画像読み込み関数（読み込み完了を待つために使用）
-  const t_img = new Image();
-  return new Promise((resolve) => {
-    let transfer;
-    // 通信停止時もページ操作の保留を必ず解除するルン
-    const timer = setTimeout(() => {
-      t_img.onload = null;
-      t_img.onerror = null;
-      preCaches.transferMeter.finish(transfer, false);
-      resolve(null);
-    }, 15000);
-    t_img.onload = () => {
-      clearTimeout(timer);
-      preCaches.transferMeter.finish(transfer, false);
-      resolve(t_img);
-    };
-    t_img.onerror = () => {
-      clearTimeout(timer);
-      preCaches.transferMeter.finish(transfer, false);
-      resolve(null);
-    };
-    transfer = preCaches.transferMeter.begin(path, false);
-    t_img.src = path;
+  // 同じImageを共有し、表示操作の待機は従来どおり15秒で解除するルン。
+  // 遅いPDF等の取得自体は取り消さず、完了時に表示を再調整するルン。
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(null), 15000);
+    preCaches.request(path, true).then(image => { clearTimeout(timer); resolve(image); });
   });
 }
 
@@ -2487,7 +2841,7 @@ function updateImagePreloadStatus() {
   // 読み込み状況が変わっても同じマスのDOMを使うルン。
   for (let index = 0; index < length; index++) {
     const number = displayedEnd + index + 1;
-    const status = preCaches.getStatus(getFullImageUrl(number));
+    const status = preCaches.getStatus(getFullImageUrl(number, false));
     const [symbol, label] = states[status];
     let cell = cells.children[index];
     if (!cell) {

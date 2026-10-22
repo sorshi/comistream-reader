@@ -555,16 +555,16 @@ test('real image transfers update the inspector without counting cache, probes o
                 expect(row.parentElement === list && content.scrollTop === 100, 'Live update rebuilt content or moved scroll');
                 await preCaches.add('/cache.svg');
                 await waitFor(() => meter.samples.length === 5, 'Initial cacheable transfer missing');
-                preCaches.imageCache.delete('/cache.svg');
+                preCaches.imageCache.delete(new URL('/cache.svg', location.href).href);
                 await preCaches.add('/cache.svg');
                 await pause(100);
                 expect(meter.samples.length === 5, 'Cached Image reused old timing');
                 await Promise.all([preCaches.add('/probe.svg'), load_image('/probe.svg')]);
                 await preCaches.add('/error.svg');
                 await pause(100);
-                expect(meter.samples.length === 5, 'Probe coalescing or HTTP error counted');
+                expect(meter.samples.length === 6, 'Shared Image was not measured once or HTTP error counted');
                 await preCaches.add('/validated.svg');
-                await waitFor(() => meter.samples.length === 6, 'Initial validated response missing');
+                await waitFor(() => meter.samples.length === 7, 'Initial validated response missing');
                 const frame = document.createElement('iframe'); frame.src = '/revalidation'; document.body.append(frame);
                 await waitFor(() => frame.contentWindow.revalidationResult, 'Revalidation fixture did not finish');
                 const result = frame.contentWindow.revalidationResult;
@@ -573,7 +573,7 @@ test('real image transfers update the inspector without counting cache, probes o
                 frame.remove();
                 document.getElementById('inspector-close').click();
                 await preCaches.add('/closed.svg');
-                await waitFor(() => meter.samples.length === 7, 'Closing inspector stopped collection');
+                await waitFor(() => meter.samples.length === 8, 'Closing inspector stopped collection');
                 expect(content.childElementCount === 0, 'Collection updated closed content');
                 openInspector();
                 expect(document.getElementById('inspector-network-speed').textContent.includes('kbps'), 'Reopen lost measurements');

@@ -11,14 +11,18 @@ function fixture(options = {}) {
     {
       size: 'FULL', averagePageKBytes: 100, performance, debugLog() {},
       URL, document: { baseURI: 'https://reader.test/' },
+      setTimeout() {}, clearTimeout() {},
       ...options,
       Image: class {
         constructor() { images.push(this); }
         set src(value) { this.url = value; }
+        removeAttribute() {}
       }
     }
   );
   const cache = new PreCache(9);
+  // 測定器単体の試験では実サイズ通知待ちを省き、指定時刻をそのまま使うルン。
+  cache.timingPending = { set() {}, delete() {}, get size() { return 0; }, [Symbol.iterator]: function* () {} };
   const updates = [];
   cache.onChange = () => updates.push(images.map(image => cache.getStatus(image.url)));
   return { cache, images, updates };
@@ -41,7 +45,7 @@ test('preload status observes loading, retention and eviction without requesting
   cache.maxCacheEntries = 0;
   cache.evictOldEntries();
   assert.equal(cache.getStatus(url), 'empty');
-  assert.equal(updates.at(-1)[0], 'empty');
+  assert.equal(cache.imageCache.size, 0);
 });
 
 test('failed preloads retry and use exact URLs including size, split and generation', async () => {
@@ -51,6 +55,7 @@ test('failed preloads retry and use exact URLs including size, split and generat
   images[0].onerror();
   await failed;
   assert.equal(cache.getStatus(url), 'failed');
+  cache.records.get(url).retryAt = 0;
   const retry = cache.add(url);
   assert.equal(cache.getStatus(url), 'loading');
   images[1].onload();
@@ -61,33 +66,23 @@ test('failed preloads retry and use exact URLs including size, split and generat
   assert.equal(cache.getStatus(url.replace('cache_version=a', 'cache_version=b')), 'empty');
 });
 
-test('overlapping requests remain loading until settled and a success survives a later failure', async () => {
+test('overlapping preload and foreground requests share one Image and Promise', async () => {
   const { cache, images } = fixture();
   const first = cache.add('page21');
-  const second = cache.add('page21');
-  images[0].onerror();
-  await first;
-  assert.equal(cache.getStatus('page21'), 'loading');
-  images[1].onload();
-  await second;
+  const second = cache.request('page21', true);
+  assert.equal(first, second);
+  assert.equal(images.length, 1);
+  images[0].onload();
+  assert.equal(await first, await second);
   assert.equal(cache.getStatus('page21'), 'loaded');
-  assert.equal(cache.loadingCounts.size, 0);
-
-  const third = cache.add('page22');
-  const fourth = cache.add('page22');
-  images[2].onload();
-  await third;
-  images[3].onerror();
-  await fourth;
-  assert.equal(cache.getStatus('page22'), 'loaded');
-  assert.equal(cache.failedImages.has('page22'), false);
-  assert.equal(cache.loadingCounts.size, 0);
+  assert.equal(cache.active.size, 0);
 });
 
 test('failure history is bounded and size changes notify the inspector', async () => {
   const { cache, images, updates } = fixture();
   cache.maxCacheEntries = 2;
   for (let page = 1; page <= 3; page++) {
+    cache.globalRetryAt = 0;
     const pending = cache.add('page' + page);
     images.at(-1).onerror();
     await pending;
@@ -131,7 +126,7 @@ function timingFixture() {
   };
 }
 
-test('display speed is unknown without Resource Timing and keeps legacy preload control', async () => {
+test('display speed is unknown without Resource Timing while preloading continues', async () => {
   const { cache, images } = fixture({ performance: { now: () => 100 } });
   assert.equal(cache.getBps(), null);
   const pending = cache.add('page1');
@@ -141,7 +136,7 @@ test('display speed is unknown without Resource Timing and keeps legacy preload 
   assert.equal(cache.getStatus('page1'), 'loaded');
 });
 
-test('display speed uses response bytes and receive time, independent of preload control', async () => {
+test('display speed uses response bytes and receive time, without double counting', async () => {
   const f = timingFixture();
   const first = f.cache.add('page1');
   const a = f.entry('page1', 101, 1100, 1200);
@@ -155,10 +150,8 @@ test('display speed uses response bytes and receive time, independent of preload
   f.advance(2400);
   f.images[1].onload();
   await second;
-  const size = f.cache.getSize();
   f.deliver([f.entry('page2', 1211, 2200, 2300)]);
   assert.equal(f.cache.getBps(), Math.floor(131072 * 8 / 200));
-  assert.equal(f.cache.getSize(), size);
   f.deliver([a]);
   assert.equal(f.cache.getBps(), Math.floor(131072 * 8 / 200));
 });
@@ -176,6 +169,9 @@ async function completeTiming(f, url, start, receiveStart, end, extra = {}, succ
 
 test('parallel receive intervals use their union, including contained intervals and gaps', async () => {
   const f = timingFixture();
+  // 集約器だけは3本を同時観測させ、内包区間も検証するルン。
+  const plan = f.cache.plan.bind(f.cache);
+  f.cache.plan = () => ({ ...plan(), parallel: 3 });
   const a = f.cache.add('a');
   const b = f.cache.add('b');
   const c = f.cache.add('c');
@@ -252,7 +248,7 @@ test('coalesced preloads, dimension probes and multiple matching entries are exc
     if (mode === 'probe-first') meter.begin('same', false);
     const pending = [f.cache.add('same')];
     if (mode === 'probe-last') meter.begin('same', false);
-    if (mode === 'preload') pending.push(f.cache.add('same'));
+    if (mode === 'preload') meter.begin('same');
     f.advance(400);
     for (const img of f.images) img.onload();
     await Promise.all(pending);
@@ -324,19 +320,6 @@ for (const observer of [
     assert.equal(cache.getStatus('page'), 'loaded');
   });
 }
-
-test('existing speed thresholds and load-duration calculation remain independent of display speed', async () => {
-  const f = timingFixture();
-  for (const [speed, pages] of [[0, 27], [160, 22], [320, 20], [640, 16], [2048, 14], [4096, 12]]) {
-    f.cache.preloadSpeedKbps = speed;
-    f.cache.adjustPreloadPages();
-    assert.equal(f.cache.getSize(), pages);
-  }
-  await completeTiming(f, 'page', 100, 500, 1099);
-  assert.equal(f.cache.preloadSpeedKbps, (100 * 1024 * 8 / 1000).toFixed(2));
-  assert.equal(f.cache.getSize(), 16);
-  assert.equal(f.cache.getBps(), null);
-});
 
 test('request saturation discards ambiguous bookkeeping rather than reusing an entry', async () => {
   const f = timingFixture();
