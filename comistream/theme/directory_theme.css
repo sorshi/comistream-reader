@@ -1,0 +1,40 @@
+/* 一覧の両表示とスケルトンの配色を、システム設定に合わせるルン。 */
+:root {
+  color-scheme: light;
+  --directory-bg: #fff;
+  --directory-text: #61666c;
+  --directory-link-hover: #2a2a2a;
+  --directory-cover-text: #444;
+  --directory-chrome: #7799dd;
+  --directory-control-border: #5674b9;
+  --directory-border: #edf1f5;
+  --directory-panel-border: #d4ddec;
+  --directory-panel-bg: #fff;
+  --directory-hover-bg: #edf3fe;
+  --directory-clicked-text: #5577bb;
+  --directory-error: #d32f2f;
+  --directory-skeleton-bg: #f8f9fa;
+  --directory-skeleton-placeholder: #e9ecef;
+  --directory-skeleton-shimmer: rgba(255, 255, 255, 0.7);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --directory-bg: #161b22;
+    --directory-text: #d6dce5;
+    --directory-link-hover: #fff;
+    --directory-cover-text: #d6dce5;
+    --directory-chrome: #26344d;
+    --directory-control-border: #7799dd;
+    --directory-border: #303a49;
+    --directory-panel-border: #414d60;
+    --directory-panel-bg: #222b38;
+    --directory-hover-bg: #2b3a52;
+    --directory-clicked-text: #a9c5ff;
+    --directory-error: #ff9b94;
+    --directory-skeleton-bg: #202833;
+    --directory-skeleton-placeholder: #344154;
+    --directory-skeleton-shimmer: rgba(255, 255, 255, 0.12);
+  }
+}

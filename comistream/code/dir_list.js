@@ -649,7 +649,7 @@ function toggleView() {
   if (/style\.css/.test(stylesheet.href || "")) {
     // List -> Cover
     document.cookie = "viewmode=cover; path=/; SameSite=Strict";
-    stylesheet.href = "/theme/style_cover.css?2025080200";
+    stylesheet.href = "/theme/style_cover.css?2026110301";
     setTimeout(() => {
       try { reinitializeContentFeatures(); } catch (e) { console.error(e); }
       try { applyDirectoryCustomIcons(); } catch (e) { console.error(e); }
@@ -678,7 +678,7 @@ function toggleView() {
     clearCustomIconsImmediately();
 
     document.cookie = "viewmode=list; path=/; SameSite=Strict";
-    stylesheet.href = "/theme/style.css?2025080200";
+    stylesheet.href = "/theme/style.css?2026110301";
 
     setTimeout(() => {
       try { reinitializeContentFeatures(); } catch (e) { console.error(e); }

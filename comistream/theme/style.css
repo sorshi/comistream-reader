@@ -4,13 +4,14 @@
 */
 html{
   min-height:100%;
+  background:var(--directory-bg);
   text-autospace: normal;
-  border-top:32px solid #7799dd;
-  border-bottom:20px solid #7799dd;
+  border-top:32px solid var(--directory-chrome);
+  border-bottom:20px solid var(--directory-chrome);
   /* meta theme-color と色を合わせるためグラデーション廃止*/
   /* border-image: linear-gradient(90deg, #7799dd, #5674b9); */
   border-image-slice: 1;
-  color:#61666c;
+  color:var(--directory-text);
   font-size:1em;
   font-family:'Lucida Grande',Verdana,AquaKana,ArialMT,'Hiragino Kaku Gothic ProN','ヒラギノ角ゴ ProN W3','メイリオ',Meiryo;
   line-height:1.7em;
@@ -20,23 +21,23 @@ body{
   -webkit-text-size-adjust:100%;
 }
 a{
-  color:#61666c;
+  color:var(--directory-text);
   text-decoration:none;
 }
 a:hover{
-  color:#2a2a2a;
+  color:var(--directory-link-hover);
 }
 
 /* タッチデバイス向けのhover効果無効化 */
 @media (hover: none) {
   a:hover {
-    color: #61666c;
+    color: var(--directory-text);
   }
   .sort-toggle:hover {
     transform: none;
   }
   .sort-select:hover {
-    border-color: #5674b9;
+    border-color: var(--directory-control-border);
   }
 }
 
@@ -159,7 +160,8 @@ a:hover{
   width: 200px;
   height: 28px;
   padding-left: 10px;
-  border: solid 2px #5674b9;
+  border: solid 2px var(--directory-control-border);
+  background-color:var(--directory-panel-bg);
   border-radius: 5px;
 }
 .wrapper input{
@@ -172,7 +174,8 @@ a:hover{
 }
 .textbox{
   width:180px;
-  background-color:white;
+  background-color:var(--directory-panel-bg);
+  color:FieldText;
   border:none;
   outline:0;
 }
@@ -221,10 +224,10 @@ a:hover{
   min-width:32px;
   height:32px;
   padding:0;
-  border:1px solid #d4ddec;
+  border:1px solid var(--directory-panel-border);
   border-radius:6px;
-  background:#fff;
-  color:#61666c;
+  background:var(--directory-panel-bg);
+  color:var(--directory-text);
   font-size:1.15em;
   line-height:1;
   cursor:pointer;
@@ -236,8 +239,8 @@ a:hover{
 }
 .folder-actions-button:hover,
 .folder-actions-button[aria-expanded="true"]{
-  background:#edf3fe;
-  border-color:#5674b9;
+  background:var(--directory-hover-bg);
+  border-color:var(--directory-control-border);
 }
 .folder-actions-panel{
   position:absolute;
@@ -247,9 +250,9 @@ a:hover{
   width:max-content;
   max-width:min(80vw,360px);
   padding:6px;
-  border:1px solid #d4ddec;
+  border:1px solid var(--directory-panel-border);
   border-radius:8px;
-  background:#fff;
+  background:var(--directory-panel-bg);
   box-shadow:0 5px 18px rgba(42,55,80,.2);
 }
 .folder-actions-panel a,
@@ -261,7 +264,7 @@ a:hover{
   padding:8px 12px;
   border:0;
   background:transparent;
-  color:#61666c;
+  color:var(--directory-text);
   font:inherit;
   line-height:28px;
   text-align:left;
@@ -271,7 +274,7 @@ a:hover{
 }
 .folder-actions-panel a:hover,
 .folder-actions-panel button:hover{
-  background:#edf3fe;
+  background:var(--directory-hover-bg);
 }
 
 /* table */
@@ -284,14 +287,14 @@ table{
 }
 /* table row */
 tr{
-  border-bottom:1px solid #edf1f5;
+  border-bottom:1px solid var(--directory-border);
   transition:background 300ms ease;
 }
 tr:hover{
-  background:#edf3fe;
+  background:var(--directory-hover-bg);
 }
 tr.indexhead:hover{
-  background:white;
+  background:var(--directory-bg);
 }
 
 /* タッチデバイス向けのhover効果無効化 */
@@ -300,7 +303,7 @@ tr.indexhead:hover{
     background: inherit;
   }
   tr.indexhead:hover {
-    background: white;
+    background: var(--directory-bg);
   }
   tr.file-entry-row td.indexcolicon:hover {
     background-position-x: -20px;
@@ -334,7 +337,7 @@ th a {
     text-decoration: none;
 }
 th a:hover {
-    color: #2a2a2a;
+    color: var(--directory-link-hover);
 }
 th.sort-asc a::after,
 th.sort-desc a::after {
@@ -470,8 +473,8 @@ td.indexcolsize{
   top: 100%;
   right: 0;
   width: 340px;
-  background-color: white;
-  border: 2px solid #5674b9;
+  background-color: var(--directory-panel-bg);
+  border: 2px solid var(--directory-control-border);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
@@ -501,7 +504,7 @@ td.indexcolsize{
 
 .sort-label {
   font-weight: bold;
-  color: #61666c;
+  color: var(--directory-text);
   margin-right: 4px;
   white-space: nowrap;
   flex-shrink: 0;
@@ -509,11 +512,11 @@ td.indexcolsize{
 
 .sort-select {
   padding: 6px 10px;
-  border: 2px solid #5674b9;
+  border: 2px solid var(--directory-control-border);
   border-radius: 4px;
-  background-color: white;
+  background-color: var(--directory-panel-bg);
   font-size: 14px;
-  color: #61666c;
+  color: var(--directory-text);
   cursor: pointer;
   transition: border-color 0.2s ease;
   min-width: 100px;

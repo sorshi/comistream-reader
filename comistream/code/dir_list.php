@@ -468,8 +468,8 @@ $global_debug_flag = isset($global_debug_flag) ? $global_debug_flag : false;
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
-    ? '/theme/style_cover.css?2026090801'
-    : '/theme/style.css?2026090801';
+    ? '/theme/style_cover.css?2026110301'
+    : '/theme/style.css?2026110301';
 $music_folder_actions_label = htmlspecialchars(
     I18n::getInstance()->get('music_folder_actions', 'フォルダ操作'),
     ENT_QUOTES | ENT_SUBSTITUTE,
@@ -510,6 +510,7 @@ if ($is_404_mode) {
     <meta charset="UTF-8">
     <title>Index of <?php echo htmlspecialchars($request_path); ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark">
     <script>
         // Pass PHP config to Javascript (temporary config, will be updated after processing)
         const comistreamConfigTemp = <?php echo $js_config_temp; ?>;
@@ -608,12 +609,14 @@ if ($is_404_mode) {
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="Comistream">
-    <meta name="theme-color" content="#7799dd">
+    <meta name="theme-color" content="#7799dd" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#26344d" media="(prefers-color-scheme: dark)">
     <link rel="shortcut icon" href="/theme/icons/comistream.png" />
     <link rel="icon" type="image/png" href="/theme/icons/comistream.png" />
     <link rel="apple-touch-icon" href="/theme/icons/comistreamapp.png" />
+    <link rel="stylesheet" href="/theme/directory_theme.css?2026110301">
     <link id="stylesheet" rel="stylesheet" href="<?php echo $stylesheet_path; ?>">
-    <link rel="stylesheet" href="/theme/skeleton.css?2025102901">
+    <link rel="stylesheet" href="/theme/skeleton.css?2026110301">
     <script>
         const SKELETON_MIN_ITEMS = 1;
         const SKELETON_MAX_ITEMS = 1000;
@@ -682,8 +685,8 @@ if ($is_404_mode) {
                     text-align: right !important;
                     z-index: 1 !important;
                 ">
-                    <div class="skeleton-placeholder" style="width: 16px; height: 16px; background: #e9ecef; border-radius: 50%; margin-left: auto;">
-                        <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                    <div class="skeleton-placeholder" style="width: 16px; height: 16px; background: var(--directory-skeleton-placeholder); border-radius: 50%; margin-left: auto;">
+                        <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, var(--directory-skeleton-shimmer), transparent); animation: shimmer 1.5s infinite;"></div>
                     </div>
                 </td>
                 <td class="indexcolname" style="
@@ -700,10 +703,10 @@ if ($is_404_mode) {
                         top: 0px;
                         width: 159px;
                         height: 100%;
-                        background: #e9ecef;
+                        background: var(--directory-skeleton-placeholder);
                         overflow: hidden;
                     ">
-                        <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                        <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, var(--directory-skeleton-shimmer), transparent); animation: shimmer 1.5s infinite;"></div>
                     </div>
                     <a style="
                         display: block !important;
@@ -711,7 +714,7 @@ if ($is_404_mode) {
                         font-size: 0.9em !important;
                         line-height: 1.1em !important;
                         text-align: left !important;
-                        color: #444 !important;
+                        color: var(--directory-cover-text) !important;
                         position: relative !important;
                         height: 300px !important;
                         padding-top: 230px !important;
@@ -719,11 +722,11 @@ if ($is_404_mode) {
                         overflow: hidden !important;
                         text-overflow: ellipsis !important;
                     ">
-                        <div class="skeleton-placeholder" style="width: 80%; height: 14px; background: #e9ecef; border-radius: 4px; margin-bottom: 4px;">
-                            <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                        <div class="skeleton-placeholder" style="width: 80%; height: 14px; background: var(--directory-skeleton-placeholder); border-radius: 4px; margin-bottom: 4px;">
+                            <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, var(--directory-skeleton-shimmer), transparent); animation: shimmer 1.5s infinite;"></div>
                         </div>
-                        <div class="skeleton-placeholder" style="width: 60%; height: 14px; background: #e9ecef; border-radius: 4px;">
-                            <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: shimmer 1.5s infinite;"></div>
+                        <div class="skeleton-placeholder" style="width: 60%; height: 14px; background: var(--directory-skeleton-placeholder); border-radius: 4px;">
+                            <div style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, var(--directory-skeleton-shimmer), transparent); animation: shimmer 1.5s infinite;"></div>
                         </div>
                     </a>
                 </td>
@@ -933,8 +936,8 @@ if ($is_404_mode) {
             requestAnimationFrame(() => {
                 // テーブル背景色を一時的に固定（空白防止）
                 const tableBackgroundColor = window.getComputedStyle(tableContainer).backgroundColor;
-                tableContainer.style.backgroundColor = tableBackgroundColor || '#fff';
-                tbody.style.backgroundColor = tableBackgroundColor || '#fff';
+                tableContainer.style.backgroundColor = tableBackgroundColor || 'transparent';
+                tbody.style.backgroundColor = tableBackgroundColor || 'transparent';
 
                 // スケルトン行のスムーズフェードアウト
                 const skeletonRows = tbody.querySelectorAll('.skeleton-row');
@@ -1722,7 +1725,7 @@ if ($is_404_mode) {
 
                 if (!tbody || !tableContainer) return;
 
-                const errorHtml = '<tr><td colspan="4" style="text-align: center; color: #d32f2f; padding: 20px;">' + escapeHtml(message) + '</td></tr>';
+                const errorHtml = '<tr><td colspan="4" style="text-align: center; color: var(--directory-error); padding: 20px;">' + escapeHtml(message) + '</td></tr>';
 
                 // スケルトンが表示されているかどうかで処理を分ける
                 if (isSkeletonCurrentlyDisplayed()) {
