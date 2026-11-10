@@ -180,7 +180,7 @@ test('real EPUB renderer seeks within sections without preloading or duplicate d
         function getPageTurnDirection() { return 0; }
         function animatePageTurn() {}
         // ダッシュ描画は専用テストで検証し、ここでは位置更新を最後まで処理するルン。
-        function refreshReaderDashes() {}
+        function refreshReaderVerticalTypography() {}
         function schedulePagePositionUpdate(location = latestRendererPageLocation) {
             latestRendererPageLocation = location;
             updateProgressUI();

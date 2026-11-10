@@ -6,7 +6,7 @@ const { chrome } = require('./browser_fixture');
 const { runEpubBrowserFixture } = require('./epub_browser_fixture');
 
 const source = fs.readFileSync(require.resolve('../epub_reader.js'), 'utf8');
-const dashCode = source.slice(source.indexOf('function collectReaderDashRanges('), source.indexOf('function buildReaderCSS('));
+const typographyCode = source.slice(source.indexOf('function collectReaderVerticalRanges('), source.indexOf('function buildReaderCSS('));
 const positionEvents = source.slice(source.indexOf('function bindRendererPagePositionEvents('), source.indexOf('function recordEpubUserPosition('));
 const moduleBase = source.match(/const FOLIATE_MODULE_BASE = '([^']+)'/)[1];
 
@@ -42,15 +42,15 @@ async function checkDashes() {
     const beforeDOM = doc.body.innerHTML;
     const beforeNodes = textNodes();
     const beforeRects = JSON.stringify(characterRects());
-    prepareReaderDashes(doc);
-    prepareReaderDashes(doc);
+    prepareReaderVerticalTypography(doc);
+    prepareReaderVerticalTypography(doc);
     await wait();
     expect(doc.body.innerHTML === beforeDOM, 'Publisher DOM changed');
     expect(textNodes().every((node, i) => node === beforeNodes[i]), 'Text nodes changed');
     expect(JSON.stringify(characterRects()) === beforeRects, 'Characters moved');
-    expect(doc.querySelectorAll('[data-comistream-dash-style]').length === 1, 'Styles duplicated');
-    expect(frame.parentElement.querySelectorAll('[data-comistream-dash-overlay]').length === 1, 'Overlays duplicated');
-    const overlay = frame.parentElement.querySelector('[data-comistream-dash-overlay]');
+    expect(doc.querySelectorAll('[data-comistream-vertical-style]').length === 1, 'Styles duplicated');
+    expect(frame.parentElement.querySelectorAll('[data-comistream-vertical-overlay]').length === 1, 'Overlays duplicated');
+    const overlay = frame.parentElement.querySelector('[data-comistream-vertical-overlay]');
     expect(getComputedStyle(overlay).pointerEvents === 'none', 'Overlay intercepts reader input');
     function verifyRepeatMarks() {
         const node = doc.getElementById('repeat').firstChild;
@@ -119,27 +119,111 @@ async function checkDashes() {
     await wait(); verify(1);
     const originalRects = win.Range.prototype.getClientRects;
     win.Range.prototype.getClientRects = () => { throw Error('Simulated layout failure'); };
-    prepareReaderDashes(doc);
+    prepareReaderVerticalTypography(doc);
     await wait();
     expect(!win.CSS.highlights.has(name) && !overlay.childElementCount, 'Failure hid the original text');
     win.Range.prototype.getClientRects = originalRects;
-    prepareReaderDashes(doc);
+    prepareReaderVerticalTypography(doc);
     await wait(); verify(1);
     view.isFixedLayout = true;
-    refreshReaderDashes();
-    expect(!readerDashDocuments.size && !win.CSS.highlights.has(name), 'Fixed layout kept correction');
-    expect(!frame.parentElement.querySelector('[data-comistream-dash-overlay]'), 'Overlay was not removed');
+    refreshReaderVerticalTypography();
+    expect(!readerVerticalTypographyDocuments.size && !win.CSS.highlights.has(name), 'Fixed layout kept correction');
+    expect(!frame.parentElement.querySelector('[data-comistream-vertical-overlay]'), 'Overlay was not removed');
     view.isFixedLayout = false;
     const originalHighlight = win.Highlight;
     win.Highlight = undefined;
-    prepareReaderDashes(doc);
-    expect(!readerDashDocuments.size && !win.CSS.highlights.has(name), 'Unsupported browser hides text');
+    prepareReaderVerticalTypography(doc);
+    expect(!readerVerticalTypographyDocuments.size && !win.CSS.highlights.has(name), 'Unsupported browser hides text');
     win.Highlight = originalHighlight;
-    prepareReaderDashes(doc);
+    prepareReaderVerticalTypography(doc);
     await wait();
     view.renderer.getContents = () => [];
-    refreshReaderDashes();
-    expect(!readerDashDocuments.size && !win.CSS.highlights.has(name), 'Unloaded document retained correction');
+    refreshReaderVerticalTypography();
+    expect(!readerVerticalTypographyDocuments.size && !win.CSS.highlights.has(name), 'Unloaded document retained correction');
+}
+
+async function checkDakuten() {
+    const wait = () => new Promise(resolve => setTimeout(resolve, 100));
+    const expect = (condition, message) => { if (!condition) throw Error(message); };
+    const frame = document.querySelector('iframe');
+    const doc = frame.contentDocument;
+    const win = frame.contentWindow;
+    const name = 'comistream-reader-dakuten';
+    doc.documentElement.lang = 'ja';
+    doc.body.innerHTML = '<p id="target">前あ゙い゙え゙お゙イ゙後</p>'
+        + '<p>ががゔゔぃ゙が゙</p><p id="v-spacing">前あ゛後</p>'
+        + '<p id="v-spacing-wrap" style="inline-size:1em;line-break:anywhere">あ゛</p>'
+        + '<p class="horizontal" id="h-comb">前い゙後</p><p class="horizontal" id="h-spacing">前あ゛後</p>'
+        + '<p class="publisher">い゙</p>'
+        + '<p class="hidden">い゙</p><p><span class="combined">い゙</span></p>';
+    const style = doc.createElement('style');
+    style.textContent = `html { writing-mode: vertical-rl; font: 24px/1.8 "Hiragino Mincho ProN", serif; }
+        .horizontal { writing-mode: horizontal-tb; } .publisher { font-family: "Book, Mincho", serif; }
+        .hidden { opacity: 0; } .combined { text-combine-upright: all; }`;
+    doc.head.append(style);
+    readerFontStyles.set(doc, { publisherFamilies: new Set(['book, mincho']) });
+    view.renderer = { getContents: () => [{ doc }] };
+    const target = doc.getElementById('target');
+    const range = doc.createRange();
+    range.setStart(target.firstChild, 3);
+    range.setEnd(target.firstChild, 5);
+    const positions = () => Array.from(doc.querySelectorAll('p'), element => {
+        const range = doc.createRange();
+        range.selectNodeContents(element);
+        return Array.from(range.getClientRects());
+    });
+    const bounds = JSON.stringify(positions());
+    const originalBody = doc.body.innerHTML;
+
+    prepareReaderVerticalTypography(doc);
+    await wait();
+    const overlay = frame.parentElement.querySelector('[data-comistream-vertical-overlay]');
+    const corrected = () => Array.from(win.CSS.highlights.get(name) || [], range =>
+        [range.startContainer.parentElement.id, range.toString()]);
+    expect(JSON.stringify(corrected()) === JSON.stringify([
+        ['target', 'あ゙'], ['target', 'い゙'], ['target', 'え゙'], ['target', 'お゙'], ['target', 'イ゙'],
+        ['v-spacing', '゛'], ['v-spacing-wrap', '゛'], ['h-comb', 'い゙']
+    ]), 'Wrong dakuten correction targets');
+    expect(doc.body.innerHTML === originalBody && JSON.stringify(positions()) === bounds, 'Body or layout changed');
+    expect(Array.from(overlay.querySelectorAll('text'), text => text.textContent).join('') === 'あ゛い゛え゛お゛イ゛゛゛い゛', 'Wrong kana redrawn');
+    const highlights = [...win.CSS.highlights.get(name)];
+    const marks = [...overlay.querySelectorAll('text')].filter(text => text.textContent === '゛');
+    const precedingKana = (id, start) => {
+        const kanaRange = doc.createRange();
+        const node = doc.getElementById(id).firstChild;
+        kanaRange.setStart(node, start);
+        kanaRange.setEnd(node, start + 1);
+        return kanaRange.getBoundingClientRect();
+    };
+    const combined = highlights[0].getBoundingClientRect();
+    const preceding = precedingKana('v-spacing', 1);
+    const offset = (glyph, bounds) => [
+        Number(glyph.getAttribute('x')) - bounds.right,
+        Number(glyph.getAttribute('y')) - bounds.top
+    ];
+    const combinedOffset = offset(marks[0], combined);
+    expect(offset(marks[5], preceding).every((value, axis) => Math.abs(value - combinedOffset[axis]) < 0.1),
+        'Spacing dakuten did not follow the previous kana');
+    const wrapped = highlights[6].getBoundingClientRect();
+    expect(Math.abs(wrapped.left - precedingKana('v-spacing-wrap', 0).left) >= 24, 'Spacing dakuten did not wrap');
+    expect(Math.abs(offset(marks[6], wrapped)[0]) < 24, 'Wrapped spacing dakuten left its own column');
+    const selection = win.getSelection();
+    selection.addRange(range);
+    expect(selection.toString() === 'い゙', 'Selection changed');
+    selection.removeAllRanges();
+
+    Object.assign(doc.documentElement.style, { writingMode: 'vertical-lr', fontSize: '40px', color: 'rgb(230, 230, 230)' });
+    await wait();
+    const base = overlay.querySelector('text');
+    expect(base.style.fontSize === '40px' && base.style.writingMode === 'vertical-lr', 'Glyph did not follow reflow');
+    expect(base.getAttribute('fill') === 'rgb(230, 230, 230)', 'Glyph did not follow text color');
+    doc.documentElement.style.writingMode = 'horizontal-tb';
+    await wait();
+    expect(corrected().length === 6 && corrected().every(([, text]) => text.endsWith('\u3099')),
+        'Horizontal spacing dakuten was corrected');
+    view.renderer.getContents = () => [];
+    refreshReaderVerticalTypography();
+    expect(!overlay.isConnected, 'Unloaded chapter retained overlay');
 }
 
 async function checkPaginatorDashes() {
@@ -158,18 +242,19 @@ async function checkPaginatorDashes() {
         range.selectNodeContents(doc.querySelector('p').firstChild);
         expect(CFI.toRange(doc, CFI.parse(CFI.fromRange(range))).toString() === range.toString(), 'Baseline CFI does not resolve');
         saved.set(index, { cfi: CFI.fromRange(range), text: range.toString() });
-        prepareReaderDashes(doc);
+        readerFontStyles.set(doc, { publisherFamilies: new Set() });
+        prepareReaderVerticalTypography(doc);
     });
     bindRendererPagePositionEvents();
     const urls = [0, 1].map(index => URL.createObjectURL(new Blob([`<!doctype html><html lang="ja"><style>
         html { writing-mode:vertical-rl; font:24px/1.8 "Hiragino Mincho ProN",serif; }
         p { break-before:column; margin:0; } p:first-child { break-before:auto; }
-        </style><body>${Array.from({length:5}, (_, i) => `<p>${index}-${i} これは――先へ。これは―――長い航路。</p>`).join('')}</body></html>`], {type:'text/html'})));
+        </style><body>${Array.from({length:5}, (_, i) => `<p>${index}-${i} これは――先へ。前い゙後。これは―――長い航路。</p>`).join('')}</body></html>`], {type:'text/html'})));
     paginator.open({ dir:'rtl', sections:urls.map((url,index)=>({id:String(index),linear:'yes',load:async()=>url})) });
     function verify(index) {
         const { doc } = paginator.getContents().find(content=>content.index===index);
         const frame = doc.defaultView.frameElement;
-        const overlay = frame.parentElement.querySelector('[data-comistream-dash-overlay]');
+        const overlay = frame.parentElement.querySelector('[data-comistream-vertical-overlay]');
         const ranges = Array.from(doc.defaultView.CSS.highlights.get('comistream-reader-dashes') || []);
         const lines = Array.from(overlay?.querySelectorAll('line') || []);
         expect(lines.length === 10 && ranges.length === 10, 'Paged dashes missing');
@@ -183,7 +268,15 @@ async function checkPaginatorDashes() {
             expect(Math.abs(overlayRect.left + Number(line.getAttribute('x1')) - frameRect.left - rect.left - rect.width/2)<0.1, 'Paged line shifted');
             expect(Math.abs(overlayRect.top + Number(line.getAttribute('y2')) - frameRect.top - rect.bottom + size*0.12)<0.1, 'Paged endpoint shifted');
         });
-        expect(readerDashDocuments.size===paginator.getContents().length, 'Unloaded chapter was retained');
+        const kana = Array.from(doc.defaultView.CSS.highlights.get('comistream-reader-dakuten') || []);
+        const glyphs = overlay.querySelectorAll('text');
+        expect(kana.length === 5 && glyphs.length === 10, 'Paged dakuten missing');
+        kana.forEach((range, i) => {
+            const rect = range.getBoundingClientRect(), base = glyphs[2 * i];
+            expect(Math.abs(overlayRect.left + Number(base.getAttribute('x')) - frameRect.left - rect.left - rect.width / 2) < 0.1, 'Paged kana shifted');
+            expect(Math.abs(overlayRect.top + Number(base.getAttribute('y')) - frameRect.top - rect.top) < 0.1, 'Paged kana shifted down');
+        });
+        expect(readerVerticalTypographyDocuments.size===paginator.getContents().length, 'Unloaded chapter was retained');
     }
     try {
         await paginator.goTo({index:0,anchor:0}); await wait(); verify(0);
@@ -201,7 +294,7 @@ async function checkPaginatorDashes() {
         await wait(); verify(0);
     } finally {
         paginator.destroy(); paginator.remove();
-        refreshReaderDashes();
+        refreshReaderVerticalTypography();
         urls.forEach(url=>URL.revokeObjectURL(url));
     }
 }
@@ -212,13 +305,14 @@ async function runFixture(check, modules = {}) {
     const html = `<!doctype html><meta charset="utf-8"><div style="position:relative;width:650px;height:650px">
         <iframe style="width:600px;height:600px;border:0"></iframe></div><script type="module">
         ${imports}
-        const readerDashDocuments = new Map();
+        const readerVerticalTypographyDocuments = new Map();
+        const readerFontStyles = new WeakMap();
         const view = { isFixedLayout:false, renderer:null };
         const debugLog = () => {};
         const getRendererContents = () => view.renderer?.getContents() || [];
         const epubEndController = null, lastViewRelocationCfi = '', currentFlowMode = 'paginated';
         const getPageTurnDirection = () => 0, schedulePagePositionUpdate = () => {};
-        ${dashCode}
+        ${typographyCode}
         ${positionEvents}
         (${check.toString()})().then(()=>window.__progressNativeResult={ok:true})
             .catch(error=>window.__progressNativeResult={ok:false,error:error.stack});
@@ -238,7 +332,11 @@ test('vertical dashes preserve text and positions with centered lines and 0.12em
     await runFixture(checkDashes);
 });
 
-test('native EPUB pagination preserves dash alignment and CFI across reflow and chapter changes', {
+test('vertical combining dakuten preserve selection and follow text style without changing other kana', {skip:!chrome}, async()=>{
+    await runFixture(checkDakuten);
+});
+
+test('native EPUB pagination preserves dash and dakuten alignment and CFI across reflow and chapter changes', {
     skip:!chrome || process.env.COMISTREAM_EPUB_BROWSER_TESTS !== '1'
 }, async()=>{
     const modules = {};

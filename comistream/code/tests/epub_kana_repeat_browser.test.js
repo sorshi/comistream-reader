@@ -6,7 +6,7 @@ const { chrome } = require('./browser_fixture');
 const { runEpubBrowserFixture } = require('./epub_browser_fixture');
 
 const source = fs.readFileSync(require.resolve('../epub_reader.js'), 'utf8');
-const fontCode = source.slice(source.indexOf('function parseReaderFontLocale('), source.indexOf('function collectReaderDashRanges('));
+const fontCode = source.slice(source.indexOf('function parseReaderFontLocale('), source.indexOf('function collectReaderVerticalRanges('));
 const fontPath = '/theme/fonts/kana-repeat/ComistreamKanaRepeat-v2.ttf';
 const font = fs.readFileSync(require.resolve('../../theme/fonts/kana-repeat/ComistreamKanaRepeat-v2.ttf'));
 const referenceFontPath = '/theme/fonts/kana-repeat/ComistreamKanaRepeat-v1.ttf';

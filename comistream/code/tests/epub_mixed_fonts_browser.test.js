@@ -5,7 +5,7 @@ const { chrome } = require('./browser_fixture');
 const { runEpubBrowserFixture } = require('./epub_browser_fixture');
 
 const source = fs.readFileSync(require.resolve('../epub_reader.js'), 'utf8');
-const fontCode = source.slice(source.indexOf('function parseReaderFontLocale('), source.indexOf('function collectReaderDashRanges('));
+const fontCode = source.slice(source.indexOf('function parseReaderFontLocale('), source.indexOf('function collectReaderVerticalRanges('));
 const referenceFont = fs.readFileSync(require.resolve('../../rsrc/fonts/shippori-mincho/ShipporiMincho-Regular.ttf'));
 const kanaFont = fs.readFileSync(require.resolve('../../theme/fonts/kana-repeat/ComistreamKanaRepeat-v2.ttf'));
 

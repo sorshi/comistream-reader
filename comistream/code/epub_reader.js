@@ -138,7 +138,7 @@ let initialRestoreReconcileUntil = 0;
 let initialRestorePinnedLocation = null;
 const illustrationStyleSnapshots = new WeakMap();
 const readerFontStyles = new WeakMap();
-const readerDashDocuments = new Map();
+const readerVerticalTypographyDocuments = new Map();
 const sectionIsolationRenderers = new WeakSet();
 const loadingFeedbackRenderers = new WeakSet();
 const navigationLoadingFeedback = createNavigationLoadingFeedback();
@@ -1955,6 +1955,7 @@ function supplementReaderFontFamilies(doc) {
     // import先と後置の@font-faceまで確認してから、本文の候補を補うルン。
     for (const style of styles) supplement(style);
     for (const element of doc.querySelectorAll('[style]')) supplement(element.style);
+    return canResolveAliases ? definedFamilies : null;
 }
 
 function applyReaderFontStyles(doc) {
@@ -1967,37 +1968,143 @@ function applyReaderFontStyles(doc) {
         ? new URL('/theme/fonts/kana-repeat/ComistreamKanaRepeat-v2.ttf', window.location.href).href
         : '';
     const css = buildReaderFontCSS(appConfig.packetSave === true, locale, kanaRepeatURL, view?.isFixedLayout === true);
-    let style = readerFontStyles.get(doc);
-    if (!style || style.parentNode !== doc.head) {
-        style = doc.createElement('style');
+    let state = readerFontStyles.get(doc);
+    if (state?.style.parentNode !== doc.head) {
+        const style = doc.createElement('style');
         style.setAttribute('data-comistream-reader-font', '');
         doc.head.prepend(style);
-        readerFontStyles.set(doc, style);
+        state = { style, publisherFamilies: null };
+        readerFontStyles.set(doc, state);
     }
+    const { style } = state;
     if (style.textContent !== css) style.textContent = css;
     // 章の初期化時だけCSSを補い、本文走査やページ送り時の処理を増やさないルン。
-    if (kanaRepeatURL) supplementReaderFontFamilies(doc);
+    state.publisherFamilies = kanaRepeatURL ? supplementReaderFontFamilies(doc) : null;
 }
 
-function collectReaderDashRanges(doc) {
+function collectReaderVerticalRanges(doc) {
     const ranges = [];
     const walker = doc.createTreeWalker(doc.body, 4);
     while (walker.nextNode()) {
         const node = walker.currentNode;
         if (node.parentElement.closest('script, style, noscript, textarea, select, code, pre, svg, math, rt, rp')) continue;
-        for (const match of node.data.matchAll(/―{2,}|—{2,}/g)) {
+        for (const match of node.data.matchAll(/―{2,}|—{2,}|(?:[ぁ-ゖァ-ヺ]\u3099|\u309B)(?!\p{M})/gu)) {
+            const text = match[0];
+            const kana = text.endsWith('\u3099') ? text[0] : '';
+            // 合成済み字形がある濁音や、縦書きで字の位置が異なる小書き仮名は元の描画に任せるルン。
+            if (kana && (text.normalize('NFC') !== text || !isReaderDakutenBase(kana))) continue;
             const range = doc.createRange();
             range.setStart(node, match.index);
-            range.setEnd(node, match.index + match[0].length);
-            ranges.push(range);
+            range.setEnd(node, match.index + text.length);
+            ranges.push({ range, kana, spacingDakuten: text === '\u309B' });
         }
     }
     return ranges;
 }
 
-function prepareReaderDashes(doc) {
+function isReaderDakutenBase(kana) {
+    return /^[ぁ-ゖァ-ヺ]$/u.test(kana) && kana.normalize('NFD') === kana
+        && !/[ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ]/u.test(kana);
+}
+
+function getReaderSpacingDakutenAnchor(range, markRect) {
+    const { startContainer, startOffset } = range;
+    if (!isReaderDakutenBase(startContainer.data.charAt(startOffset - 1))) return null;
+    const preceding = range.cloneRange();
+    preceding.setStart(startContainer, startOffset - 1);
+    preceding.setEnd(startContainer, startOffset);
+    const rects = preceding.getClientRects();
+    const rect = rects[0];
+    // 同じ列で直前の仮名と接しているときだけ、濁点をその仮名へ添えるルン。
+    if (rects.length !== 1 || rect.width <= 0 || rect.height <= 0
+        || Math.abs(rect.left + rect.width / 2 - markRect.left - markRect.width / 2) >= 1
+        || Math.abs(rect.bottom - markRect.top) >= 1) return null;
+    return rect;
+}
+
+function measureReaderDakutenInk(context, computed, size) {
+    // WebKitが字形の実寸の代わりに字枠全体を返した場合は、濁点を一度描いて位置を測るルン。
+    const probeSize = 64;
+    const baseline = probeSize * 2;
+    const extent = probeSize * 3;
+    context.canvas.width = extent;
+    context.canvas.height = extent;
+    context.font = `${computed.fontStyle} ${computed.fontWeight} ${probeSize}px ${computed.fontFamily}`;
+    context.fillText('゛', probeSize, baseline);
+    let data;
+    try {
+        ({ data } = context.getImageData(0, 0, extent, extent));
+    } catch {
+        return null;
+    }
+    let left = extent;
+    let right = -1;
+    let top = extent;
+    for (let y = 0; y < extent; y++) {
+        for (let x = 0; x < extent; x++) {
+            if (!data[(y * extent + x) * 4 + 3]) continue;
+            left = Math.min(left, x);
+            right = Math.max(right, x);
+            top = Math.min(top, y);
+        }
+    }
+    if (right < left) return null;
+    const scale = size / probeSize;
+    return { left: (probeSize - left) * scale, width: (right - left + 1) * scale, ascent: (baseline - top) * scale };
+}
+
+function drawReaderDakuten(target, context, inkByFont, namespace, rect, computed, { kana, opacity, spacingAnchor }) {
+    const size = parseFloat(computed.fontSize);
+    const font = `${computed.fontStyle} ${computed.fontWeight} ${size}px ${computed.fontFamily}`;
+    context.font = font;
+    const metrics = context.measureText('゛');
+    const vertical = computed.writingMode.startsWith('vertical');
+    const useVerticalKanaPosition = vertical && Boolean(kana || spacingAnchor);
+    let ink = { left: metrics.actualBoundingBoxLeft, width: metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight,
+        ascent: metrics.actualBoundingBoxAscent };
+    if (!useVerticalKanaPosition && ink.left === 0 && ink.width === metrics.width) {
+        if (!inkByFont.has(font)) inkByFont.set(font, measureReaderDakutenInk(context, computed, size));
+        ink = inkByFont.get(font);
+        context.font = font;
+    }
+    if (!ink || !Number.isFinite(ink.ascent) || !(ink.width > 0)) return false;
+
+    const mark = document.createElementNS(namespace, 'text');
+    mark.style.fontFamily = computed.fontFamily;
+    mark.style.fontSize = computed.fontSize;
+    mark.style.fontWeight = computed.fontWeight;
+    mark.style.fontStyle = computed.fontStyle;
+    mark.style.writingMode = 'horizontal-tb';
+    mark.setAttribute('fill', computed.color);
+    mark.setAttribute('opacity', opacity);
+    mark.textContent = '゛';
+
+    const markRect = spacingAnchor ?? rect;
+    let right = markRect.right;
+    if (kana) {
+        const baseMetrics = vertical ? null : context.measureText(kana);
+        const ascent = baseMetrics ? baseMetrics.fontBoundingBoxAscent : 0;
+        if (!Number.isFinite(ascent)) return false;
+        if (baseMetrics) right = Math.min(right, rect.left + baseMetrics.width);
+        const base = mark.cloneNode();
+        base.style.writingMode = computed.writingMode;
+        base.style.textOrientation = 'upright';
+        base.setAttribute('x', vertical ? rect.left + rect.width / 2 : rect.left);
+        base.setAttribute('y', rect.top + ascent);
+        base.textContent = kana;
+        target.append(base);
+    }
+    // 縦書きで仮名に添える濁点は同じ位置を使い、ほかの補正では濁点を字枠内に収めるルン。
+    const inset = useVerticalKanaPosition ? size * 0.15 : ink.width + size * 0.02;
+    mark.setAttribute('x', right - inset + ink.left);
+    mark.setAttribute('y', markRect.top + size * 0.02 + ink.ascent);
+    target.append(mark);
+    return true;
+}
+
+function prepareReaderVerticalTypography(doc) {
     if (!doc?.body || view?.isFixedLayout) return;
-    const previous = readerDashDocuments.get(doc);
+    const previous = readerVerticalTypographyDocuments.get(doc);
     if (previous) {
         previous.schedule();
         return;
@@ -2010,22 +2117,25 @@ function prepareReaderDashes(doc) {
         || !win.CSS.supports('selector(::highlight(comistream-reader-dashes))')
         || getComputedStyle(parent).position === 'static') return;
 
-    const name = 'comistream-reader-dashes';
+    const dashName = 'comistream-reader-dashes';
+    const dakutenName = 'comistream-reader-dakuten';
     const namespace = 'http://www.w3.org/2000/svg';
     const overlay = document.createElementNS(namespace, 'svg');
-    overlay.setAttribute('data-comistream-dash-overlay', '');
+    overlay.setAttribute('data-comistream-vertical-overlay', '');
     overlay.setAttribute('aria-hidden', 'true');
     overlay.setAttribute('part', 'filter');
     overlay.style.cssText = 'position:absolute;display:block;pointer-events:none;overflow:hidden;user-select:none';
     parent.append(overlay);
     const style = doc.createElement('style');
-    style.setAttribute('data-comistream-dash-style', '');
-    style.textContent = `::highlight(${name}) { color: transparent; text-decoration-line: none; }`;
+    style.setAttribute('data-comistream-vertical-style', '');
+    style.textContent = `::highlight(${dashName}) { color: transparent; text-decoration-line: none; }
+::highlight(${dakutenName}) { color: transparent; }`;
     doc.head.append(style);
     let ranges = [];
     let rescan = true;
     let pendingFrame = null;
     let destroyed = false;
+    let markContext;
 
     function render() {
         pendingFrame = null;
@@ -2036,25 +2146,31 @@ function prepareReaderDashes(doc) {
         }
         try {
             if (rescan) {
-                ranges = collectReaderDashRanges(doc);
+                ranges = collectReaderVerticalRanges(doc);
                 rescan = false;
             }
             overlay.style.left = `${frame.offsetLeft + frame.clientLeft}px`;
             overlay.style.top = `${frame.offsetTop + frame.clientTop}px`;
             overlay.setAttribute('width', frame.clientWidth);
             overlay.setAttribute('height', frame.clientHeight);
-            const lines = document.createDocumentFragment();
-            const highlight = new win.Highlight();
+            const glyphs = document.createDocumentFragment();
+            const dashes = new win.Highlight();
+            const dakuten = new win.Highlight();
             const styles = new Map();
-            for (const range of ranges) {
+            const inkByFont = new Map();
+            const publisherFamilies = readerFontStyles.get(doc)?.publisherFamilies;
+            const canDrawDakuten = publisherFamilies && win.CSS.supports('selector(::highlight(comistream-reader-dakuten))');
+            for (const { range, kana, spacingDakuten } of ranges) {
+                const isDakuten = Boolean(kana) || spacingDakuten;
                 const element = range.startContainer.parentElement;
-                if (!element?.isConnected || !element.matches(':lang(ja), :lang(jpn)')) continue;
+                if (!element?.isConnected || !element.matches(':lang(ja), :lang(jpn)') || (isDakuten && !canDrawDakuten)) continue;
                 let computed = styles.get(element);
                 if (!computed) {
                     computed = win.getComputedStyle(element);
                     styles.set(element, computed);
                 }
-                if (!computed.writingMode.startsWith('vertical') || computed.textOrientation === 'sideways'
+                const vertical = computed.writingMode.startsWith('vertical');
+                if ((!vertical && (!kana || computed.writingMode !== 'horizontal-tb')) || (vertical && computed.textOrientation === 'sideways')
                     || computed.textCombineUpright !== 'none' || computed.visibility !== 'visible') continue;
                 // 分割された範囲はつながず、縦中横や別言語の本文にも介入しないルン。
                 const rects = Array.from(range.getClientRects());
@@ -2065,6 +2181,17 @@ function prepareReaderDashes(doc) {
                 }
                 if (!opacity) continue;
                 const rect = rects[0];
+                if (isDakuten) {
+                    // 書籍側だけで使える書体をリーダー側のSVGで置き換えないルン。
+                    const families = computed.fontFamily.match(/(?:[^,"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')+/g) || [];
+                    if (families.some(name => publisherFamilies.has(name.trim().replace(/^["']|["']$/g, '').toLowerCase()))
+                        || computed.webkitTextFillColor !== computed.color || parseFloat(computed.webkitTextStrokeWidth) > 0) continue;
+                    if (markContext === undefined) markContext = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+                    const spacingAnchor = spacingDakuten ? getReaderSpacingDakutenAnchor(range, rect) : null;
+                    if (markContext && drawReaderDakuten(glyphs, markContext, inkByFont, namespace, rect, computed,
+                        { kana, opacity, spacingAnchor })) dakuten.add(range);
+                    continue;
+                }
                 const fontSize = parseFloat(computed.fontSize);
                 const center = rect.left + rect.width / 2;
                 const line = document.createElementNS(namespace, 'line');
@@ -2077,17 +2204,20 @@ function prepareReaderDashes(doc) {
                 line.setAttribute('stroke-width', fontSize * 0.045);
                 line.setAttribute('stroke-linecap', 'butt');
                 line.setAttribute('opacity', opacity);
-                lines.append(line);
-                highlight.add(range);
+                glyphs.append(line);
+                dashes.add(range);
             }
-            // 線を用意してから元の字形を隠し、CFI・検索・コピーの文字列は保持するルン。
-            overlay.replaceChildren(lines);
-            if (highlight.size) win.CSS.highlights.set(name, highlight);
-            else win.CSS.highlights.delete(name);
+            // 補正した字形を用意してから元の描画を隠し、CFI・検索・コピーの文字列は保持するルン。
+            overlay.replaceChildren(glyphs);
+            for (const [name, highlight] of [[dashName, dashes], [dakutenName, dakuten]]) {
+                if (highlight.size) win.CSS.highlights.set(name, highlight);
+                else win.CSS.highlights.delete(name);
+            }
         } catch (error) {
-            win.CSS.highlights.delete(name);
+            win.CSS.highlights.delete(dashName);
+            win.CSS.highlights.delete(dakutenName);
             overlay.replaceChildren();
-            debugLog('EPUB dash rendering failed; keeping original text', { error: String(error) });
+            debugLog('EPUB vertical typography rendering failed; keeping original text', { error: String(error) });
         }
     }
 
@@ -2110,6 +2240,7 @@ function prepareReaderDashes(doc) {
     win.addEventListener('resize', schedule);
     win.addEventListener('pagehide', destroy);
     doc.fonts?.addEventListener('loadingdone', schedule);
+    document.fonts?.addEventListener('loadingdone', schedule);
     doc.fonts?.ready.then(schedule);
 
     function destroy() {
@@ -2122,21 +2253,23 @@ function prepareReaderDashes(doc) {
         win.removeEventListener('resize', schedule);
         win.removeEventListener('pagehide', destroy);
         doc.fonts?.removeEventListener('loadingdone', schedule);
-        win.CSS.highlights.delete(name);
+        document.fonts?.removeEventListener('loadingdone', schedule);
+        win.CSS.highlights.delete(dashName);
+        win.CSS.highlights.delete(dakutenName);
         overlay.remove();
         style.remove();
-        readerDashDocuments.delete(doc);
+        readerVerticalTypographyDocuments.delete(doc);
     }
-    readerDashDocuments.set(doc, { schedule, destroy });
+    readerVerticalTypographyDocuments.set(doc, { schedule, destroy });
     schedule();
 }
 
-function refreshReaderDashes() {
+function refreshReaderVerticalTypography() {
     const docs = new Set(getRendererContents().map(content => content.doc ?? content.document));
-    for (const [doc, state] of readerDashDocuments) {
+    for (const [doc, state] of readerVerticalTypographyDocuments) {
         if (!docs.has(doc) || view?.isFixedLayout) state.destroy();
     }
-    for (const doc of docs) prepareReaderDashes(doc);
+    for (const doc of docs) prepareReaderVerticalTypography(doc);
 }
 
 function buildReaderCSS(fontScale, flowMode = 'paginated') {
@@ -4108,7 +4241,7 @@ function applyRendererPrefs() {
         view.renderer.setStyles?.(css);
         for (const content of getRendererContents()) {
             preparePaperImages(content?.doc ?? content?.document);
-            prepareReaderDashes(content?.doc ?? content?.document);
+            prepareReaderVerticalTypography(content?.doc ?? content?.document);
         }
         setRendererAttribute('flow', currentFlowMode);
         // CSSだけの変更も、最終状態で1回描画するルン。
@@ -6074,7 +6207,7 @@ function bindViewLifecycleEvents() {
         navigationEventSeq++;
         const doc = event.detail?.doc;
         applyReaderFontStyles(doc);
-        prepareReaderDashes(doc);
+        prepareReaderVerticalTypography(doc);
         doc?.addEventListener('pointerdown', hidePagePositionHelp, { passive: true });
         preparePaperImages(doc);
         markMediaPageLayout(doc);
@@ -6253,7 +6386,7 @@ function bindRendererPagePositionEvents() {
     epubEndController?.bindGestures(renderer);
     let previousPageLocation = null;
     renderer.addEventListener('relocate', (event) => {
-        refreshReaderDashes();
+        refreshReaderVerticalTypography();
         const direction = getPageTurnDirection(previousPageLocation, event.detail);
         previousPageLocation = event.detail;
         // 初期表示・再レイアウト・遅延scroll通知では演出を繰り返さないルン。
@@ -6268,7 +6401,7 @@ function bindRendererPagePositionEvents() {
         });
     });
     renderer.addEventListener('stabilized', () => {
-        refreshReaderDashes();
+        refreshReaderVerticalTypography();
         schedulePagePositionUpdate();
     });
     return true;

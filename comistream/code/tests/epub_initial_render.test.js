@@ -54,7 +54,7 @@ function rendererFixture(packetSave = false) {
         ...Object.fromEntries([
             'cancelPageTurnAnimation', 'applyShellTheme', 'updateToolbarState',
             'setPaginatedSwipeMinimumDistance', 'configurePaginatedSectionIsolation',
-            'preparePaperImages', 'prepareReaderDashes', 'markMediaPageLayout', 'setupTapNavigation',
+            'preparePaperImages', 'prepareReaderVerticalTypography', 'markMediaPageLayout', 'setupTapNavigation',
             'bindKeyboardShortcuts', 'updateNavigationMode', 'hidePagePositionHelp',
             'refreshReadingModeInfo', 'applyInitialFontScaleCorrection', 'updateDirectionState',
             'renderInspector', 'focusReader'
