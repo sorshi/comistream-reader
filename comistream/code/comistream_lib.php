@@ -1205,6 +1205,24 @@ function saveBookmark()
 } //end function saveBookmark
 
 
+##### ページ画像の成功応答にブラウザキャッシュ用のヘッダーを付ける #########################################
+function sendReaderPageCacheHeaders(bool $versioned): void
+{
+    if (!$versioned) {
+        // 世代のないURLは原本の差し替え後も同じURLなので、従来の応答を変えないルン。
+        header('Cache-Control: private, max-age=86400');
+        return;
+    }
+    // session_start()が付けるPragma: no-cacheが残ると、ブラウザがmax-ageを使わず毎回取得し直すルン。
+    header_remove('Pragma');
+    header_remove('Expires');
+    // 世代付きURLの内容は変わらないルン。前段のプロキシやCDNには保存させないルン。
+    header('Cache-Control: private, max-age=2592000, immutable');
+    // 出力形式はAcceptで変わるルン。
+    header('Vary: Accept');
+}
+
+
 ##### 指定されたページをjpg/webpストリームとして出力する #########################################
 function outputPage($isFileout = false)
 {
@@ -1231,6 +1249,7 @@ function outputPage($isFileout = false)
         exit;
     }
 
+    $versionedPageUrl = false;
     if (isReaderBookCacheId($file)) {
         try {
             acquireReaderBookCacheLock((string)$cacheDir, $file, LOCK_SH);
@@ -1243,6 +1262,8 @@ function outputPage($isFileout = false)
                 showReloadRequiredImg();
                 return '';
             }
+            // 現在の世代と一致したURLだけを、内容が変わらないものとして扱うルン。
+            $versionedPageUrl = !$isFileout && $requestedGeneration !== null;
             $pagefile = readReaderIndexPage($bookCacheDirectory, $page);
             if ($pagefile === false || !isSafeReaderPagePath($pagefile)) {
                 if ($isFileout) return '';
@@ -1480,7 +1501,7 @@ function outputPage($isFileout = false)
             deleteCacheDirAndReload();
         } else {
             header("Content-type: image/jxl");
-            header("Cache-Control: private, max-age=86400");
+            sendReaderPageCacheHeaders($versionedPageUrl);
             echo $pageImg;
             writelog("DEBUG outputPage() JPEG XL straight filesize:" . strlen($pageImg));
             unset($pageImg);
@@ -1504,7 +1525,7 @@ function outputPage($isFileout = false)
                     deleteCacheDirAndReload();
                 } else {
                     header("Content-type: image/webp");
-                    header("Cache-Control: private, max-age=86400");
+                    sendReaderPageCacheHeaders($versionedPageUrl);
                     echo $pageImg;
                 }
             } else {
@@ -1515,7 +1536,7 @@ function outputPage($isFileout = false)
                     deleteCacheDirAndReload();
                 } else {
                     header("Content-type: image/jpeg");
-                    header("Cache-Control: private, max-age=86400");
+                    sendReaderPageCacheHeaders($versionedPageUrl);
                     echo $pageImg;
                 }
             }
@@ -1576,7 +1597,7 @@ function outputPage($isFileout = false)
                     exit(1);
                 } else {
                     header($output_mime);
-                    header("Cache-Control: private, max-age=86400");
+                    sendReaderPageCacheHeaders($versionedPageUrl);
                     echo $pageImg;
                     writelog("DEBUG outputPage() filesize:" . strlen($pageImg));
                     // メモリ解放
@@ -1665,7 +1686,7 @@ function outputPage($isFileout = false)
                             deleteCacheDirAndReload();
                         } else {
                             header("Content-type: image/webp");
-                            header("Cache-Control: private, max-age=86400");
+                            sendReaderPageCacheHeaders($versionedPageUrl);
                             echo $pageImg;
                             writelog("DEBUG outputPage() vips filesize:" . strlen($pageImg));
                         }
@@ -1745,7 +1766,7 @@ function outputPage($isFileout = false)
                             deleteCacheDirAndReload();
                         } else {
                             header("Content-type: image/jpeg");
-                            header("Cache-Control: private, max-age=86400");
+                            sendReaderPageCacheHeaders($versionedPageUrl);
                             echo $pageImg;
                             writelog("DEBUG outputPage() vips filesize:" . strlen($pageImg));
                         }
@@ -1779,7 +1800,7 @@ function outputPage($isFileout = false)
                     deleteCacheDirAndReload();
                 } else {
                     header("Content-type: image/webp");
-                    header("Cache-Control: private, max-age=86400");
+                    sendReaderPageCacheHeaders($versionedPageUrl);
                     echo $pageImg;
                     writelog("DEBUG outputPage() filesize:" . strlen($pageImg));
                 }
@@ -1792,7 +1813,7 @@ function outputPage($isFileout = false)
                     deleteCacheDirAndReload();
                 } else {
                     header("Content-type: image/jpeg");
-                    header("Cache-Control: private, max-age=86400");
+                    sendReaderPageCacheHeaders($versionedPageUrl);
                     echo $pageImg;
                     writelog("DEBUG outputPage() filesize:" . strlen($pageImg));
                 }
