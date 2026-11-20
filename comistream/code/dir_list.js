@@ -587,7 +587,7 @@ function linkhook(e) {
   // ファイル種別に応じた処理を追加
   if (
     targetElement.href &&
-    targetElement.href.match(/\.(m2t|ts|iso|mp4|m4v|avi|mkv|wmv|mpg|m2p|webm)$/i)
+    targetElement.href.match(/\.(m2t|ts|iso|mp4|m4v|avi|mkv|wmv|mpg|m2p|webm|mov|flv|mpeg)$/i)
   ) {
     // ★スピナーを表示するルン！（動画を開く前のフィードバック）
     showFileLoadingSpinner('動画を開いています...');
