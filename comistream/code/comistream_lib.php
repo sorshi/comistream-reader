@@ -4445,6 +4445,7 @@ function system_config($dbh)
                 'comistream_tool_dir' => 'Comistreamツールのディレクトリパス。/home/user/comistreamなどです。末尾に/をつけません。',
                 'comistream_tmp_dir_root' => 'Comistreamの一時ディレクトリのパス。RAMディスクを用いて高速化するために/dev/shm/comistream_tempなどを設定します。末尾に/をつけません。',
                 'cover_subDir' => '表紙画像作成対象とするサブディレクトリ。sharePathの配下で電子書籍を格納しているディレクトリを指定します。複数ある場合にはスペース区切りにします。ディレクトリにスペースが含まれる場合にはダブルクォーテーションでディレクトリ名を囲います。Comic Book/Photo "Comic Book"などです。',
+                'photo_subDir' => '写真サムネイルを作る対象を、sharePathからの相対ディレクトリで指定します。複数は空白区切り、空白を含む名前はダブルクォーテーションで囲います。空欄なら日次生成を無効にします。',
             ],
             'コマンド設定' => [
                 'p7zip' => '7-Zipコマンドのパス',
@@ -4696,14 +4697,17 @@ function getSettings($db)
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
         $settings[$row['key']] = $row['value'];
     }
-    return array_replace($settings, readerManagedSettings());
+    return array_replace(['photo_subDir' => ''], $settings, readerManagedSettings());
 }
 
 // 設定を更新する関数
 function updateSetting($db, $key, $value)
 {
     $value = readerManagedSettings()[$key] ?? $value;
-    $stmt = $db->prepare("UPDATE system_config SET value = :value WHERE key = :key");
+    // 既存DBでは写真の設定を初めて保存するときにキーを追加するルン。
+    $stmt = $db->prepare($key === 'photo_subDir'
+        ? "INSERT INTO system_config (key, value) VALUES (:key, :value) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        : "UPDATE system_config SET value = :value WHERE key = :key");
     $stmt->execute(['value' => $value, 'key' => $key]);
     writelog("DEBUG updateSetting() $key:$value");
 }
@@ -5495,6 +5499,10 @@ function installThemeFiles($dbh)
     $sourceFile = $conf["comistream_tool_dir"] . "/rsrc/apache/_htaccess";
     $destinationFile = $conf["webRoot"] . "/.htaccess";
     $themeDir = $conf["webRoot"] . "/theme";
+    $thumbRoot = $conf['comistream_tool_dir'] . '/data/theme/thumbs';
+    if (is_link($thumbRoot) || !chkAndMakeDir($thumbRoot)) {
+        return false;
+    }
 
     if ((file_exists($destinationFile)) && (file_exists($themeDir))) {
         // $timestamp = round(microtime(true) * 1000);
@@ -5572,6 +5580,13 @@ function installThemeFiles($dbh)
         } else {
             writelog("INFO installThemeFiles() hls symlink created:" . $hlsLink);
         }
+    }
+
+    $thumbLink = $themeDir . '/thumbs';
+    if (is_link($thumbLink) ? realpath($thumbLink) !== realpath($thumbRoot)
+        : (file_exists($thumbLink) || !symlink($thumbRoot, $thumbLink))) {
+        writelog("ERROR installThemeFiles() thumbnail symlink creation failed:" . $thumbLink);
+        return false;
     }
 
     // manifest.jsonの表示名を設定に合わせるルン。

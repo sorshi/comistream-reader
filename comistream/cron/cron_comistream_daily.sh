@@ -49,6 +49,9 @@ logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.info "start make_i
 make_image_run_file="$SCRIPT_DIR/../code/make_image_run.sh"
 bash "$make_image_run_file" > /dev/null 2>&1
 
+# 写真のサムネイルは表紙の生成が終わってから作るルン。
+bash "$SCRIPT_DIR/../code/make_photo_thumb_run.sh" > /dev/null 2>&1
+
 # リネームしたり移動したりで使われてない表紙ディレクトリとプレビューファイルディレクトリの削除
 logger -t "comistream cron_comistream_daily.sh[$$]" -p local1.info "start pushout_old_cover_dir.sh."
 pushout_old_cover_dir_file="$SCRIPT_DIR/../code/pushout_old_cover_dir.sh"

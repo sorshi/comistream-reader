@@ -30,7 +30,7 @@ function prepareReaderRuntimeDirectories(string $toolRoot): bool
     // 固定のdata配下だけを作り、既存リンクへは書き込まないルン。
     foreach (['data', 'data/db', 'data/cache', 'data/runtime', 'data/session',
         'data/etc', 'data/etc/index', 'data/etc/index/daily-list', 'data/etc/index/daily-cover',
-        'data/theme', 'data/theme/covers', 'data/theme/preview', 'data/theme/hls'] as $relative) {
+        'data/theme', 'data/theme/covers', 'data/theme/preview', 'data/theme/thumbs', 'data/theme/hls'] as $relative) {
         $path = $toolRoot . '/' . $relative;
         if (is_link($path) || (file_exists($path) && !is_dir($path))) return false;
         if (!is_dir($path) && !@mkdir($path, 0750)) return false;

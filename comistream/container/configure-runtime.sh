@@ -11,7 +11,7 @@ chown -R root:root /home/user/comistream
 chmod -R go-w /home/user/comistream
 install -d -o apache -g apache -m 0750 /home/user/comistream/data
 ln -s /home/user/comistream/theme /home/user/public/theme
-for kind in covers preview hls; do
+for kind in covers preview thumbs hls; do
     ln -s "/home/user/comistream/data/theme/$kind" "/home/user/comistream/theme/$kind"
 done
 install -m 0644 /home/user/comistream/container/httpd.conf /etc/httpd/conf/httpd.conf

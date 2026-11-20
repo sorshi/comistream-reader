@@ -3,6 +3,16 @@
  * 目錄列表用
  */
 const i18n_translations = {
+  "cover_layout_book": "書籍",
+  "cover_layout_photo": "相片",
+  "photo_close": "關閉相片",
+  "photo_previous": "上一張相片",
+  "photo_next": "下一張相片",
+  "photo_download": "下載原檔",
+  "photo_open_original": "在新分頁開啟原檔",
+  "photo_converted": "此瀏覽器無法直接顯示 {format} 格式，目前顯示轉換後的圖片。",
+  "photo_unavailable": "此瀏覽器無法顯示這張相片。",
+  "photo_retry": "重試",
   // 頁首與導覽
   "cancel": "取消",
   "update": "更新",

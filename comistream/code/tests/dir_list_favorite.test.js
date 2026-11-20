@@ -126,11 +126,12 @@ test("通常描画と高速描画の両方がファイル行を識別する", ()
     path.join(codeDirectory, "dir_list.php"),
     "utf8"
   );
-  const markers = dirListPhp.match(
-    /rowClass = ' class="file-entry-row"'/g
-  ) || [];
-
-  assert.equal(markers.length, 2);
+  for (const renderer of ['renderDirectoryContent', 'renderDirectoryContentFast']) {
+    const start = dirListPhp.indexOf('function ' + renderer + '(items, meta)');
+    assert.match(dirListPhp.slice(start, start + 600), /buildDirectoryRows\(items, meta\)/);
+  }
+  const builder = dirListPhp.slice(dirListPhp.indexOf('function buildDirectoryRows'), dirListPhp.indexOf('function renderDirectoryContent'));
+  assert.match(builder, /else if \(!item\.is_dir\) \{\s*\/\/[^\n]+\n\s*rowClass = ' class="file-entry-row"'/);
 });
 
 test("リスト・カバー表示ともファイル行だけにfavホバーを設定する", () => {

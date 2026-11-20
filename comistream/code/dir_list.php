@@ -468,7 +468,7 @@ $global_debug_flag = isset($global_debug_flag) ? $global_debug_flag : false;
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
-    ? '/theme/style_cover.css?2026110301'
+    ? '/theme/style_cover.css?2026112001'
     : '/theme/style.css?2026110301';
 $music_folder_actions_label = htmlspecialchars(
     I18n::getInstance()->get('music_folder_actions', 'フォルダ操作'),
@@ -635,6 +635,7 @@ if ($is_404_mode) {
             }
 
             if (viewmode === 'cover') {
+                syncCoverPhotoLayout();
                 showCoverSkeleton();
             } else {
                 showListSkeleton();
@@ -857,9 +858,9 @@ if ($is_404_mode) {
                 return;
             }
 
-            const createRow = viewmode === 'cover'
-                ? createCoverSkeletonRow
-                : createListSkeletonRow;
+            const createRow = tableContainer.classList.contains('photo-layout')
+                ? createPhotoSkeletonRow
+                : (viewmode === 'cover' ? createCoverSkeletonRow : createListSkeletonRow);
 
             if (viewmode === 'cover') {
                 applyCoverSkeletonSideGutter();
@@ -872,6 +873,14 @@ if ($is_404_mode) {
 
             const targetCount = calculateSkeletonItemCount(viewmode);
             reconcileSkeletonRows(targetCount, createRow);
+        }
+
+        function createPhotoSkeletonRow() {
+            const row = document.createElement('tr');
+            row.className = 'skeleton-row';
+            row.setAttribute('aria-hidden', 'true');
+            row.innerHTML = '<td class="skeleton-cell"></td>';
+            return row;
         }
 
         function showListSkeleton() {
@@ -1137,6 +1146,10 @@ if ($is_404_mode) {
         <div>
             <div class="directory-heading">
                 <span class="breadcrumb" id="breadcrumb">/</span>
+                <div id="coverLayoutChip" class="cover-layout-chip" role="group" aria-label="<?php echo htmlspecialchars(I18n::getInstance()->get('cover_layout'), ENT_QUOTES, 'UTF-8'); ?>" hidden>
+                    <button type="button" data-layout="book" data-i18n="cover_layout_book" aria-pressed="false"><?php echo htmlspecialchars(I18n::getInstance()->get('cover_layout_book'), ENT_QUOTES, 'UTF-8'); ?></button>
+                    <button type="button" data-layout="photo" data-i18n="cover_layout_photo" aria-pressed="false"><?php echo htmlspecialchars(I18n::getInstance()->get('cover_layout_photo'), ENT_QUOTES, 'UTF-8'); ?></button>
+                </div>
                 <?php if ($music_directory_href !== null): ?>
                     <div class="folder-actions">
                         <button type="button" class="folder-actions-button" id="folderActionsButton" aria-label="<?php echo $music_folder_actions_label; ?>" aria-expanded="false" aria-controls="folderActionsPanel">⋯</button>
@@ -1375,17 +1388,13 @@ if ($is_404_mode) {
                     });
             }
 
-            // ディレクトリ内容をレンダリング
-            function renderDirectoryContent(items, meta) {
-                const tbody = document.querySelector('#table-tbody');
-                const tableContainer = document.getElementById('indexlist');
-
-                if (!tbody || !tableContainer) {
-                    console.error('Required DOM elements not found');
-                    return;
+            function buildDirectoryRows(items, meta) {
+                setPhotoDirectory(items, meta);
+                const viewmode = getCookie('viewmode') || 'list';
+                const photoLayout = document.getElementById('indexlist').classList.contains('photo-layout');
+                if (photoLayout) {
+                    items = [...items.filter(item => item.is_dir), ...items.filter(item => !item.is_dir)];
                 }
-
-                // HTML構築
                 let htmlContent = '';
                 items.forEach(item => {
                     let rowClass = '';
@@ -1396,13 +1405,13 @@ if ($is_404_mode) {
                         rowClass = ' class="file-entry-row"';
                     }
 
-                    htmlContent += '<tr' + rowClass + '>';
+                    htmlContent += '<tr' + rowClass + ' data-kind="' + escapeHtml(item.kind || 'other') + '">';
 
                     // アイコンカラム
                     htmlContent += '<td class="indexcolicon">';
                     htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '">';
                     // アイコン画像のsrcを正しく設定（APIから返されるitem.iconを使用）
-                    var iconSrc = item.icon && item.icon !== '/theme/icons/blank.png' ? item.icon : '/theme/icons/folder.png';
+                    const iconSrc = item.icon && item.icon !== '/theme/icons/blank.png' ? item.icon : '/theme/icons/folder.png';
                     htmlContent += '<img src="' + escapeHtml(iconSrc) + '" alt="[ICO]">';
                     htmlContent += '</a></td>';
 
@@ -1410,6 +1419,7 @@ if ($is_404_mode) {
                     let nameContent = '';
                     let dataImageAttr = '';
                     let dataCoverImageAttr = '';
+                    let photoFormatAttr = '';
                     let tdIdAttr = '';
                     let onclickAttr = '';
                     let tdOnclickAttr = '';
@@ -1424,30 +1434,30 @@ if ($is_404_mode) {
                         tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
 
                         // 切り替え後もAPIの表紙URLを使えるよう保持するルン。
-                        if (item.cover_image) {
-                            dataCoverImageAttr = ' data-cover-image="' + escapeHtml(item.cover_image) + '"';
+                        const coverUrl = item.kind === 'image' ? item.thumb : item.cover_image;
+                        if (coverUrl) {
+                            dataCoverImageAttr = ' data-cover-image="' + escapeHtml(coverUrl) + '"';
                         }
 
-                        // カバービューでファイルの場合、表紙画像を追加
-                        const viewmode = getCookie('viewmode') || 'list';
-                        if (viewmode === 'cover' && item.cover_image) {
-                            nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
+                        if (item.view_convert) {
+                            photoFormatAttr = ' data-photo-format="' + escapeHtml(item.name.split('.').pop().toUpperCase()) + '"';
+                        }
+                        if (viewmode === 'cover' && coverUrl && (!photoLayout || item.kind === 'image')) {
+                            const loading = item.kind === 'image' ? ' loading="lazy" decoding="async"' : '';
+                            nameContent = '<img src="' + escapeHtml(coverUrl) + '" alt=""' + loading + ' onerror="this.hidden=true">';
                         }
                     }
 
                     // Parent Directory以外のクリック領域拡張処理
                     if (!item.is_parent) {
-                        // viewmodeを取得してクリック領域を決定
-                        const viewmode = getCookie('viewmode') || 'list';
-
                         if (viewmode === 'list') {
                             // リストビューの場合：tdにクリックハンドラを設定（クリック領域拡張）
                             if (item.is_dir) {
                                 // ディレクトリ：内部のaタグのhrefを取得して遷移
-                                tdOnclickAttr = ' onclick="var link = this.querySelector(\'a\'); if (link) { window.location.href = link.href; } return false;" style="cursor: pointer;"';
+                                tdOnclickAttr = ' onclick="var link = this.querySelector(\'a\'); if (link) { window.location.href = link.href; } return false;"';
                             } else {
                                 // ファイル：linkhookを使用
-                                tdOnclickAttr = ' onclick="return linkhook(event)" style="cursor: pointer;"';
+                                tdOnclickAttr = ' onclick="return linkhook(event)"';
                             }
                             onclickAttr = ''; // aタグからは除去
                         } else {
@@ -1460,14 +1470,18 @@ if ($is_404_mode) {
                         }
                     }
 
-                    htmlContent += '<td class="indexcolname"' + dataImageAttr + dataCoverImageAttr + tdIdAttr + tdOnclickAttr + '>';
+                    const tileIcon = /^\/theme\/icons\/[a-z-]+\.png$/.test(iconSrc)
+                        ? '--photo-tile-icon:url(' + iconSrc + ');' : '';
+                    const nameCellStyle = tileIcon + (tdOnclickAttr ? 'cursor:pointer;' : '');
+                    htmlContent += '<td class="indexcolname"' + dataImageAttr + dataCoverImageAttr + photoFormatAttr + tdIdAttr + tdOnclickAttr
+                        + (nameCellStyle ? ' style="' + nameCellStyle + '"' : '') + '>';
                     htmlContent += nameContent;
                     htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
                     if (!item.is_dir && !item.is_parent) {
                         htmlContent += ' id="' + escapeHtml(item.name) + '"';
                     }
                     htmlContent += onclickAttr + '>';
-                    htmlContent += escapeHtml(item.name);
+                    htmlContent += '<span class="directory-item-name" style="pointer-events:none">' + escapeHtml(item.name) + '</span>';
                     htmlContent += '</a></td>';
 
                     // 最終更新日カラム
@@ -1478,6 +1492,21 @@ if ($is_404_mode) {
 
                     htmlContent += '</tr>';
                 });
+
+                return htmlContent;
+            }
+
+            // ディレクトリ内容をレンダリング
+            function renderDirectoryContent(items, meta) {
+                const tbody = document.querySelector('#table-tbody');
+                const tableContainer = document.getElementById('indexlist');
+
+                if (!tbody || !tableContainer) {
+                    console.error('Required DOM elements not found');
+                    return;
+                }
+
+                const htmlContent = buildDirectoryRows(items, meta);
 
                 // スケルトンが表示されているかどうかで処理を分ける
                 if (isSkeletonCurrentlyDisplayed()) {
@@ -1544,99 +1573,7 @@ if ($is_404_mode) {
                     return;
                 }
 
-                // HTML構築（renderDirectoryContent()と同じロジック）
-                let htmlContent = '';
-                items.forEach(item => {
-                    let rowClass = '';
-                    if (item.is_parent) {
-                        rowClass = ' class="parent-dir-row"';
-                    } else if (!item.is_dir) {
-                        // 高速描画でも通常描画と同じ種別を保持するルン。
-                        rowClass = ' class="file-entry-row"';
-                    }
-
-                    htmlContent += '<tr' + rowClass + '>';
-
-                    // アイコンカラム
-                    htmlContent += '<td class="indexcolicon">';
-                    htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '">';
-                    // アイコン画像のsrcを正しく設定（APIから返されるitem.iconを使用）
-                    var iconSrc = item.icon && item.icon !== '/theme/icons/blank.png' ? item.icon : '/theme/icons/folder.png';
-                    htmlContent += '<img src="' + escapeHtml(iconSrc) + '" alt="[ICO]">';
-                    htmlContent += '</a></td>';
-
-                    // 名前カラム
-                    let nameContent = '';
-                    let dataImageAttr = '';
-                    let dataCoverImageAttr = '';
-                    let tdIdAttr = '';
-                    let onclickAttr = '';
-                    let tdOnclickAttr = '';
-
-                    // ファイル専用の特別処理
-                    if (!item.is_dir && !item.is_parent) {
-                        // プレビュー画像属性
-                        if (item.preview_image) {
-                            dataImageAttr = ' data-image="' + escapeHtml(item.preview_image) + '"';
-                        }
-                        // ID属性（ブックマーク用）
-                        tdIdAttr = ' id="' + escapeHtml(item.name) + '"';
-
-                        // 切り替え後もAPIの表紙URLを使えるよう保持するルン。
-                        if (item.cover_image) {
-                            dataCoverImageAttr = ' data-cover-image="' + escapeHtml(item.cover_image) + '"';
-                        }
-
-                        // カバービューでファイルの場合、表紙画像を追加
-                        const viewmode = getCookie('viewmode') || 'list';
-                        if (viewmode === 'cover' && item.cover_image) {
-                            nameContent = '<img src="' + escapeHtml(item.cover_image) + '" alt="Cover" onerror="this.style.display=\'none\'">';
-                        }
-                    }
-
-                    // Parent Directory以外のクリック領域拡張処理
-                    if (!item.is_parent) {
-                        // viewmodeを取得してクリック領域を決定
-                        const viewmode = getCookie('viewmode') || 'list';
-
-                        if (viewmode === 'list') {
-                            // リストビューの場合：tdにクリックハンドラを設定（クリック領域拡張）
-                            if (item.is_dir) {
-                                // ディレクトリ：内部のaタグのhrefを取得して遷移
-                                tdOnclickAttr = ' onclick="var link = this.querySelector(\'a\'); if (link) { window.location.href = link.href; } return false;" style="cursor: pointer;"';
-                            } else {
-                                // ファイル：linkhookを使用
-                                tdOnclickAttr = ' onclick="return linkhook(event)" style="cursor: pointer;"';
-                            }
-                            onclickAttr = ''; // aタグからは除去
-                        } else {
-                            // カバービューの場合
-                            if (!item.is_dir) {
-                                // ファイルの場合のみlinkhookを設定
-                                onclickAttr = ' onclick="return linkhook(event)"';
-                            }
-                            // ディレクトリの場合はonclickAttrは空のまま（デフォルトのリンク動作）
-                        }
-                    }
-
-                    htmlContent += '<td class="indexcolname"' + dataImageAttr + dataCoverImageAttr + tdIdAttr + tdOnclickAttr + '>';
-                    htmlContent += nameContent;
-                    htmlContent += '<a href="' + escapeHtml(item.href) + '" data-filepath="' + escapeHtml(item.data_filepath) + '"';
-                    if (!item.is_dir && !item.is_parent) {
-                        htmlContent += ' id="' + escapeHtml(item.name) + '"';
-                    }
-                    htmlContent += onclickAttr + '>';
-                    htmlContent += escapeHtml(item.name);
-                    htmlContent += '</a></td>';
-
-                    // 最終更新日カラム
-                    htmlContent += '<td class="indexcollastmod" data-timestamp="' + escapeHtml(item.lastmod) + '">' + escapeHtml(item.lastmod_formatted) + '</td>';
-
-                    // サイズカラム
-                    htmlContent += '<td class="indexcolsize" data-size="' + escapeHtml(item.size) + '">' + escapeHtml(item.size_formatted) + '</td>';
-
-                    htmlContent += '</tr>';
-                });
+                const htmlContent = buildDirectoryRows(items, meta);
 
                 // 高速表示：スケルトンをスキップして直接コンテンツ設定
                 debugLog('DEBUG Fast render: Setting content directly without skeleton animation');
@@ -1720,6 +1657,7 @@ if ($is_404_mode) {
 
             // エラーメッセージを表示
             function renderErrorMessage(message) {
+                setPhotoDirectory([], { photo: {} });
                 const tbody = document.querySelector('#table-tbody');
                 const tableContainer = document.getElementById('indexlist');
 
@@ -1838,9 +1776,41 @@ if ($is_404_mode) {
 
     </div><!--/.wrapper-->
 
+    <?php
+    $photoText = static fn(string $key): string => htmlspecialchars(
+        I18n::getInstance()->get($key),
+        ENT_QUOTES | ENT_SUBSTITUTE,
+        'UTF-8'
+    );
+    ?>
+    <dialog id="photoLightbox" class="photo-lightbox" aria-labelledby="photoFilename"
+        data-converted="<?php echo $photoText('photo_converted'); ?>"
+        data-unavailable="<?php echo $photoText('photo_unavailable'); ?>"
+        data-download="<?php echo $photoText('photo_download'); ?>">
+        <div class="photo-lightbox-background"></div>
+        <div class="photo-lightbox-stage">
+            <div class="photo-lightbox-media"></div>
+            <span class="photo-lightbox-loading" role="status" data-i18n="loading"><?php echo $photoText('loading'); ?></span>
+        </div>
+        <header class="photo-lightbox-controls">
+            <span id="photoCount" aria-live="polite"></span>
+            <button type="button" data-action="close" aria-label="<?php echo $photoText('photo_close'); ?>" autofocus>×</button>
+        </header>
+        <button type="button" class="photo-lightbox-controls" data-action="previous" aria-label="<?php echo $photoText('photo_previous'); ?>">‹</button>
+        <button type="button" class="photo-lightbox-controls" data-action="next" aria-label="<?php echo $photoText('photo_next'); ?>">›</button>
+        <footer class="photo-lightbox-controls">
+            <div id="photoFilename"></div>
+            <div class="photo-lightbox-notice" role="status" hidden></div>
+            <a data-action="download" download></a>
+            <a data-action="original" target="_blank" rel="noopener" data-i18n="photo_open_original"><?php echo $photoText('photo_open_original'); ?></a>
+            <button type="button" data-action="retry" data-i18n="photo_retry" hidden><?php echo $photoText('photo_retry'); ?></button>
+        </footer>
+    </dialog>
+
     <!-- Directory listing JavaScript functions (inlined to avoid iOS PWA cache issues) -->
     <script>
         <?php readfile(__DIR__ . '/dir_list.js'); ?>
+        <?php readfile(__DIR__ . '/dir_list_photo.js'); ?>
     </script>
 
     <!-- Footer content integrated from footer.html -->

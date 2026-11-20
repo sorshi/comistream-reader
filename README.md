@@ -115,6 +115,7 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
    sudo ln -s /home/user/comistream/code/livestream.php /var/www/cgi-bin/
    sudo ln -s /home/user/comistream/code/dir_list.php /var/www/cgi-bin/
    sudo ln -s /home/user/comistream/code/dir_list_api.php /var/www/cgi-bin/
+   sudo ln -s /home/user/comistream/code/photo_view.php /var/www/cgi-bin/
    sudo ln -s /home/user/comistream/code/music_player.php /var/www/cgi-bin/
    mkdir -p /home/user/comistream/data/
    sudo chgrp -R apache /home/user/comistream/data/
@@ -143,7 +144,9 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 - apache権限でcomistream/code/make_image_run.shを実行します。コンテンツ量によりますが結構時間がかかります。進捗は必要に応じてjournalctl -fなどでログを確認してください。明示的に実行しなくても次の項でcron設定すれば自動的に起動します。
 
 9. 日次バッチ
-- （コンテナ版では設定済）cronなどでcomistream/cron/cron_comistream_daily.shを実行するように設定します。rootで起動するとapache権限でmake_image_run.shとpushout_old_cover_dir.shが実行されます。前者は8で実行した画像作成です。後者はリネームしたり移動したりで使われてない表紙ディレクトリとプレビューファイルディレクトリの削除をします。
+- （コンテナ版では設定済）cronなどでcomistream/cron/cron_comistream_daily.shを実行するように設定します。rootで起動するとapache権限で表紙・プレビューの生成、写真サムネイルの生成、未使用の表紙・プレビューの削除を順に実行します。
+- 写真サムネイルを日次で作るには、管理画面の `photo_subDir` に共有ルートからの相対ディレクトリを指定します。複数は空白で区切り、空白を含む名前は `"Family Photos"` のようにダブルクォーテーションで囲みます。既定値は空欄で、日次生成は無効です。対象を1フォルダだけ手動で更新するには、Apacheユーザーで `bash comistream/code/make_photo_thumb_run.sh "Family Photos/2026"` を実行します。バッチのロックには Linux の `flock` を使います。変換には ImageMagick 7 を使い、サムネイル生成では `vipsthumbnail` と `vipsheader` があれば優先します。HEIC・HEIFのサムネイル生成には ImageMagick のHEIC読み込み対応が必要です。
+- 手動設置版では、管理画面で設定を保存すると公開先の `theme/thumbs` から `comistream/data/theme/thumbs` へのシンボリックリンクを作成します。公開先への書き込みを制限している場合は、Apacheユーザーが保存先へ書き込めるようにしたうえで、管理者がそのリンクを作成してください。
 
 10. 外部からのアクセス
 - Cloudflare TunnelやTailscaleやリバースプロキシやVPNなど既存の方法で利用してください。
@@ -156,6 +159,7 @@ cloneまたは展開した中のcomistreamディレクトリを/home/user/以下
 
 ## 使い方
 画像で大方わかると思いますので、その他の細かい補足を以下に記載します。
+- カバー表示では、画像が8枚以上かつファイルの60%以上（動画を除く）のフォルダを写真グリッドで表示します。画像が8枚以上あるフォルダでは、パンくず横の「書籍」「写真」で並べ方を切り替えられます。写真グリッドでは画像を選ぶとライトボックスが開き、左右の矢印やスワイプで前後の写真へ移動できます。
 - ヘッダーのログインと管理者ログインは直接の関係はありません。ヘッダーのログインは読書履歴やしおりの位置の記録に用いられるユーザー自己申告です。
 - デバイス間同期を利用するためにはヘッダアイコンでログインしてください。ゲストではデバイス間同期は利用できません。
 - 管理者ログイン、管理者ログアウト、環境設定のメニューは表には表示されていません。それぞれ、`/cgi-bin/comistream.php?mode=login`、`/cgi-bin/comistream.php?mode=logout`、`/cgi-bin/comistream.php?mode=config`を直接開いてください。

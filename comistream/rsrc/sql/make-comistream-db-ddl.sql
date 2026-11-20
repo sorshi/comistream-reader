@@ -170,6 +170,7 @@ INSERT OR REPLACE INTO system_config (key, value) VALUES('usm', '-unsharp 12x6+0
 INSERT OR REPLACE INTO system_config (key, value) VALUES('global_preload_pages', 3);
 INSERT OR REPLACE INTO system_config (key, value) VALUES('global_preload_delay_ms', 1500);
 INSERT OR REPLACE INTO system_config (key, value) VALUES('cover_subDir','Book Comic Mook');
+INSERT OR IGNORE INTO system_config (key, value) VALUES('photo_subDir','');
 INSERT OR REPLACE INTO system_config (key, value) VALUES('liveStreamMode', 0);
 -- INSERT OR REPLACE INTO system_config (key, value) VALUES('bibiPath','/bibi/');
 INSERT OR REPLACE INTO system_config (key, value) VALUES('bibiPath','');

@@ -3,6 +3,16 @@
  * ディレクトリリスティング用
  */
 const i18n_translations = {
+  "cover_layout_book": "書籍",
+  "cover_layout_photo": "写真",
+  "photo_close": "写真を閉じる",
+  "photo_previous": "前の写真",
+  "photo_next": "次の写真",
+  "photo_download": "原本をダウンロード",
+  "photo_open_original": "原本を新しいタブで開く",
+  "photo_converted": "{format} 形式はこのブラウザで直接表示できないため、変換して表示しています。",
+  "photo_unavailable": "この写真はこのブラウザで表示できません。",
+  "photo_retry": "再試行",
   // ヘッダーとナビゲーション
   "cancel": "キャンセル",
   "update": "更新",

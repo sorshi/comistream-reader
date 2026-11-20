@@ -3,6 +3,16 @@
  * For Directory Listing
  */
 const i18n_translations = {
+  "cover_layout_book": "Books",
+  "cover_layout_photo": "Photos",
+  "photo_close": "Close photo",
+  "photo_previous": "Previous photo",
+  "photo_next": "Next photo",
+  "photo_download": "Download original",
+  "photo_open_original": "Open original in a new tab",
+  "photo_converted": "This browser cannot display {format} directly. A converted image is shown.",
+  "photo_unavailable": "This photo cannot be displayed in this browser.",
+  "photo_retry": "Retry",
   // Header and Navigation
   "cancel": "Cancel",
   "update": "Update",

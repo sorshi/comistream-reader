@@ -28,6 +28,11 @@ function ls_encoder_process_pattern(string $user): string
     return 'ffmpeg.*hls/' . $literal . '/';
 }
 
+function ls_source_extensions(): array
+{
+    return ['m2t', 'ts', 'iso', 'mp4', 'm4v', 'avi', 'mkv', 'wmv', 'mpg', 'm2p', 'webm', 'mov', 'flv', 'mpeg'];
+}
+
 function ls_validate_source(string $share, $source): string|false
 {
     $base = realpath($share);
@@ -36,8 +41,7 @@ function ls_validate_source(string $share, $source): string|false
         || !str_starts_with($real, $base . DIRECTORY_SEPARATOR)) {
         return false;
     }
-    $formats = ['m2t', 'ts', 'iso', 'mp4', 'm4v', 'avi', 'mkv', 'wmv', 'mpg', 'm2p', 'webm', 'mov', 'flv', 'mpeg'];
-    return in_array(strtolower(pathinfo($real, PATHINFO_EXTENSION)), $formats, true) ? $real : false;
+    return in_array(strtolower(pathinfo($real, PATHINFO_EXTENSION)), ls_source_extensions(), true) ? $real : false;
 }
 
 function ls_resolve_source(string $share, $requested): string|false

@@ -404,6 +404,269 @@ td.indexcolsize {
   display: none;
 }
 
+.cover-layout-chip:not([hidden]) {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--directory-control-border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.cover-layout-chip button {
+  border: 0;
+  padding: 3px 10px;
+  background: var(--directory-panel-bg);
+  color: var(--directory-text);
+  font: inherit;
+  font-size: 0.8em;
+  cursor: pointer;
+}
+.cover-layout-chip button[aria-pressed="true"] {
+  background: var(--directory-hover-bg);
+  font-weight: bold;
+}
+.cover-layout-chip button:focus-visible {
+  outline-offset: -3px;
+}
+.cover-layout-chip .manual-layout::after {
+  content: " •";
+}
+
+#indexlist.photo-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 126px);
+  justify-content: center;
+  gap: 2px;
+  padding-inline: 0;
+}
+#indexlist.photo-layout > thead {
+  display: none;
+}
+@media (max-width: 600px) {
+  #indexlist.photo-layout {
+    grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+  }
+}
+.photo-layout tbody > tr {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  margin: 0;
+  isolation: isolate;
+}
+.photo-layout .skeleton-row .skeleton-cell {
+  display: block;
+  height: 100%;
+}
+.photo-layout .indexcolname {
+  height: 100%;
+  box-shadow: none;
+  background: var(--photo-tile-icon, url("icons/default.png")) center / 32px auto no-repeat var(--directory-panel-bg);
+}
+[data-kind="image"] .indexcolname {
+  background: url("icons/image.png") center / 32px auto no-repeat var(--directory-panel-bg);
+}
+.photo-layout [data-kind="video"] .indexcolname {
+  background-image: url("icons/video.png");
+}
+.photo-layout [data-kind="video"] .indexcolname::after,
+.photo-layout [data-photo-format]::after {
+  position: absolute;
+  top: auto;
+  right: 3px;
+  bottom: 3px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #000b;
+  color: white;
+  font-size: 0.72em;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.photo-layout [data-kind="video"] .indexcolname::after {
+  content: "▶";
+}
+.photo-layout [data-photo-format]::after {
+  content: attr(data-photo-format);
+}
+[data-kind="image"] .indexcolname img {
+  z-index: 0;
+  object-position: center;
+}
+.photo-layout .indexcolname img {
+  width: 100%;
+}
+.photo-layout .indexcolname a {
+  height: 100%;
+  padding: 0;
+  background-size: contain;
+  z-index: 1;
+}
+.photo-layout .parent-dir-row .indexcolname a {
+  background: url("icons/folder-home.png") center / 32px auto no-repeat var(--directory-panel-bg);
+}
+.photo-layout .directory-item-name {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 4px 8px;
+  background: #000b;
+  color: white;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0;
+}
+.photo-layout a:focus-visible .directory-item-name {
+  opacity: 1;
+}
+@media (hover: hover) {
+  .photo-layout a:hover .directory-item-name {
+    opacity: 1;
+  }
+}
+.photo-layout .indexcolicon {
+  display: none;
+}
+.photo-layout tr.file-entry-row .indexcolicon {
+  display: block;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  top: 0;
+  bottom: auto;
+  z-index: 2;
+  background-size: 17px auto;
+}
+.photo-layout .indexcolicon img {
+  visibility: hidden;
+}
+
+html:has(.photo-lightbox[open]) {
+  overflow: hidden;
+}
+.photo-lightbox {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: #101010;
+  color: white;
+}
+.photo-lightbox::backdrop {
+  background: #101010;
+}
+.photo-lightbox-background {
+  position: absolute;
+  inset: -30px;
+  background-position: center;
+  background-size: cover;
+  filter: blur(28px) brightness(.42);
+}
+.photo-lightbox-stage,
+.photo-lightbox-media {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+}
+.photo-lightbox-media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.photo-lightbox-media .photo-lightbox-thumbnail {
+  width: min(70vw, 70dvh, 66vh);
+  height: auto;
+  aspect-ratio: 1;
+}
+.photo-lightbox-media .photo-lightbox-icon {
+  width: 80px;
+  height: 80px;
+}
+.photo-lightbox-loading {
+  z-index: 1;
+  padding: 5px 12px;
+  border-radius: 5px;
+  background: #000a;
+}
+.photo-lightbox-controls {
+  position: absolute;
+  z-index: 2;
+}
+.photo-controls-hidden .photo-lightbox-controls {
+  visibility: hidden;
+}
+.photo-lightbox header,
+.photo-lightbox footer {
+  right: 0;
+  left: 0;
+  padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
+  background: #000b;
+}
+.photo-lightbox header {
+  top: 0;
+  padding-top: env(safe-area-inset-top);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.photo-lightbox footer {
+  bottom: 0;
+  padding-block: 8px max(8px, env(safe-area-inset-bottom));
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.photo-lightbox a {
+  display: inline-block;
+  margin: 2px 8px;
+  color: white;
+  text-decoration: underline;
+}
+.photo-lightbox button {
+  min-width: 44px;
+  min-height: 44px;
+  padding-inline: 8px;
+  border: none;
+  border-radius: 4px;
+  background: #0009;
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}
+.photo-lightbox button:disabled {
+  opacity: .35;
+  cursor: default;
+}
+.photo-lightbox button[data-action="close"],
+.photo-lightbox button[data-action="previous"],
+.photo-lightbox button[data-action="next"] {
+  font-size: 1.7em;
+}
+.photo-lightbox button[data-action="previous"],
+.photo-lightbox button[data-action="next"] {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.photo-lightbox button[data-action="previous"] {
+  left: max(5px, env(safe-area-inset-left));
+}
+.photo-lightbox button[data-action="next"] {
+  right: max(5px, env(safe-area-inset-right));
+}
+.photo-lightbox-notice {
+  font-size: .87em;
+}
+
 #modal {
   position: fixed;
   top: 0;

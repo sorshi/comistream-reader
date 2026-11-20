@@ -16,6 +16,8 @@
 
 require_once __DIR__ . '/comistream_lib.php';
 require_once __DIR__ . '/lib/music_queue.php';
+require_once __DIR__ . '/lib/lib_hls_paths.php';
+require_once __DIR__ . '/lib/lib_photo.php';
 
 // API専用設定
 ini_set('zlib.output_compression', '0'); // API では圧縮を無効化
@@ -107,12 +109,6 @@ try {
             '.7z' => '/theme/icons/book.png',
             '.cb7' => '/theme/icons/book.png',
             '.txt' => '/theme/icons/text.png',
-            '.jpg' => '/theme/icons/image.png',
-            '.jpeg' => '/theme/icons/image.png',
-            '.jpe' => '/theme/icons/image.png',
-            '.png' => '/theme/icons/image.png',
-            '.gif' => '/theme/icons/image.png',
-            '.bmp' => '/theme/icons/image.png',
             '.mp3' => '/theme/icons/audio.png',
             '.m4a' => '/theme/icons/audio.png',
             '.mp4' => '/theme/icons/video.png',
@@ -130,6 +126,7 @@ try {
         $map = get_icon_map();
         if ($is_dir) return $map['__dir'];
         $ext = strtolower(strrchr($filename, '.'));
+        if (in_array(substr($ext, 1), PHOTO_IMAGE_EXTENSIONS, true)) return '/theme/icons/image.png';
         return $map[$ext] ?? $map['__default'];
     }
 
@@ -247,6 +244,9 @@ try {
     $dirs = [];
     $files = [];
     $all_items = [];
+    $photo_count = 0;
+    $video_count = 0;
+    $video_extensions = ls_source_extensions();
 
     if (!$is_404_mode) {
         $items = scandir($physical_path, SCANDIR_SORT_NONE);
@@ -262,9 +262,25 @@ try {
                 writelog("WARN dir_list_api: stat failed for {$item_path}", "dir_list_api");
                 continue;
             }
+            if (!$is_dir && ($stat['mode'] & 0170000) !== 0100000) continue;
+            $extension = strtolower(pathinfo($item, PATHINFO_EXTENSION));
+            $kind = 'other';
+            if (!$is_dir) {
+                if (in_array($extension, PHOTO_IMAGE_EXTENSIONS, true)) {
+                    $kind = 'image';
+                    ++$photo_count;
+                } elseif (in_array($extension, $video_extensions, true)) {
+                    $kind = 'video';
+                    ++$video_count;
+                } elseif (in_array($extension, ['zip', 'cbz', 'rar', 'cbr', '7z', 'cb7', 'pdf', 'epub'], true)) {
+                    $kind = 'book';
+                }
+            }
             $entry = [
                 'name' => $item,
                 'is_dir' => $is_dir,
+                'kind' => $kind,
+                'extension' => $extension,
                 'size' => $is_dir ? -1 : $stat['size'],
                 'lastmod' => $stat['mtime']
             ];
@@ -272,6 +288,20 @@ try {
             $all_items[] = $entry;
             if ($is_dir) $dirs[] = $entry;
             else $files[] = $entry;
+        }
+    }
+
+    $api_response['meta']['photo'] = photoListingMeta(count($files), $photo_count, $video_count);
+    $thumb_names = [];
+    $thumb_prefix = '';
+    if ($photo_count > 0 && $share_relative_directory !== null && !empty($conf['comistream_tool_dir'])) {
+        $tool_root = realpath($conf['comistream_tool_dir']);
+        $thumb_suffix = $share_relative_directory === '.' ? '' : '/' . $share_relative_directory;
+        $thumb_directory = $tool_root . '/data/theme/thumbs' . $thumb_suffix;
+        // 原本ディレクトリに対応するサムネイル名を一度だけ読むルン。
+        if ($tool_root !== false && realpath($thumb_directory) === $thumb_directory && is_dir($thumb_directory)) {
+            $thumb_names = array_fill_keys(@scandir($thumb_directory, SCANDIR_SORT_NONE) ?: [], true);
+            $thumb_prefix = '/theme/thumbs' . encode_url_path($thumb_suffix) . '/';
         }
     }
 
@@ -310,6 +340,7 @@ try {
             'name' => 'Parent Directory',
             'is_dir' => true,
             'is_parent' => true,
+            'kind' => 'other',
             'size' => -1,
             'size_formatted' => '-',
             'lastmod' => 0,
@@ -348,6 +379,7 @@ try {
             'name' => $item['name'],
             'is_dir' => $item['is_dir'],
             'is_parent' => false,
+            'kind' => $item['kind'],
             'size' => $item['size'],
             'size_formatted' => format_size($item['size']),
             'lastmod' => $item['lastmod'],
@@ -358,7 +390,18 @@ try {
         ];
 
         // ファイルの場合、プレビュー・カバー画像情報を追加
-        if (!$item['is_dir']) {
+        if ($item['kind'] === 'image') {
+            $thumb_name = photoThumbName($item['name'], $item['lastmod']);
+            if (isset($thumb_names[$thumb_name])) {
+                $response_item['thumb'] = $thumb_prefix . rawurlencode($thumb_name);
+            }
+            if ($share_relative_directory !== null && in_array($item['extension'], PHOTO_CONVERT_EXTENSIONS, true)) {
+                $response_item['view_convert'] = '/cgi-bin/photo_view.php?' . http_build_query([
+                    'file' => $share_item_path,
+                    'v' => $item['lastmod'] . '-' . $item['size'],
+                ], '', '&', PHP_QUERY_RFC3986);
+            }
+        } elseif (!$item['is_dir']) {
             $preview_path = preg_replace('/\.[^.]+$/', '.webp', $raw_filepath);
             $encoded_preview_path = encode_url_path($preview_path);
             $response_item['preview_image'] = '/theme/preview' . $encoded_preview_path;

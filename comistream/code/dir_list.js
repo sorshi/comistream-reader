@@ -302,7 +302,7 @@ function restoreScrollPosition() {
 }
 
 // クライアント側ソート関数（ディレクトリとファイルを混在ソート）
-function sortItemsClientSide(items, sortBy, sortOrder) {
+function sortItemsClientSide(items, sortBy, sortOrder, foldersFirst = false) {
   if (!Array.isArray(items)) {
     return items;
   }
@@ -314,6 +314,7 @@ function sortItemsClientSide(items, sortBy, sortOrder) {
     if (a.is_parent && !b.is_parent) return -1;
     if (!a.is_parent && b.is_parent) return 1;
     if (a.is_parent && b.is_parent) return 0;
+    if (foldersFirst && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
 
     let valA, valB;
 
@@ -545,6 +546,12 @@ function linkhook(e) {
     return false;
   }
 
+  if (typeof openPhotoViewer === "function" && !e.ctrlKey && !e.metaKey && !e.shiftKey
+      && openPhotoViewer(targetElement.getAttribute("href"))) {
+    e.preventDefault();
+    return false;
+  }
+
   // ★クリックされた行をハイライト表示するルン！（視覚的フィードバック）
   try {
     const clickedRow = targetElement.closest('tr');
@@ -561,7 +568,7 @@ function linkhook(e) {
   // 画像ファイルはそのままブラウザで開く（リーダーは起動しない）
   if (
     targetElement.href &&
-    targetElement.href.match(/\.(jpe?g|png|gif|webp|avif|bmp|svg|tiff?|heic|heif)$/i)
+    targetElement.href.match(/\.(jpe?g|jpe|png|gif|webp|avif|bmp|svg|tiff?|heic|heif)$/i)
   ) {
     // ★スピナーを表示するルン！（画像を開く前のフィードバック）
     showFileLoadingSpinner('画像を開いています...');
@@ -649,7 +656,7 @@ function toggleView() {
   if (/style\.css/.test(stylesheet.href || "")) {
     // List -> Cover
     document.cookie = "viewmode=cover; path=/; SameSite=Strict";
-    stylesheet.href = "/theme/style_cover.css?2026110301";
+    stylesheet.href = "/theme/style_cover.css?2026112001";
     setTimeout(() => {
       try { reinitializeContentFeatures(); } catch (e) { console.error(e); }
       try { applyDirectoryCustomIcons(); } catch (e) { console.error(e); }
@@ -967,7 +974,8 @@ function applySortChangeCore() {
       }).filter(item => item !== null);
 
       // ソート適用（ディレクトリとファイルを別々にソートしてから結合）
-      const sortedItems = sortItemsClientSide(items, selectedSortBy, selectedSortOrder);
+      const foldersFirst = tbody.closest('#indexlist')?.classList.contains('photo-layout');
+      const sortedItems = sortItemsClientSide(items, selectedSortBy, selectedSortOrder, foldersFirst);
 
       // DOMを再構築
       const parentRow = tbody.querySelector('.parent-dir-row');
@@ -1562,6 +1570,7 @@ function addCoverImages() {
 
   let addedCount = 0;
   rows.forEach(function(row) {
+    if (row.closest?.(".photo-layout") && row.dataset.kind !== "image") return;
     const nameCell = row.querySelector(".indexcolname");
     const anchor = nameCell ? nameCell.querySelector("a") : null;
 
@@ -1586,14 +1595,18 @@ function addCoverImages() {
 
     // img要素を作成
     const img = document.createElement("img");
-    img.src = coverImagePath;
-    img.alt = "Cover";
+    img.alt = row.dataset?.kind === "image" ? "" : "Cover";
     img.style.display = "block"; // 初期表示
+    if (row.dataset?.kind === "image") {
+      img.loading = "lazy";
+      img.decoding = "async";
+    }
 
     // エラー時は非表示にする
     img.onerror = function() {
       this.style.display = "none";
     };
+    img.src = coverImagePath;
 
     // nameCell の先頭に挿入（aタグの前）
     nameCell.insertBefore(img, anchor);
@@ -1606,11 +1619,13 @@ function addCoverImages() {
 }
 
 // 表紙画像を削除する関数（カバー→リストビュー切り替え時）
-function removeCoverImages() {
+function removeCoverImages(keepPhotoThumbs = false) {
 
 
   const tableBody = document.querySelector("#table-tbody");
-  const coverImages = tableBody.querySelectorAll(".indexcolname img");
+  const coverImages = tableBody.querySelectorAll(keepPhotoThumbs
+    ? 'tr:not([data-kind="image"]) .indexcolname img'
+    : '.indexcolname img');
 
   let removedCount = 0;
   coverImages.forEach(function(img) {
@@ -1714,6 +1729,7 @@ function applyDirectoryCustomIcons() {
 
 // コンテンツ機能の再初期化
 function reinitializeContentFeatures() {
+  if (typeof syncCoverPhotoLayout === "function") syncCoverPhotoLayout();
 
 
   // 検索機能の再初期化
@@ -2113,7 +2129,7 @@ function updateCoverSideGutter() {
     stylesheet && /style_cover\.css/.test(stylesheet.href || "");
   const tableContainer = document.getElementById("indexlist");
   if (!tableContainer) return;
-  if (!isCoverView) {
+  if (!isCoverView || tableContainer.classList.contains("photo-layout")) {
     tableContainer.style.removeProperty("--cover-side-gutter");
     return;
   }
