@@ -104,6 +104,11 @@ function generateHTML()
     }
 
     $readerProgressJs = file_get_contents($conf["comistream_tool_dir"] . '/code/reader_progress.js');
+    $readerDirectionJs = file_get_contents($conf["comistream_tool_dir"] . '/code/reader_direction.js');
+    if ($readerDirectionJs === false) {
+        writelog('ERROR generateHTML() failed to read reader_direction.js', 'view');
+        errorExit('js_file_read_error', 'reader_direction.js read failed');
+    }
     $readerProgressConfigJson = json_encode([
         'isGuest' => ($user ?? 'guest') === 'guest',
         'userKey' => hash('sha256', (string)($user ?? 'guest')),
@@ -261,6 +266,7 @@ function generateHTML()
         'reader_sync_changed' => $i18n->get('reader_sync_changed'),
         'reader_sync_epub' => $i18n->get('reader_sync_epub'),
         'reader_sync_unsaved' => $i18n->get('reader_sync_unsaved'),
+        'reader_direction_unsaved' => $i18n->get('reader_direction_unsaved'),
         'reader_markers' => $i18n->get('reader_markers'),
         'reader_marker_default' => $i18n->get('reader_marker_default'),
         'reader_marker_add' => $i18n->get('reader_marker_add'),
@@ -369,6 +375,7 @@ function generateHTML()
 
         window.readerProgressConfig = $readerProgressConfigJson;
         $readerProgressJs
+        $readerDirectionJs
         // comistream.js
         $contents_js
 

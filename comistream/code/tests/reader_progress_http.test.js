@@ -37,3 +37,36 @@ test('reading state API protects authenticated progress and rejects legacy write
     assert.equal((await fetch(url + '/?mode=readingState&file=../book.cbz')).status, 404);
   });
 });
+
+test('reading direction uses the same book and account without changing the reading position', async (t) => {
+  await withPhpFixture(router, async (url) => {
+    if (!url) return t.skip('Set COMISTREAM_HTTP_TESTS=1 to enable HTTP fixtures.');
+    const endpoint = url + '/?mode=readingState&file=book.cbz';
+    const { state } = await (await fetch(endpoint)).json();
+    const operation = { mode: 'saveReadingDirection', file: 'book.cbz', csrf_token: 'fixture-token',
+      state_id: state.state_id, expected_direction_revision: 0, opening_direction: 'right',
+      operation_id: 'direction_A_123456789' };
+    const post = (body, headers) => fetch(url, { method: 'POST', body: new URLSearchParams(body), headers });
+    assert.equal(state.opening_direction, null);
+    assert.equal((await fetch(url + '/?' + new URLSearchParams(operation))).status, 405);
+    assert.equal((await post({ ...operation, csrf_token: 'bad' })).status, 403);
+    assert.equal((await post({ ...operation, opening_direction: 'rtl' })).status, 400);
+    assert.equal((await post(operation, { 'X-Test-User': 'guest' })).status, 401);
+    assert.equal((await post(operation, { 'X-Test-User': 'other' })).status, 409);
+    const response = await post(operation);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const saved = await response.json();
+    assert.equal(saved.state.opening_direction, 'right');
+    assert.equal((await (await post(operation)).json()).result, 'duplicate');
+    const conflict = await post({ ...operation, operation_id: 'direction_B_123456789', opening_direction: 'left' });
+    assert.equal(conflict.status, 409);
+    assert.deepEqual((await conflict.json()).state, saved.state);
+    const reopened = (await (await fetch(endpoint)).json()).state;
+    assert.equal(reopened.opening_direction, 'right');
+    assert.equal(reopened.locator, state.locator);
+    assert.equal(reopened.revision, state.revision);
+    const alias = (await (await fetch(url + '/?mode=readingState&file=alias.cbz')).json()).state;
+    assert.equal(alias.opening_direction, null);
+  });
+});

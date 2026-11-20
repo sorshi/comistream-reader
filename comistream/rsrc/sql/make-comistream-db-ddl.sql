@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS reader_progress (
         last_writer_seq INTEGER NOT NULL DEFAULT 0,
         writer_base_revision INTEGER NOT NULL DEFAULT 0,
         last_operation_hash TEXT,
+        opening_direction TEXT CHECK (opening_direction IN ('left','right')),
+        direction_revision INTEGER NOT NULL DEFAULT 0 CHECK (direction_revision >= 0),
+        last_direction_operation_id TEXT,
         FOREIGN KEY (history_id) REFERENCES book_history(id) ON DELETE CASCADE
 );
 

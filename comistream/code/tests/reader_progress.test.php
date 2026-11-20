@@ -167,4 +167,59 @@ try {
     $left = $right = null;
     unlink($databaseFile);
 }
+
+foreach (['runtime', 'sql'] as $migrationPath) {
+    $db = new PDO('sqlite::memory:');
+    $db->exec(substr($schema, 0, strpos($schema, 'CREATE TABLE IF NOT EXISTS reader_progress')));
+    $db->exec('CREATE TABLE system_config (key TEXT PRIMARY KEY, value TEXT)');
+    $db->exec($migration);
+    $db->exec("INSERT INTO book_history(user,base_file,current_page,max_page,has_read) VALUES ('reader','book',3,0,1)");
+    $db->exec("INSERT INTO reader_progress(history_id,state_id,format,locator,revision,policy_epoch,total_units)
+        VALUES (1,'11111111111111111111111111111111','pdf','3',7,3,30)");
+    if ($migrationPath === 'sql') {
+        $db->exec(file_get_contents(dirname(__DIR__, 2) . '/rsrc/sql/migration_022_add_reader_direction.sql'));
+    }
+    ensureReaderProgressTable($db);
+    ensureReaderProgressTable($db);
+    $state = readerProgressState($db, 'reader', 'book');
+    expectProgress($state['opening_direction'] === null && $state['direction_revision'] === 0,
+        'Migration did not start with an unset direction.');
+    expectProgress($state['locator'] === '3' && $state['revision'] === 7 && $state['policy_epoch'] === 3 && $state['has_read'],
+        'Direction migration changed existing reading progress.');
+}
+
+$history = readerProgressHistory($db, 'reader', 'book');
+$directionOperation = ['state_id' => $state['state_id'], 'expected_direction_revision' => 0,
+    'operation_id' => 'direction_A_123456789', 'opening_direction' => 'right'];
+$directionSaved = saveReaderDirection($db, 'reader', 'book', $directionOperation);
+expectProgress($directionSaved['result'] === 'applied' && $directionSaved['state']['direction_revision'] === 1,
+    'Direction was not saved independently.');
+expectProgress(readerProgressHistory($db, 'reader', 'book') === $history, 'Direction changed history metadata.');
+expectProgress(saveReaderDirection($db, 'reader', 'book', $directionOperation)['result'] === 'duplicate',
+    'Identical direction retry was not recognized.');
+try {
+    saveReaderDirection($db, 'reader', 'book', array_replace($directionOperation, ['opening_direction' => 'left']));
+    throw new RuntimeException('An operation ID was reused for another direction.');
+} catch (ReaderProgressException $error) {
+    expectProgress($error->reason === 'operation_reused', 'Wrong rejection for reused direction operation.');
+}
+expectProgress(saveReaderDirection($db, 'reader', 'book', array_replace($directionOperation, [
+    'operation_id' => 'direction_B_123456789', 'opening_direction' => 'left',
+]))['reason'] === 'revision_changed', 'Stale direction operation overwrote a newer value.');
+
+$pageSaved = saveReaderProgress($db, 'reader', 'book', progressOperation($state, 1, '8'))['state'];
+expectProgress($pageSaved['locator'] === '8' && $pageSaved['revision'] === 8 && $pageSaved['has_read']
+    && $pageSaved['opening_direction'] === 'right' && $pageSaved['direction_revision'] === 1,
+    'The position and direction writes did not coexist.');
+updateReaderProgressPolicy($db, 'reader', [1], false);
+expectProgress(readerProgressState($db, 'reader', 'book')['opening_direction'] === 'right', 'Marking unread cleared direction.');
+
+$db->exec('DELETE FROM book_history');
+expectProgress($db->query('SELECT COUNT(*) FROM reader_progress')->fetchColumn() === 0, 'Direction survived history deletion.');
+$db->exec("INSERT INTO book_history(user,base_file) VALUES ('reader','book')");
+$newState = initializeReaderProgress($db, 'reader', 'book', 'pdf', 30);
+expectProgress($newState['opening_direction'] === null
+    && saveReaderDirection($db, 'reader', 'book', $directionOperation)['reason'] === 'state_changed',
+    'A request from the deleted history changed the new book state.');
+
 echo "reader_progress.test.php: OK\n";

@@ -828,6 +828,7 @@ var mode = 1;
 var pageModePreference = "single";
 var readerReady = false;
 var readerProgressManager = null;
+var readerDirectionManager = null;
 var readerNavigationPending = false;
 var readerNavigationPromise = null;
 var readerClosing = false;
@@ -1916,8 +1917,8 @@ async function restorePage() {
     return;
   }
 
-  if (window.ComistreamReaderProgress && window.readerProgressConfig) {
-    const config = window.readerProgressConfig;
+  const config = window.readerProgressConfig;
+  if (window.ComistreamReaderProgress && config) {
     readerProgressManager = window.ComistreamReaderProgress.create({
       ...config, file: escapedFile, csrfToken: readerMarkerConfig.csrfToken,
       totalUnits: maxPage, legacyLocator: readReaderStorage(file),
@@ -1935,6 +1936,16 @@ async function restorePage() {
     readerProgressManager.bindLifecycle();
   } else if (page == 1) {
     page = parseInt(readReaderStorage(file) || page, 10);
+  }
+  if (window.ComistreamReaderDirection && config) {
+    readerDirectionManager = window.ComistreamReaderDirection.create({
+      ...config, file: escapedFile, csrfToken: readerMarkerConfig.csrfToken,
+      onUnsynced: (error) => {
+        if (error) debugLog("Reading direction synchronization failed: " + error.message);
+        if (!document.hidden) window.alert(window.i18n.reader_direction_unsaved || "The reading direction could not be synchronized.");
+      },
+    });
+    applyReaderDirection(readerDirectionManager.initialize(readerProgressManager?.getRemoteState()) ?? direction);
   }
   pageModePreference = window.ComistreamViewport.restorePageModePreference(
     readReaderStorage("readerPageModePreference"), readReaderStorage("pagemode")
@@ -2199,29 +2210,22 @@ function toggleFullScreen() {
   // ボタンの状態は fullscreenchange イベントで更新されるルン！
 }
 
+function applyReaderDirection(value) {
+  // 復元と手動の切替で画像とコントロールの向きを揃えるルン。
+  direction = value;
+  const rightBound = direction === "left";
+  position = rightBound ? "right" : "left";
+  document.getElementById("progress").className = rightBound ? "progress-left" : "progress-right";
+  document.getElementById("slider").style.transform = rightBound ? "rotateY(180deg)" : "rotateY(0deg)";
+  const button = document.getElementById("direction");
+  button.className = rightBound ? "button right-to-left button-mode" : "button left-to-right button-mode";
+  button.textContent = rightBound ? window.i18n.toc_button_direction_right : window.i18n.toc_button_direction_left;
+}
+
 function toggleDirection() {
-  // 綴じ方向の切り替え ルン！現在のモードを表示するように変更するルン！
-  if (direction == "left") {
-    // 右綴じ → 左綴じに切り替え
-    direction = "right";
-    position = "left";
-    document.getElementById("progress").className = "progress-right";
-    document.getElementById("slider").style.transform = "rotateY(0deg)";
-    document.getElementById("direction").className =
-      "button left-to-right button-mode";
-    document.getElementById("direction").textContent =
-      window.i18n.toc_button_direction_left;
-  } else {
-    // 左綴じ → 右綴じに切り替え
-    direction = "left";
-    position = "right";
-    document.getElementById("progress").className = "progress-left";
-    document.getElementById("slider").style.transform = "rotateY(180deg)";
-    document.getElementById("direction").className =
-      "button right-to-left button-mode";
-    document.getElementById("direction").textContent =
-      window.i18n.toc_button_direction_right;
-  }
+  if (!readerReady) return;
+  applyReaderDirection(direction === "left" ? "right" : "left");
+  readerDirectionManager?.record(direction);
   void renderReaderPage("direction");
   readerMarkerManager?.renderRail();
 }

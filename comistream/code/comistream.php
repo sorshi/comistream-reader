@@ -253,7 +253,7 @@ if ($mode === 'delete' && !empty($orgname)) {
 
     // ブックマークファイル取得
     getBookmarkList();
-} elseif (in_array($mode, ['readingState', 'saveReadingState'], true)) {
+} elseif (in_array($mode, ['readingState', 'saveReadingState', 'saveReadingDirection'], true)) {
 
     handleReaderProgressApi($mode, $param);
 } elseif ($mode === 'currentPage' && !empty($file)) {

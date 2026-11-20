@@ -91,11 +91,31 @@ function ensureReaderProgressTable(PDO $database): void
         last_writer_seq INTEGER NOT NULL DEFAULT 0,
         writer_base_revision INTEGER NOT NULL DEFAULT 0,
         last_operation_hash TEXT,
+        opening_direction TEXT CHECK (opening_direction IN ('left','right')),
+        direction_revision INTEGER NOT NULL DEFAULT 0 CHECK (direction_revision >= 0),
+        last_direction_operation_id TEXT,
         FOREIGN KEY (history_id) REFERENCES book_history(id) ON DELETE CASCADE
     )");
     // foreign_keysが無効な既存環境でも履歴削除を反映するルン。
     $database->exec('CREATE TRIGGER IF NOT EXISTS delete_reader_progress AFTER DELETE ON book_history '
         . 'BEGIN DELETE FROM reader_progress WHERE history_id = OLD.id; END');
+
+    $columns = $database->query("SELECT name FROM pragma_table_info('reader_progress')")->fetchAll(PDO::FETCH_COLUMN);
+    $directionColumns = [
+        'opening_direction' => "TEXT CHECK (opening_direction IN ('left','right'))",
+        'direction_revision' => 'INTEGER NOT NULL DEFAULT 0 CHECK (direction_revision >= 0)',
+        'last_direction_operation_id' => 'TEXT',
+    ];
+    foreach ($directionColumns as $name => $definition) {
+        if (in_array($name, $columns, true)) continue;
+        try {
+            $database->exec("ALTER TABLE reader_progress ADD COLUMN $name $definition");
+        } catch (PDOException $error) {
+            // 別のリクエストが追加を済ませていた場合は続行するルン。
+            $columns = $database->query("SELECT name FROM pragma_table_info('reader_progress')")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array($name, $columns, true)) throw $error;
+        }
+    }
 }
 
 function readerProgressHistory(PDO $database, string $user, string $baseFile): array
@@ -119,6 +139,7 @@ function readerProgressState(PDO $database, string $user, string $baseFile): ?ar
     foreach (['history_id','revision','policy_epoch','last_writer_seq','writer_base_revision','current_page'] as $key) $row[$key] = (int)$row[$key];
     $row['has_read'] = (int)$row['has_read'] === 1;
     $row['total_units'] = $row['total_units'] === null ? null : (int)$row['total_units'];
+    $row['direction_revision'] = (int)($row['direction_revision'] ?? 0);
     $row['resume_policy'] = 'last_position';
     return $row;
 }
@@ -297,6 +318,57 @@ function saveReaderProgress(PDO $database, string $user, string $baseFile, array
     }
 }
 
+/** 読書位置とは独立した更新番号で綴じ方向を保存するルン。 */
+function saveReaderDirection(PDO $database, string $user, string $baseFile, array $input): array
+{
+    $stateId = $input['state_id'] ?? '';
+    $operationId = $input['operation_id'] ?? '';
+    $direction = $input['opening_direction'] ?? null;
+    if (!in_array($direction, ['left', 'right'], true)) {
+        throw new ReaderProgressException('invalid_direction');
+    }
+    if (!is_string($stateId) || !preg_match('/\A[a-f0-9]{32}\z/D', $stateId)
+        || !is_string($operationId) || !preg_match('/\A[a-zA-Z0-9_-]{16,80}\z/D', $operationId)) {
+        throw new ReaderProgressException('invalid_operation');
+    }
+    $revision = readerProgressInteger($input['expected_direction_revision'] ?? null);
+    ensureReaderProgressTable($database);
+    $database->exec('BEGIN IMMEDIATE');
+    try {
+        $state = readerProgressState($database, $user, $baseFile);
+        if ($state === null) throw new ReaderProgressException('state_not_found', 409);
+        if ($state['format'] === 'epub') throw new ReaderProgressException('unsupported_format');
+
+        $result = 'applied';
+        if ($state['state_id'] !== $stateId) {
+            $result = 'conflict';
+            $reason = 'state_changed';
+        } elseif ($state['last_direction_operation_id'] === $operationId) {
+            if ($state['direction_revision'] !== $revision + 1 || $state['opening_direction'] !== $direction) {
+                throw new ReaderProgressException('operation_reused');
+            }
+            $result = 'duplicate';
+        } elseif ($state['direction_revision'] !== $revision) {
+            $result = 'conflict';
+            $reason = 'revision_changed';
+        } else {
+            $statement = $database->prepare('UPDATE reader_progress SET opening_direction = ?, '
+                . 'direction_revision = direction_revision + 1, last_direction_operation_id = ? WHERE history_id = ?');
+            $statement->execute([$direction, $operationId, $state['history_id']]);
+            $state['opening_direction'] = $direction;
+            $state['direction_revision']++;
+            $state['last_direction_operation_id'] = $operationId;
+        }
+        $database->exec('COMMIT');
+    } catch (Throwable $error) {
+        $database->exec('ROLLBACK');
+        throw $error;
+    }
+    return ['result' => $result, 'state' => array_intersect_key($state, array_flip([
+        'state_id', 'opening_direction', 'direction_revision', 'last_direction_operation_id',
+    ]))] + (isset($reason) ? ['reason' => $reason] : []);
+}
+
 /** 手動の既読変更で古い操作系列を終了するルン。 */
 function updateReaderProgressPolicy(PDO $database, string $user, array $historyIds, bool $read): void
 {
@@ -331,7 +403,7 @@ function handleReaderProgressApi(string $mode, array $input): never
     try {
         if (!($dbh instanceof PDO)) throw new ReaderProgressException('database_unavailable', 503);
         if ($user === 'guest') throw new ReaderProgressException('login_required', 401);
-        if ($mode === 'saveReadingState') {
+        if ($mode === 'saveReadingState' || $mode === 'saveReadingDirection') {
             if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') throw new ReaderProgressException('method_not_allowed', 405);
             $token = $input['csrf_token'] ?? ''; $expected = $_SESSION['reader_marker_csrf'] ?? '';
             if (!is_string($token) || $token === '' || !is_string($expected) || !hash_equals($expected, $token)) throw new ReaderProgressException('csrf_failed', 403);
@@ -339,9 +411,15 @@ function handleReaderProgressApi(string $mode, array $input): never
         $book = resolveReaderMarkerBook(is_string($input['file'] ?? null) ? $input['file'] : '', $sharePath);
         // 共有領域内の別名symlinkでも既存履歴のファイル名を継承するルン。
         $book['base_file'] = basename($book['relative_path']);
+        $dbh->exec('PRAGMA busy_timeout = 1000');
+        if ($mode === 'saveReadingDirection') {
+            if ($book['format'] === 'epub') throw new ReaderProgressException('unsupported_format');
+            $result = saveReaderDirection($dbh, $user, $book['base_file'], $input);
+            $success = $result['result'] !== 'conflict';
+            readerProgressJson(['ok' => $success] + $result, $success ? 200 : 409);
+        }
         $history = readerProgressHistory($dbh, $user, $book['base_file']);
         $metadata = readerProgressBookMetadata($book, $history, $cacheDir);
-        $dbh->exec('PRAGMA busy_timeout = 1000');
         if ($mode === 'readingState') {
             $state = initializeReaderProgress($dbh, $user, $book['base_file'], $book['format'], $metadata['total']);
             readerProgressJson(['ok' => true, 'state' => $state]);

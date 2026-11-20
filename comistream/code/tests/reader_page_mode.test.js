@@ -4,14 +4,17 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const viewport = require('../comistream_viewport.js');
 const source = fs.readFileSync(require.resolve('../comistream.js'), 'utf8');
+const directionSource = fs.readFileSync(require.resolve('../reader_direction.js'), 'utf8');
 
-function reader({ preference = 'auto', width = 900, height = 600, wide = [], count = 9, progressState = null } = {}) {
+function reader({ preference = 'auto', width = 900, height = 600, wide = [], count = 9,
+  progressState = null, storage = new Map(), isGuest = false, userKey = 'test', bookKey = 'book', directionPost } = {}) {
   let remote = progressState;
   const posts = [];
   const elements = new Map();
-  const storage = new Map([['readerPageModePreference', preference]]);
+  storage.set('readerPageModePreference', preference);
   const writes = [];
   const beacons = [];
+  const alerts = [];
   const events = new Map();
   const timers = new Map();
   let timerId = 0;
@@ -35,8 +38,9 @@ function reader({ preference = 'auto', width = 900, height = 600, wide = [], cou
     innerWidth: width, innerHeight: height,
     location: { origin: 'http://reader.test', pathname: '/reader' },
     i18n: { toc_button_single: 'Single', toc_button_spread: 'Spread',
-      toc_button_auto: 'Auto', tooltip_auto_page: 'Automatic' },
-    debugLog() {}, scroll() {}, scrollTo() {}, alert() {},
+      toc_button_auto: 'Auto', tooltip_auto_page: 'Automatic',
+      toc_button_direction_left: 'Left-bound', toc_button_direction_right: 'Right-bound' },
+    debugLog() {}, scroll() {}, scrollTo() {}, alert(message) { alerts.push(message); },
     setTimeout(fn) { timers.set(++timerId, fn); return timerId; },
     clearTimeout(id) { timers.delete(id); },
     addEventListener(name, fn) {
@@ -62,13 +66,21 @@ function reader({ preference = 'auto', width = 900, height = 600, wide = [], cou
       }
     },
   };
-  if (progressState) {
-    context.readerProgressConfig = { isGuest: false, userKey: 'test', bookKey: 'book' };
+  if (progressState || isGuest) {
+    context.readerProgressConfig = { isGuest, userKey, bookKey };
     context.fetch = async (_url, init) => {
       if (init.body) {
-        posts.push({ ...init.body.values });
-        remote = { ...remote, locator: init.body.values.locator,
-          has_read: remote.has_read || Boolean(init.body.values.completion_locator), revision: remote.revision + 1 };
+        const operation = { ...init.body.values };
+        posts.push(operation);
+        if (operation.mode === 'saveReadingDirection') {
+          if (directionPost) return directionPost(operation, init);
+          assert.equal(operation.state_id, remote.state_id);
+          assert.equal(Number(operation.expected_direction_revision), remote.direction_revision);
+          remote = acceptDirection(remote, operation);
+        } else {
+          remote = { ...remote, locator: operation.locator,
+            has_read: remote.has_read || Boolean(operation.completion_locator), revision: remote.revision + 1 };
+        }
       }
       return { ok: true, status: 200, json: async () => ({ ok: true, result: 'applied', state: { ...remote } }) };
     };
@@ -76,14 +88,23 @@ function reader({ preference = 'auto', width = 900, height = 600, wide = [], cou
   }
   context.window = context;
   vm.createContext(context);
-  if (progressState) vm.runInContext(fs.readFileSync(require.resolve('../reader_progress.js'), 'utf8'), context);
+  if (context.readerProgressConfig) {
+    vm.runInContext(fs.readFileSync(require.resolve('../reader_progress.js'), 'utf8'), context);
+    vm.runInContext(directionSource, context);
+  }
   vm.runInContext(source, context);
   context.sugguestbook = () => {};
   context.checkAndShowLargePageNotification = () => {};
   context.updateFullScreenButton = () => {};
   context.unixtime = Math.floor(Date.now() / 1000);
   const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
-  return { c: context, element, storage, writes, beacons, events, settle, posts, setRemote: (state) => { remote = state; } };
+  return { c: context, element, storage, writes, beacons, events, settle, posts, alerts,
+    getRemote: () => remote, setRemote: (state) => { remote = state; } };
+}
+
+function acceptDirection(state, operation) {
+  return { ...state, opening_direction: operation.opening_direction,
+    direction_revision: state.direction_revision + 1, last_direction_operation_id: operation.operation_id };
 }
 
 test('旧設定・不正値を復元し、固定と自動の縦横境界を区別する', () => {
@@ -316,6 +337,118 @@ test('新方式ではサーバーの表紙を復元し、初期表示と回転�
   await r.c.updateReaderViewport('resize');
   await r.c.readerProgressManager.flush();
   assert.equal(r.posts.length, 0);
+});
+
+test('最初の見開きからサーバーの綴じ方向を使い、切替だけで読書位置を保存しない', async () => {
+  const progressState = initialProgress({ locator: '5', opening_direction: 'right', direction_revision: 1 });
+  const readerA = reader({ progressState });
+  const render = readerA.c.renderReaderPage;
+  const directionsAtRender = [];
+  readerA.c.renderReaderPage = (reason) => {
+    directionsAtRender.push(readerA.c.direction);
+    return render(reason);
+  };
+  await readerA.c.restorePage();
+  assert.deepEqual(directionsAtRender, ['right']);
+  assert.equal(readerA.element('image').style.float, 'left');
+  assert.equal(readerA.element('nextimage').style.float, 'right');
+  assert.equal(readerA.element('direction').textContent, 'Left-bound');
+  assert.equal(readerA.element('slider').style.transform, 'rotateY(0deg)');
+  assert.equal(readerA.element('progress').className, 'progress-right');
+  assert.equal(readerA.posts.length, 0);
+
+  readerA.c.toggleDirection();
+  await readerA.settle();
+  assert.equal(readerA.c.page, 5);
+  assert.deepEqual(readerA.posts.map(post => post.mode), ['saveReadingDirection']);
+  const readerB = reader({ progressState: readerA.getRemote() });
+  await readerB.c.restorePage();
+  assert.equal(readerB.c.direction, 'left');
+  assert.equal(readerB.c.page, 5);
+  assert.equal(readerB.element('image').style.float, 'right');
+  assert.equal(readerB.element('slider').style.transform, 'rotateY(180deg)');
+  assert.equal(readerB.posts.length, 0);
+});
+
+test('ゲストの綴じ方向を本ごとに復元し、保存領域を使えなくても切り替えられる', async () => {
+  const storage = new Map();
+  const guest = reader({ isGuest: true, userKey: 'guest', storage });
+  await guest.c.restorePage();
+  assert.equal(guest.c.direction, 'left');
+  guest.c.toggleDirection();
+
+  const reopened = reader({ isGuest: true, userKey: 'guest', storage });
+  await reopened.c.restorePage();
+  assert.equal(reopened.c.direction, 'right');
+  const other = reader({ isGuest: true, userKey: 'guest', bookKey: 'other', storage });
+  await other.c.restorePage();
+  assert.equal(other.c.direction, 'left');
+  reopened.c.localStorage.setItem = () => { throw new Error('blocked'); };
+  reopened.c.toggleDirection();
+  assert.equal(reopened.c.direction, 'left');
+  assert.equal(reopened.posts.length, 0);
+});
+
+test('連続切替後に先行操作の応答を失っても、再オープン時に最後の選択を送る', async () => {
+  const progressState = initialProgress({ locator: '5', opening_direction: null, direction_revision: 0 });
+  const storage = new Map();
+  let loseResponse;
+  const first = reader({ progressState, storage, directionPost: (_operation, request) => {
+    assert.equal(request.keepalive, true);
+    return new Promise((_resolve, reject) => { loseResponse = reject; });
+  } });
+  await first.c.restorePage();
+  first.c.toggleDirection();
+  first.c.toggleDirection();
+  assert.equal(first.c.direction, 'left');
+  assert.equal(first.posts.length, 1);
+  loseResponse(new Error('Disconnected after committing the direction'));
+  await first.settle();
+
+  const reopened = reader({ progressState: acceptDirection(progressState, first.posts[0]), storage });
+  await reopened.c.restorePage();
+  await reopened.settle();
+  assert.equal(reopened.c.direction, 'left');
+  assert.equal(reopened.posts.length, 1);
+  assert.equal(reopened.posts[0].opening_direction, 'left');
+  assert.equal(reopened.posts[0].expected_direction_revision, '1');
+  assert.equal(reopened.getRemote().direction_revision, 2);
+});
+
+test('綴じ方向が競合しても表示中の選択を保ち、次に開く画面では確定した方向を使う', async () => {
+  const progressState = initialProgress({ locator: '5', opening_direction: null, direction_revision: 0 });
+  const foreign = { ...progressState, opening_direction: 'left', direction_revision: 1 };
+  const original = reader({ progressState, directionPost: async () => ({
+    ok: false, status: 409, json: async () => ({ ok: false, state: foreign }),
+  }) });
+  await original.c.restorePage();
+  original.c.toggleDirection();
+  await original.settle();
+  assert.equal(original.c.direction, 'right');
+  assert.equal(original.alerts.length, 1);
+  const reopened = reader({ progressState: foreign, storage: original.storage });
+  await reopened.c.restorePage();
+  assert.equal(reopened.c.direction, 'left');
+  assert.equal(reopened.posts.length, 0);
+});
+
+test('オフラインでは綴じ方向を復元し、起動時にサーバー状態を取得できなかった操作を自動送信しない', async () => {
+  const progressState = initialProgress({ locator: '5', opening_direction: 'right', direction_revision: 1 });
+  const original = reader({ progressState });
+  await original.c.restorePage();
+
+  const offline = reader({ progressState, storage: original.storage });
+  offline.c.fetch = async () => { throw new Error('Offline'); };
+  await offline.c.restorePage();
+  assert.equal(offline.c.direction, 'right');
+  assert.equal(offline.c.page, 5);
+  offline.c.toggleDirection();
+  assert.equal(offline.c.direction, 'left');
+
+  const online = reader({ progressState, storage: original.storage });
+  await online.c.restorePage();
+  assert.equal(online.c.direction, 'right');
+  assert.equal(online.posts.length, 0);
 });
 
 test('新方式で既読の戻り位置と読了直後の表紙を保存する', async () => {

@@ -278,4 +278,5 @@ return [
     'reader_sync_changed' => '另一部裝置已將閱讀位置改為第%s頁。要移動嗎？',
     'reader_sync_epub' => '另一部裝置已更新閱讀位置。要移動到第%s節的儲存位置嗎？',
     'reader_sync_unsaved' => '閱讀位置尚未同步。請確認連線，並在此裝置重新開啟書籍。',
+    'reader_direction_unsaved' => '無法同步翻頁方向。你仍可在此頁面按選擇的方向閱讀。',
 ];

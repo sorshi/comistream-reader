@@ -228,7 +228,7 @@
       return result;
     }
     return { initialize, record, flush, beacon, beforeNavigation, bindLifecycle, finish,
-      getState: () => state, getPending: () => pending,
+      getState: () => state, getRemoteState: () => remote, getPending: () => pending,
       getRestoreLocator: () => pending?.locator ?? state?.locator ?? null, refresh, samePosition };
   }
 
