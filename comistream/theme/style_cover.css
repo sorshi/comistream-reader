@@ -544,6 +544,7 @@ html:has(.photo-lightbox[open]) {
   overflow: hidden;
 }
 .photo-lightbox {
+  --photo-control-background: #0009;
   position: fixed;
   inset: 0;
   width: 100%;
@@ -560,21 +561,13 @@ html:has(.photo-lightbox[open]) {
   background: #000;
   color: white;
 }
-.photo-lightbox[open] {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  grid-template-columns: minmax(0, 1fr);
-}
 .photo-lightbox::backdrop {
   background: #000;
 }
-.photo-lightbox.photo-controls-hidden {
-  padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
-}
 .photo-lightbox-stage {
-  grid-row: 2;
-  position: relative;
-  margin-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  position: absolute;
+  inset: 0;
+  inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -617,24 +610,23 @@ html:has(.photo-lightbox[open]) {
 }
 .photo-lightbox header,
 .photo-lightbox footer {
+  position: absolute;
+  inset-inline: 0;
   padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
+  background: var(--photo-control-background);
 }
 .photo-lightbox header {
-  grid-row: 1;
+  top: 0;
   padding-top: env(safe-area-inset-top);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 .photo-lightbox footer {
-  grid-row: 3;
+  bottom: 0;
   padding-block: 8px max(8px, env(safe-area-inset-bottom));
   text-align: center;
   overflow-wrap: anywhere;
-}
-.photo-controls-hidden header,
-.photo-controls-hidden footer {
-  display: none;
 }
 .photo-lightbox a {
   display: inline-block;
@@ -648,7 +640,7 @@ html:has(.photo-lightbox[open]) {
   padding-inline: 8px;
   border: none;
   border-radius: 4px;
-  background: #0009;
+  background: var(--photo-control-background);
   color: white;
   font: inherit;
   cursor: pointer;

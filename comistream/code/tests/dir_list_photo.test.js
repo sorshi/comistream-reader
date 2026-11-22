@@ -186,7 +186,7 @@ test('Chromeで写真の拡大・移動、先読み画像の再利用、戻る�
   `, html);
 });
 
-test('Chromeでライトボックスが縦長と横長の写真全体を黒い余白の中に収める', { skip: !chrome }, async () => {
+test('Chromeで縦長と横長の写真を全体表示し、半透明の操作欄を重ねる', { skip: !chrome }, async () => {
   const items = [[1200, 4500], [4500, 1200]].map(([width, height]) => ({
     name: width + 'x' + height + '.jpg',
     kind: 'image',
@@ -206,11 +206,16 @@ test('Chromeでライトボックスが縦長と横長の写真全体を黒い�
       try {
         photoItemsByHref = new Map(items.map(item => [item.href, item]));
         expect(openPhotoViewer(items[0].href, false), 'Lightbox did not open');
-        const { dialog, stage } = photoViewer;
+        const { dialog, stage, next, download } = photoViewer;
+        const header = dialog.querySelector('header');
+        const footer = dialog.querySelector('footer');
         function checkFit() {
           const image = photoViewer.image;
+          const frame = dialog.getBoundingClientRect();
           const area = stage.getBoundingClientRect();
           const box = image.getBoundingClientRect();
+          expect(area.left === frame.left && area.top === frame.top &&
+            area.right === frame.right && area.bottom === frame.bottom, 'Controls changed the full-size photo area');
           expect(Math.abs(box.width - area.width) < 1 && Math.abs(box.height - area.height) < 1,
             'Intrinsic image size overflowed the photo area');
           expect(Math.abs(box.left - area.left) < 1 && Math.abs(box.top - area.top) < 1,
@@ -222,16 +227,26 @@ test('Chromeでライトボックスが縦長と横長の写真全体を黒い�
           if (index > 0) movePhoto(photoViewer, 1);
           await photoViewer.cache.get(item.href).result;
           checkFit();
-          const area = stage.getBoundingClientRect();
-          expect(area.top >= dialog.querySelector('header').getBoundingClientRect().bottom &&
-            area.bottom <= dialog.querySelector('footer').getBoundingClientRect().top,
-            'Control bars covered the photo area');
+        }
+        const controlBackground = getComputedStyle(next).backgroundColor;
+        expect(controlBackground === 'rgba(0, 0, 0, 0.6)', 'Navigation buttons are not translucent');
+        for (const bar of [header, footer]) {
+          expect(getComputedStyle(bar).backgroundColor === controlBackground, 'Bar background does not match navigation buttons');
+        }
+        const area = stage.getBoundingClientRect();
+        expect(header.getBoundingClientRect().top === area.top && footer.getBoundingClientRect().bottom === area.bottom,
+          'Overlays are not attached to the top and bottom edges');
+        for (const control of [header.querySelector('button'), download]) {
+          const bounds = control.getBoundingClientRect();
+          expect(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2) === control,
+            'Photo intercepted an overlay control');
         }
         expect(getComputedStyle(dialog).backgroundColor === 'rgb(0, 0, 0)', 'Letterbox background is not black');
         expect(!dialog.querySelector('.photo-lightbox-background'), 'Thumbnail was used as the letterbox background');
         stage.click();
         checkFit();
-        expect(stage.clientHeight === dialog.clientHeight, 'Hidden controls still reserve space');
+        expect([header, footer, next].every(control => getComputedStyle(control).visibility === 'hidden'),
+          'Controls remained visible');
         window.testDone = true;
         document.getElementById('result').dataset.result = 'passed';
       } catch (error) {
