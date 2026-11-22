@@ -529,9 +529,16 @@ function initializePhotoViewer() {
     event.preventDefault();
     requestPhotoViewerClose();
   });
-  dialog.addEventListener('keydown', event => {
-    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
-    if (step && photoViewer) {
+  // 操作欄を隠してフォーカスが外れても、ライトボックスのキー操作を受け取るルン。
+  window.addEventListener('keydown', event => {
+    if (!photoViewer || !dialog.open || event.defaultPrevented) return;
+    if (event.key === 'Backspace' || event.key === 'Delete') {
+      event.preventDefault();
+      if (!event.repeat) requestPhotoViewerClose();
+      return;
+    }
+    const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key];
+    if (step) {
       event.preventDefault();
       movePhoto(photoViewer, step);
     }

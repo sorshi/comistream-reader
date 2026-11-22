@@ -186,6 +186,45 @@ test('Chromeで写真の拡大・移動、先読み画像の再利用、戻る�
   `, html);
 });
 
+test('Chromeで矢印キーで写真を送り、BackspaceとDeleteで閉じて写真へ戻る', { skip: !chrome }, async () => {
+  const items = ['a.png', 'b.png'].map(name => ({ href: png + '#' + name, kind: 'image', name }));
+  const rows = items.map(({ href, name }) =>
+    `<tr data-kind="image"><td class="indexcolname"><a href="${href}">${name}</a></td></tr>`).join('');
+  const html = `<style>${css}</style><table id="indexlist" class="photo-layout"><tbody id="table-tbody">${rows}</tbody></table>${dialog}`;
+  await runBrowserFixture(`
+    ${source}
+    const items = ${literal(items)};
+    window.addEventListener('DOMContentLoaded', () => {
+      try {
+        photoItemsByHref = new Map(items.map(item => [item.href, item]));
+        const press = (target, key, repeat = false) =>
+          target.dispatchEvent(new KeyboardEvent('keydown', { key, repeat, bubbles: true, cancelable: true }));
+        for (const key of ['Backspace', 'Delete']) {
+          expect(openPhotoViewer(items[0].href, false), 'Lightbox did not open');
+          const view = photoViewer;
+          const close = view.dialog.querySelector('[data-action=close]');
+          expect(!press(close, key, true), key + ' repeat default action was not canceled');
+          expect(view.dialog.open, key + ' repeat closed the lightbox');
+          if (key === 'Delete') view.stage.click();
+          const target = key === 'Delete' ? document.body : close;
+          for (const [arrow, index] of [['ArrowUp', 0], ['ArrowDown', 1], ['ArrowDown', 1],
+            ['ArrowUp', 0], ['ArrowRight', 1], ['ArrowLeft', 0], ['ArrowDown', 1]]) {
+            expect(!press(target, arrow) && view.index === index, arrow + ' did not stay within the album in the expected direction');
+          }
+          const tile = view.entries[view.index].anchor;
+          expect(!press(target, key), key + ' default action was not canceled');
+          expect(!view.dialog.open && document.activeElement === tile, key + ' did not close and return to the photo');
+          expect(press(tile, key), key + ' was captured outside the lightbox');
+          expect(press(tile, 'ArrowUp') && press(tile, 'ArrowDown'), 'Arrow keys were captured outside the lightbox');
+        }
+      } catch (error) {
+        document.getElementById('result').textContent = error.stack;
+        window.testFailed = true;
+      }
+    });
+  `, html);
+});
+
 test('Chromeで縦長と横長の写真を全体表示し、半透明の操作欄を重ねる', { skip: !chrome }, async () => {
   const items = [[1200, 4500], [4500, 1200]].map(([width, height]) => ({
     name: width + 'x' + height + '.jpg',
