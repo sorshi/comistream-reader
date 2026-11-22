@@ -1443,8 +1443,7 @@ if ($is_404_mode) {
                             photoFormatAttr = ' data-photo-format="' + escapeHtml(item.name.split('.').pop().toUpperCase()) + '"';
                         }
                         if (viewmode === 'cover' && coverUrl && (!photoLayout || item.kind === 'image')) {
-                            const loading = item.kind === 'image' ? ' loading="lazy" decoding="async"' : '';
-                            nameContent = '<img src="' + escapeHtml(coverUrl) + '" alt=""' + loading + ' onerror="this.hidden=true">';
+                            nameContent = '<img src="' + escapeHtml(coverUrl) + '" alt="" loading="lazy" decoding="async" onerror="this.hidden=true">';
                         }
                     }
 

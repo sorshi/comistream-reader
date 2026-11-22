@@ -24,7 +24,7 @@ function createFixture(coverUrl, filepath = "Comic/Book.zip", initialCover = fal
       images.unshift(image);
     },
   };
-  const row = { querySelector: () => cell };
+  const row = { dataset: { kind: "book" }, querySelector: () => cell };
   const createImage = () => {
     const image = {
       style: {},
@@ -57,10 +57,33 @@ for (const initialCover of [false, true]) {
       fixture.run("removeCoverImages(); addCoverImages(); addCoverImages();");
       assert.equal(fixture.images.length, 1);
       assert.equal(fixture.images[0].src, url);
+      assert.equal(fixture.images[0].loading, "lazy");
+      assert.equal(fixture.images[0].decoding, "async");
       assert.equal(fixture.images[0].style.display, "block");
     }
   });
 }
+
+test("カバー表示の初回描画で書籍の表紙を遅延読み込みにする", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "dir_list.php"), "utf8");
+  const builder = page.slice(
+    page.indexOf("function buildDirectoryRows"),
+    page.indexOf("function renderDirectoryContent")
+  );
+  const context = vm.createContext({
+    document: { getElementById: () => ({ classList: { contains: () => false } }) },
+    getCookie: () => "cover",
+    setPhotoDirectory() {},
+    escapeHtml: String,
+  });
+  vm.runInContext(builder, context);
+  const html = context.buildDirectoryRows([
+    { kind: "book", name: "Book.zip", href: "/Book.zip", cover_image: "/theme/covers/Book.jpg" },
+  ], {});
+  const cover = html.match(/<img src="\/theme\/covers\/Book\.jpg"[^>]*>/)?.[0] ?? "";
+  assert.match(cover, /\bloading="lazy"/);
+  assert.match(cover, /\bdecoding="async"/);
+});
 
 test("表紙URLがない行やディレクトリには画像を追加しない", () => {
   for (const [url, filepath] of [[null, "Book.zip"], ["/theme/covers/folder.jpg", "folder/"]]) {

@@ -1597,10 +1597,8 @@ function addCoverImages() {
     const img = document.createElement("img");
     img.alt = row.dataset?.kind === "image" ? "" : "Cover";
     img.style.display = "block"; // 初期表示
-    if (row.dataset?.kind === "image") {
-      img.loading = "lazy";
-      img.decoding = "async";
-    }
+    img.loading = "lazy";
+    img.decoding = "async";
 
     // エラー時は非表示にする
     img.onerror = function() {
