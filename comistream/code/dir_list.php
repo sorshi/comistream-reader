@@ -468,7 +468,7 @@ $global_debug_flag = isset($global_debug_flag) ? $global_debug_flag : false;
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
-    ? '/theme/style_cover.css?2026112001'
+    ? '/theme/style_cover.css?2026112103'
     : '/theme/style.css?2026110301';
 $music_folder_actions_label = htmlspecialchars(
     I18n::getInstance()->get('music_folder_actions', 'フォルダ操作'),
@@ -1787,17 +1787,16 @@ if ($is_404_mode) {
         data-converted="<?php echo $photoText('photo_converted'); ?>"
         data-unavailable="<?php echo $photoText('photo_unavailable'); ?>"
         data-download="<?php echo $photoText('photo_download'); ?>">
-        <div class="photo-lightbox-background"></div>
-        <div class="photo-lightbox-stage">
-            <div class="photo-lightbox-media"></div>
-            <span class="photo-lightbox-loading" role="status" data-i18n="loading"><?php echo $photoText('loading'); ?></span>
-        </div>
         <header class="photo-lightbox-controls">
             <span id="photoCount" aria-live="polite"></span>
             <button type="button" data-action="close" aria-label="<?php echo $photoText('photo_close'); ?>" autofocus>×</button>
         </header>
-        <button type="button" class="photo-lightbox-controls" data-action="previous" aria-label="<?php echo $photoText('photo_previous'); ?>">‹</button>
-        <button type="button" class="photo-lightbox-controls" data-action="next" aria-label="<?php echo $photoText('photo_next'); ?>">›</button>
+        <div class="photo-lightbox-stage">
+            <div class="photo-lightbox-media"></div>
+            <span class="photo-lightbox-loading" role="status" data-i18n="loading"><?php echo $photoText('loading'); ?></span>
+            <button type="button" class="photo-lightbox-controls" data-action="previous" aria-label="<?php echo $photoText('photo_previous'); ?>">‹</button>
+            <button type="button" class="photo-lightbox-controls" data-action="next" aria-label="<?php echo $photoText('photo_next'); ?>">›</button>
+        </div>
         <footer class="photo-lightbox-controls">
             <div id="photoFilename"></div>
             <div class="photo-lightbox-notice" role="status" hidden></div>

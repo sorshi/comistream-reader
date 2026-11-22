@@ -4445,7 +4445,7 @@ function system_config($dbh)
                 'comistream_tool_dir' => 'Comistreamツールのディレクトリパス。/home/user/comistreamなどです。末尾に/をつけません。',
                 'comistream_tmp_dir_root' => 'Comistreamの一時ディレクトリのパス。RAMディスクを用いて高速化するために/dev/shm/comistream_tempなどを設定します。末尾に/をつけません。',
                 'cover_subDir' => '表紙画像作成対象とするサブディレクトリ。sharePathの配下で電子書籍を格納しているディレクトリを指定します。複数ある場合にはスペース区切りにします。ディレクトリにスペースが含まれる場合にはダブルクォーテーションでディレクトリ名を囲います。Comic Book/Photo "Comic Book"などです。',
-                'photo_subDir' => '写真サムネイルを作る対象を、sharePathからの相対ディレクトリで指定します。複数は空白区切り、空白を含む名前はダブルクォーテーションで囲います。空欄なら日次生成を無効にします。',
+                'photo_subDir' => '写真サムネイルを作る対象は、sharePathからの相対パスで指定します。先頭に「/」を付けず、Photos/2026 のように入力します。複数は空白区切り、空白を含む名前はダブルクォーテーションで囲います。空欄なら日次生成を無効にします。',
             ],
             'コマンド設定' => [
                 'p7zip' => '7-Zipコマンドのパス',

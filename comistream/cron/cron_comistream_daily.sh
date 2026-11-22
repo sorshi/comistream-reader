@@ -50,6 +50,7 @@ make_image_run_file="$SCRIPT_DIR/../code/make_image_run.sh"
 bash "$make_image_run_file" > /dev/null 2>&1
 
 # 写真のサムネイルは表紙の生成が終わってから作るルン。
+logger -t "comistream make_photo_thumb_run.sh[$$]" -p local1.info "start make_photo_thumb_run.sh."
 bash "$SCRIPT_DIR/../code/make_photo_thumb_run.sh" > /dev/null 2>&1
 
 # リネームしたり移動したりで使われてない表紙ディレクトリとプレビューファイルディレクトリの削除

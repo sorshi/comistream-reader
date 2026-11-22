@@ -656,7 +656,7 @@ function toggleView() {
   if (/style\.css/.test(stylesheet.href || "")) {
     // List -> Cover
     document.cookie = "viewmode=cover; path=/; SameSite=Strict";
-    stylesheet.href = "/theme/style_cover.css?2026112001";
+    stylesheet.href = "/theme/style_cover.css?2026112103";
     setTimeout(() => {
       try { reinitializeContentFeatures(); } catch (e) { console.error(e); }
       try { applyDirectoryCustomIcons(); } catch (e) { console.error(e); }

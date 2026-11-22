@@ -6,6 +6,13 @@ log_photo() {
     logger -t "comistream make_photo_thumb_run.sh[$$]" -p "local1.$1" -- "$2"
 }
 
+log_photo_failure() {
+    local source="$1" stage="$2" detail="$3"
+    detail=${detail//$'\n'/ | }
+    detail=${detail//$'\r'/}
+    log_photo error "Failed to generate photo thumbnail: $source ($stage: ${detail:0:1000})"
+}
+
 if (( $# > 1 )); then
     printf 'Usage: %s [share-relative-directory]\n' "$0" >&2
     exit 1
@@ -75,9 +82,20 @@ image_pattern="\.($image_extensions)$"
 video_pattern="\.($video_extensions)$"
 
 magick_path=$(command -v magick)
-vips_thumb=$(command -v vipsthumbnail)
-vips_header=$(command -v vipsheader)
-if [[ -z "$magick_path" && ( -z "$vips_thumb" || -z "$vips_header" ) ]]; then
+# cronのPATHに/usr/local/binがなくても、そこにあるlibvipsを使えるようにするルン。
+vips_thumb=$(PATH="${PATH:+$PATH:}/usr/local/bin" command -v vipsthumbnail)
+vips_header=$(PATH="${PATH:+$PATH:}/usr/local/bin" command -v vipsheader)
+vips_output_option=
+if [[ -n "$vips_thumb" && -n "$vips_header" ]]; then
+    # libvips 8.18で出力オプションが変わったので、実行ファイルから判定するルン。
+    vips_help=$(LC_ALL=C "$vips_thumb" --help 2>&1)
+    case "$vips_help" in
+        *--path=*) vips_output_option=--path ;;
+        *--output=*) vips_output_option=--output ;;
+        *) log_photo warning "Cannot determine output option for $vips_thumb: ${vips_help:0:400}" ;;
+    esac
+fi
+if [[ -z "$magick_path" && -z "$vips_output_option" ]]; then
     log_photo error 'Photo thumbnails require ImageMagick or libvips.'
     exit 1
 fi
@@ -99,27 +117,38 @@ source_mtime() {
 }
 
 make_photo_thumb() {
-    local source="$1" target mtime converter dimensions width height side
-    local jpeg_hint=()
+    local source="$1" target mtime converter dimensions width height side publish_error
+    local jpeg_hint=() details=()
     [[ ! -L "$source" && -f "$source" ]] || return 0
-    mtime=$(source_mtime "$source") || return 1
+    if ! mtime=$(source_mtime "$source" 2>&1); then
+        log_photo_failure "$source" stat "$mtime"
+        return 1
+    fi
     target="$output_dir/${source##*/}.$mtime.$thumb_size.webp"
     [[ -f "$target" && ! -L "$target" ]] && return 0
-    [[ ! -e "$target" && ! -L "$target" ]] || return 1
+    if [[ -e "$target" || -L "$target" ]]; then
+        log_photo_failure "$source" output "Unexpected cache entry: $target"
+        return 1
+    fi
 
-    temp=$(mktemp -d "$output_dir/.photo-thumb.XXXXXXXX") || return 1
-    trap 'rm -f -- "$temp/thumb.webp"; rmdir -- "$temp"' EXIT
+    if ! temp=$(mktemp -d "$output_dir/.photo-thumb.XXXXXXXX" 2>&1); then
+        log_photo_failure "$source" mktemp "$temp"
+        return 1
+    fi
+    trap 'rm -f -- "$temp/thumb.webp" "$temp/vips.err" "$temp/magick.err"; rmdir -- "$temp"' EXIT
     trap 'exit 1' HUP INT TERM
 
-    if [[ -n "$vips_thumb" && -n "$vips_header" ]]; then
-        width=$("$vips_header" -f width "$source")
-        height=$("$vips_header" -f height "$source")
-        if [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]]; then
+    if [[ -n "$vips_output_option" ]]; then
+        if width=$("$vips_header" -f width "$source" 2>"$temp/vips.err") &&
+            height=$("$vips_header" -f height "$source" 2>>"$temp/vips.err") &&
+            [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]]; then
             side=$thumb_size
             (( width < side )) && side=$width
             (( height < side )) && side=$height
+            # WebPを標準出力で受け取り、保存先をlibvipsの名前テンプレートに渡さないルン。
             "$vips_thumb" --size "${side}x${side}" --smartcrop centre \
-                --path "$temp/thumb.webp[Q=70,strip]" "$source" || rm -f -- "$temp/thumb.webp"
+                "$vips_output_option" '.webp[Q=70,strip]' "$source" \
+                2>>"$temp/vips.err" >"$temp/thumb.webp" || rm -f -- "$temp/thumb.webp"
         fi
     fi
 
@@ -130,7 +159,8 @@ make_photo_thumb() {
         case "$converter" in
             jpg|jpeg|jpe)
                 converter=jpeg
-                dimensions=$("$magick_path" identify -ping -format '%w %h' 'jpeg:-[0]' < "$source")
+                dimensions=$("$magick_path" identify -ping -format '%w %h' 'jpeg:-[0]' \
+                    2>"$temp/magick.err" < "$source")
                 read -r width height <<< "$dimensions"
                 if [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]] && (( width >= 512 && height >= 512 )); then
                     jpeg_hint=(-define jpeg:size=512x512)
@@ -141,15 +171,28 @@ make_photo_thumb() {
         esac
         "$magick_path" "${jpeg_hint[@]}" "$converter:-[0]" -auto-orient -gravity center \
             -crop '%[fx:min(w,h)]x%[fx:min(w,h)]+0+0' +repage -thumbnail "${thumb_size}x${thumb_size}>" \
-            -strip -quality 70 "$temp/thumb.webp" < "$source" || return 1
+            -strip -quality 70 "$temp/thumb.webp" 2>>"$temp/magick.err" < "$source" ||
+            rm -f -- "$temp/thumb.webp"
     fi
-    [[ -s "$temp/thumb.webp" ]] || return 1
+    if [[ ! -s "$temp/thumb.webp" ]]; then
+        if [[ -f "$temp/vips.err" ]]; then
+            details+=("$vips_thumb: $(head -c 400 -- "$temp/vips.err")")
+        fi
+        if [[ -f "$temp/magick.err" ]]; then
+            details+=("$magick_path: $(head -c 400 -- "$temp/magick.err")")
+        fi
+        log_photo_failure "$source" conversion "No WebP generated. ${details[*]}"
+        return 1
+    fi
     # 変換中に原本が差し替わったら、次回のバッチに任せるルン。
     [[ "$(source_mtime "$source")" == "$mtime" ]] || return 0
-    chmod 0644 "$temp/thumb.webp" && mv -fT -- "$temp/thumb.webp" "$target"
+    if ! publish_error=$({ chmod 0644 "$temp/thumb.webp" && mv -fT -- "$temp/thumb.webp" "$target"; } 2>&1); then
+        log_photo_failure "$source" publish "$publish_error"
+        return 1
+    fi
 }
-export -f make_photo_thumb source_mtime log_photo
-export vips_thumb vips_header magick_path thumb_size
+export -f make_photo_thumb source_mtime log_photo log_photo_failure
+export vips_thumb vips_header vips_output_option magick_path thumb_size
 
 process_directory() {
     local directory="$1" source name relative segment output_dir
@@ -185,10 +228,7 @@ process_directory() {
     fi
     export output_dir
     printf '%s\0' "${images[@]}" | "${low_priority[@]}" xargs -0 -n 1 -P "$multi_proc" bash -c '
-        if ! make_photo_thumb "$1"; then
-            log_photo error "Failed to generate photo thumbnail: $1"
-            exit 1
-        fi
+        make_photo_thumb "$1"
     ' _
 }
 

@@ -553,29 +553,43 @@ html:has(.photo-lightbox[open]) {
   max-height: none;
   box-sizing: border-box;
   overflow: hidden;
+  touch-action: none;
   margin: 0;
   padding: 0;
   border: 0;
-  background: #101010;
+  background: #000;
   color: white;
 }
+.photo-lightbox[open] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+}
 .photo-lightbox::backdrop {
-  background: #101010;
+  background: #000;
 }
-.photo-lightbox-background {
-  position: absolute;
-  inset: -30px;
-  background-position: center;
-  background-size: cover;
-  filter: blur(28px) brightness(.42);
+.photo-lightbox.photo-controls-hidden {
+  padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
 }
-.photo-lightbox-stage,
+.photo-lightbox-stage {
+  grid-row: 2;
+  position: relative;
+  margin-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
 .photo-lightbox-media {
   position: absolute;
   inset: 0;
   display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
-  touch-action: none;
+  pointer-events: none;
+  transform-origin: center;
 }
 .photo-lightbox-media img {
   display: block;
@@ -583,11 +597,6 @@ html:has(.photo-lightbox[open]) {
   height: 100%;
   object-fit: contain;
   pointer-events: none;
-}
-.photo-lightbox-media .photo-lightbox-thumbnail {
-  width: min(70vw, 70dvh, 66vh);
-  height: auto;
-  aspect-ratio: 1;
 }
 .photo-lightbox-media .photo-lightbox-icon {
   width: 80px;
@@ -598,9 +607,9 @@ html:has(.photo-lightbox[open]) {
   padding: 5px 12px;
   border-radius: 5px;
   background: #000a;
+  pointer-events: none;
 }
 .photo-lightbox-controls {
-  position: absolute;
   z-index: 2;
 }
 .photo-controls-hidden .photo-lightbox-controls {
@@ -608,23 +617,24 @@ html:has(.photo-lightbox[open]) {
 }
 .photo-lightbox header,
 .photo-lightbox footer {
-  right: 0;
-  left: 0;
   padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
-  background: #000b;
 }
 .photo-lightbox header {
-  top: 0;
+  grid-row: 1;
   padding-top: env(safe-area-inset-top);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 .photo-lightbox footer {
-  bottom: 0;
+  grid-row: 3;
   padding-block: 8px max(8px, env(safe-area-inset-bottom));
   text-align: center;
   overflow-wrap: anywhere;
+}
+.photo-controls-hidden header,
+.photo-controls-hidden footer {
+  display: none;
 }
 .photo-lightbox a {
   display: inline-block;
@@ -654,14 +664,18 @@ html:has(.photo-lightbox[open]) {
 }
 .photo-lightbox button[data-action="previous"],
 .photo-lightbox button[data-action="next"] {
+  position: absolute;
   top: 50%;
   transform: translateY(-50%);
 }
+.photo-lightbox-stage button:disabled {
+  pointer-events: none;
+}
 .photo-lightbox button[data-action="previous"] {
-  left: max(5px, env(safe-area-inset-left));
+  left: 5px;
 }
 .photo-lightbox button[data-action="next"] {
-  right: max(5px, env(safe-area-inset-right));
+  right: 5px;
 }
 .photo-lightbox-notice {
   font-size: .87em;

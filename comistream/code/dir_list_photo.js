@@ -89,6 +89,8 @@ const photoFormatProbes = {
 };
 const photoFormatSupport = new Map();
 let photoViewer = null;
+const photoMaxZoom = 4;
+const photoTapDelay = 300;
 
 function photoFormat(name) {
   const extension = name.split('.').pop().toLowerCase();
@@ -191,18 +193,41 @@ function releasePhotoImage(request) {
 function showPhotoFallback(view, item) {
   const fallback = new Image();
   fallback.alt = item.name;
-  if (item.thumb) {
-    fallback.className = 'photo-lightbox-thumbnail';
-    fallback.onerror = () => {
-      fallback.onerror = null;
-      fallback.className = 'photo-lightbox-icon';
-      fallback.src = '/theme/icons/image.png';
-    };
-  } else {
-    fallback.className = 'photo-lightbox-icon';
-  }
-  fallback.src = item.thumb || '/theme/icons/image.png';
+  fallback.className = 'photo-lightbox-icon';
+  fallback.src = '/theme/icons/image.png';
   view.media.replaceChildren(fallback);
+}
+
+function setPhotoZoom(view, scale = 1, x = 0, y = 0) {
+  if (!view.image || scale <= 1) {
+    view.zoom = { scale: 1, x: 0, y: 0 };
+    view.media.style.transform = '';
+    return;
+  }
+
+  const { clientWidth: width, clientHeight: height } = view.stage;
+  if (!width || !height) return;
+  const { naturalWidth, naturalHeight } = view.image;
+  const fit = Math.min(width / naturalWidth, height / naturalHeight);
+  const limitX = Math.max(0, (naturalWidth * fit * scale - width) / 2);
+  const limitY = Math.max(0, (naturalHeight * fit * scale - height) / 2);
+  x = Math.min(limitX, Math.max(-limitX, x));
+  y = Math.min(limitY, Math.max(-limitY, y));
+  view.zoom = { scale, x, y };
+  view.media.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+}
+
+function zoomPhotoAt(view, from, to, scale) {
+  if (!view.image) return;
+  const bounds = view.stage.getBoundingClientRect();
+  const centerX = bounds.left + bounds.width / 2;
+  const centerY = bounds.top + bounds.height / 2;
+  const zoom = Math.min(photoMaxZoom, Math.max(1, scale));
+  const ratio = zoom / view.zoom.scale;
+  // 指の下にあった写真の位置を、拡大後も指の下に保つルン。
+  setPhotoZoom(view, zoom,
+    to.clientX - centerX + (view.zoom.x - from.clientX + centerX) * ratio,
+    to.clientY - centerY + (view.zoom.y - from.clientY + centerY) * ratio);
 }
 
 async function displayPhoto(view) {
@@ -218,8 +243,9 @@ async function displayPhoto(view) {
     }
   }
 
+  view.image = null;
+  setPhotoZoom(view);
   view.media.replaceChildren();
-  view.background.style.backgroundImage = item.thumb ? 'url(' + JSON.stringify(item.thumb) + ')' : '';
   view.loading.hidden = false;
   view.notice.hidden = true;
   view.retry.hidden = true;
@@ -243,6 +269,7 @@ async function displayPhoto(view) {
     view.notice.hidden = false;
     view.retry.hidden = !result.retry;
   } else {
+    view.image = request.image;
     view.media.replaceChildren(request.image);
     if (result.mode === 'converted') {
       view.notice.textContent = view.dialog.dataset.converted.replace('{format}', item.name.split('.').pop().toUpperCase());
@@ -268,8 +295,8 @@ function closePhotoViewer() {
   if (!view) return;
   photoViewer = null;
   for (const request of view.cache.values()) releasePhotoImage(request);
+  setPhotoZoom(view);
   view.media.replaceChildren();
-  view.background.style.backgroundImage = '';
   view.dialog.close();
   const anchor = view.entries[view.index].anchor;
   anchor.focus({ preventScroll: true });
@@ -291,8 +318,8 @@ function openPhotoViewer(href, pushHistory = true) {
 
   const view = {
     dialog, entries, index, version: 0, cache: new Map(),
+    stage: dialog.querySelector('.photo-lightbox-stage'),
     media: dialog.querySelector('.photo-lightbox-media'),
-    background: dialog.querySelector('.photo-lightbox-background'),
     loading: dialog.querySelector('.photo-lightbox-loading'),
     notice: dialog.querySelector('.photo-lightbox-notice'),
     count: dialog.querySelector('#photoCount'),
@@ -315,12 +342,188 @@ function openPhotoViewer(href, pushHistory = true) {
   return true;
 }
 
+function initializePhotoGestures(dialog) {
+  const stage = dialog.querySelector('.photo-lightbox-stage');
+  let gesture = null;
+  let pointerId = null;
+  let pendingTap = null;
+
+  const isCurrent = interaction =>
+    interaction && interaction.view === photoViewer && interaction.version === photoViewer.version;
+  const distance = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  const midpoint = (a, b) => ({
+    clientX: (a.clientX + b.clientX) / 2,
+    clientY: (a.clientY + b.clientY) / 2,
+  });
+  const toggleControls = () => dialog.classList.toggle('photo-controls-hidden');
+
+  function touchStep(view, point) {
+    if (dialog.classList.contains('photo-controls-hidden')) return 0;
+    if (view.previous.contains(point.target)) return -1;
+    if (view.next.contains(point.target)) return 1;
+    if (view.zoom.scale > 1) return 0;
+
+    const { left, width } = stage.getBoundingClientRect();
+    const x = point.clientX - left;
+    const edgeWidth = width / 5;
+    if (x < edgeWidth) return -1;
+    if (x >= width - edgeWidth) return 1;
+    return 0;
+  }
+
+  function clearTap() {
+    clearTimeout(pendingTap?.timer);
+    pendingTap = null;
+  }
+
+  function tap(view, point) {
+    const previous = pendingTap;
+    clearTap();
+    if (isCurrent(previous)) {
+      if (view.image && distance(point, previous.point) <= 32) {
+        if (view.zoom.scale > 1) setPhotoZoom(view);
+        else zoomPhotoAt(view, point, point, 2);
+        return;
+      }
+      toggleControls();
+    }
+    if (!view.image) {
+      toggleControls();
+      return;
+    }
+    const current = { view, version: view.version, point };
+    current.timer = setTimeout(() => {
+      pendingTap = null;
+      if (isCurrent(current)) toggleControls();
+    }, photoTapDelay);
+    pendingTap = current;
+  }
+
+  function start(points, isTouch = false) {
+    if (!photoViewer || points.length === 0) return;
+    if (!isCurrent(gesture)) {
+      gesture = {
+        view: photoViewer,
+        version: photoViewer.version,
+        start: points[0],
+        startedZoomed: photoViewer.zoom.scale > 1,
+        tapStep: isTouch ? touchStep(photoViewer, points[0]) : 0,
+        moved: false,
+        multiple: false,
+      };
+      if (gesture.tapStep) clearTap();
+    }
+    if (points.length > 1) {
+      gesture.multiple = true;
+      clearTap();
+    }
+    gesture.last = points;
+  }
+
+  function move(points) {
+    if (!isCurrent(gesture)) return;
+    const { view, last } = gesture;
+    if (points.length === 2 && last.length === 2) {
+      const previousSpan = distance(last[0], last[1]);
+      if (previousSpan > 0) {
+        const scale = view.zoom.scale * distance(points[0], points[1]) / previousSpan;
+        zoomPhotoAt(view, midpoint(last[0], last[1]), midpoint(points[0], points[1]), scale);
+      }
+    } else if (points.length === 1 && last.length === 1) {
+      const point = points[0];
+      if (!gesture.moved && distance(gesture.start, point) > 8) {
+        gesture.moved = true;
+        clearTap();
+      }
+      if ((gesture.moved || gesture.multiple) && view.zoom.scale > 1) {
+        setPhotoZoom(view, view.zoom.scale,
+          view.zoom.x + point.clientX - last[0].clientX,
+          view.zoom.y + point.clientY - last[0].clientY);
+      }
+    }
+    gesture.last = points;
+  }
+
+  function finish(point, remaining = []) {
+    if (!isCurrent(gesture)) {
+      gesture = null;
+      return;
+    }
+    if (remaining.length) {
+      gesture.last = remaining;
+      return;
+    }
+    if (!gesture.multiple && gesture.view.zoom.scale > 1) move([point]);
+    const ended = gesture;
+    gesture = null;
+    if (ended.multiple) return;
+    const x = point.clientX - ended.start.clientX;
+    const y = point.clientY - ended.start.clientY;
+    if (!ended.startedZoomed && Math.abs(x) > 45 && Math.abs(x) > Math.abs(y)) {
+      clearTap();
+      movePhoto(ended.view, x < 0 ? 1 : -1);
+    } else if (!ended.moved && Math.hypot(x, y) <= 8) {
+      if (ended.tapStep) {
+        movePhoto(ended.view, ended.tapStep);
+      } else {
+        tap(ended.view, point);
+      }
+    }
+  }
+
+  // 写真面と矢印を同じジェスチャーで扱い、Safari のページ拡大を抑えるルン。
+  const cancelBrowserGesture = event => event.preventDefault();
+  const activeTouch = { passive: false };
+  const stageTouches = event => Array.from(event.touches).filter(touch => stage.contains(touch.target));
+  stage.addEventListener('touchstart', event => {
+    cancelBrowserGesture(event);
+    start(stageTouches(event), true);
+  }, activeTouch);
+  stage.addEventListener('touchmove', event => {
+    cancelBrowserGesture(event);
+    move(stageTouches(event));
+  }, activeTouch);
+  stage.addEventListener('touchend', event => {
+    cancelBrowserGesture(event);
+    finish(event.changedTouches[0], stageTouches(event));
+  }, activeTouch);
+  stage.addEventListener('touchcancel', () => { gesture = null; });
+  dialog.addEventListener('gesturestart', cancelBrowserGesture);
+  dialog.addEventListener('gesturechange', cancelBrowserGesture);
+
+  stage.addEventListener('pointerdown', event => {
+    if (event.target !== stage || event.pointerType === 'touch' || !event.isPrimary || event.button !== 0) return;
+    pointerId = event.pointerId;
+    start([event]);
+    stage.setPointerCapture(event.pointerId);
+  });
+  stage.addEventListener('pointermove', event => {
+    if (event.pointerId === pointerId) move([event]);
+  });
+  stage.addEventListener('pointerup', event => {
+    if (event.pointerId !== pointerId) return;
+    pointerId = null;
+    finish(event);
+  });
+  stage.addEventListener('lostpointercapture', event => {
+    if (event.pointerId !== pointerId) return;
+    pointerId = null;
+    gesture = null;
+  });
+  stage.addEventListener('click', event => {
+    if (event.target === stage && photoViewer && event.detail === 0 && event.pointerType !== 'touch') toggleControls();
+  });
+  new ResizeObserver(() => {
+    if (!photoViewer || !dialog.open) return;
+    const { scale, x, y } = photoViewer.zoom;
+    if (scale > 1) setPhotoZoom(photoViewer, scale, x, y);
+  }).observe(stage);
+}
+
 function initializePhotoViewer() {
   const dialog = document.getElementById('photoLightbox');
   if (!dialog) return;
-  const stage = dialog.querySelector('.photo-lightbox-stage');
-  let swipeStart = null;
-  let swipeTime = -Infinity;
+  initializePhotoGestures(dialog);
 
   dialog.addEventListener('cancel', event => {
     event.preventDefault();
@@ -348,25 +551,6 @@ function initializePhotoViewer() {
         break;
       }
     }
-  });
-  stage.addEventListener('pointerdown', event => {
-    if (!event.isPrimary || event.button !== 0) return;
-    swipeStart = { id: event.pointerId, x: event.clientX, y: event.clientY };
-    stage.setPointerCapture(event.pointerId);
-  });
-  stage.addEventListener('pointercancel', () => { swipeStart = null; });
-  stage.addEventListener('pointerup', event => {
-    if (!photoViewer || swipeStart?.id !== event.pointerId) return;
-    const x = event.clientX - swipeStart.x;
-    const y = event.clientY - swipeStart.y;
-    swipeStart = null;
-    if (Math.abs(x) > 45 && Math.abs(x) > Math.abs(y)) {
-      swipeTime = performance.now();
-      movePhoto(photoViewer, x < 0 ? 1 : -1);
-    }
-  });
-  stage.addEventListener('click', () => {
-    if (performance.now() - swipeTime > 300) dialog.classList.toggle('photo-controls-hidden');
   });
   window.addEventListener('popstate', event => {
     const href = event.state?.comistreamPhoto;
