@@ -251,11 +251,14 @@ async function displayPhoto(view) {
   view.retry.hidden = true;
   view.count.textContent = (index + 1) + ' / ' + view.entries.length;
   view.filename.textContent = item.name;
+  const size = item.size_formatted || '';
+  view.fileSize.textContent = size;
+  view.fileSize.hidden = !size;
+  view.downloadSize.textContent = size ? ' (' + size + ')' : '';
   view.previous.disabled = index === 0;
   view.next.disabled = index === view.entries.length - 1;
   view.download.href = item.href;
   view.download.download = item.name;
-  view.download.textContent = view.dialog.dataset.download + (item.size_formatted ? ' (' + item.size_formatted + ')' : '');
   view.original.href = item.href;
 
   const request = requestPhotoImage(view, item, true);
@@ -324,6 +327,8 @@ function openPhotoViewer(href, pushHistory = true) {
     notice: dialog.querySelector('.photo-lightbox-notice'),
     count: dialog.querySelector('#photoCount'),
     filename: dialog.querySelector('#photoFilename'),
+    fileSize: dialog.querySelector('.photo-lightbox-file-size'),
+    downloadSize: dialog.querySelector('.photo-lightbox-download-size'),
     previous: dialog.querySelector('[data-action="previous"]'),
     next: dialog.querySelector('[data-action="next"]'),
     download: dialog.querySelector('[data-action="download"]'),

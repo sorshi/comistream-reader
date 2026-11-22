@@ -226,10 +226,11 @@ test('Chromeで矢印キーで写真を送り、BackspaceとDeleteで閉じて�
 });
 
 test('Chromeで縦長と横長の写真を全体表示し、半透明の操作欄を重ねる', { skip: !chrome }, async () => {
-  const items = [[1200, 4500], [4500, 1200]].map(([width, height]) => ({
+  const items = [[1200, 4500, '265K'], [4500, 1200]].map(([width, height, size]) => ({
     name: width + 'x' + height + '.jpg',
     kind: 'image',
     thumb: png,
+    size_formatted: size,
     href: 'data:image/svg+xml,' + encodeURIComponent(
       `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="red"/></svg>`
     ),
@@ -245,7 +246,7 @@ test('Chromeで縦長と横長の写真を全体表示し、半透明の操作�
       try {
         photoItemsByHref = new Map(items.map(item => [item.href, item]));
         expect(openPhotoViewer(items[0].href, false), 'Lightbox did not open');
-        const { dialog, stage, next, download } = photoViewer;
+        const { dialog, stage, next, download, original, fileSize, downloadSize } = photoViewer;
         const header = dialog.querySelector('header');
         const footer = dialog.querySelector('footer');
         function checkFit() {
@@ -266,6 +267,15 @@ test('Chromeで縦長と横長の写真を全体表示し、半透明の操作�
           if (index > 0) movePhoto(photoViewer, 1);
           await photoViewer.cache.get(item.href).result;
           checkFit();
+          const size = item.size_formatted || '';
+          expect(fileSize.textContent === size && fileSize.hidden === !size, 'File size did not follow the current photo');
+          expect(downloadSize.textContent === (size ? ' (' + size + ')' : ''), 'Download label size did not update');
+          expect(download.getAttribute('href') === item.href && download.download === item.name, 'Download link pointed to the wrong photo');
+          expect(original.getAttribute('href') === item.href && original.target === '_blank', 'New tab link pointed to the wrong photo');
+        }
+        for (const [link, label] of [[download, 'photo_download'], [original, 'photo_open_original']]) {
+          expect(link.querySelector('.photo-lightbox-action-label').textContent === label, 'Link lost its translated label');
+          expect(link.querySelector('svg[aria-hidden="true"]'), 'Link lost its decorative icon');
         }
         const controlBackground = getComputedStyle(next).backgroundColor;
         expect(controlBackground === 'rgba(0, 0, 0, 0.6)', 'Navigation buttons are not translucent');
@@ -277,7 +287,7 @@ test('Chromeで縦長と横長の写真を全体表示し、半透明の操作�
           'Overlays are not attached to the top and bottom edges');
         for (const control of [header.querySelector('button'), download]) {
           const bounds = control.getBoundingClientRect();
-          expect(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2) === control,
+          expect(control.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)),
             'Photo intercepted an overlay control');
         }
         expect(getComputedStyle(dialog).backgroundColor === 'rgb(0, 0, 0)', 'Letterbox background is not black');

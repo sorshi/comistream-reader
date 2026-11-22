@@ -468,7 +468,7 @@ $global_debug_flag = isset($global_debug_flag) ? $global_debug_flag : false;
 
 $viewmode = $_COOKIE['viewmode'] ?? 'list';
 $stylesheet_path = ($viewmode === 'cover')
-    ? '/theme/style_cover.css?2026112201'
+    ? '/theme/style_cover.css?2026112202'
     : '/theme/style.css?2026110301';
 $music_folder_actions_label = htmlspecialchars(
     I18n::getInstance()->get('music_folder_actions', 'フォルダ操作'),
@@ -1784,8 +1784,7 @@ if ($is_404_mode) {
     ?>
     <dialog id="photoLightbox" class="photo-lightbox" aria-labelledby="photoFilename"
         data-converted="<?php echo $photoText('photo_converted'); ?>"
-        data-unavailable="<?php echo $photoText('photo_unavailable'); ?>"
-        data-download="<?php echo $photoText('photo_download'); ?>">
+        data-unavailable="<?php echo $photoText('photo_unavailable'); ?>">
         <header class="photo-lightbox-controls">
             <span id="photoCount" aria-live="polite"></span>
             <button type="button" data-action="close" aria-label="<?php echo $photoText('photo_close'); ?>" autofocus>×</button>
@@ -1797,10 +1796,25 @@ if ($is_404_mode) {
             <button type="button" class="photo-lightbox-controls" data-action="next" aria-label="<?php echo $photoText('photo_next'); ?>">›</button>
         </div>
         <footer class="photo-lightbox-controls">
-            <div id="photoFilename"></div>
+            <div class="photo-lightbox-file-info">
+                <span id="photoFilename"></span>
+                <span class="photo-lightbox-file-size" hidden></span>
+            </div>
             <div class="photo-lightbox-notice" role="status" hidden></div>
-            <a data-action="download" download></a>
-            <a data-action="original" target="_blank" rel="noopener" data-i18n="photo_open_original"><?php echo $photoText('photo_open_original'); ?></a>
+            <span class="photo-lightbox-actions">
+                <a data-action="download" download>
+                    <svg class="photo-lightbox-action-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/>
+                    </svg>
+                    <span class="photo-lightbox-action-label" data-i18n="photo_download"><?php echo $photoText('photo_download'); ?></span><span class="photo-lightbox-download-size"></span>
+                </a>
+                <a data-action="original" target="_blank" rel="noopener">
+                    <svg class="photo-lightbox-action-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M10 5H5v14h14v-5M14 4h6v6m0-6-9 9"/>
+                    </svg>
+                    <span class="photo-lightbox-action-label" data-i18n="photo_open_original"><?php echo $photoText('photo_open_original'); ?></span>
+                </a>
+            </span>
             <button type="button" data-action="retry" data-i18n="photo_retry" hidden><?php echo $photoText('photo_retry'); ?></button>
         </footer>
     </dialog>

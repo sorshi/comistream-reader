@@ -672,6 +672,78 @@ html:has(.photo-lightbox[open]) {
 .photo-lightbox-notice {
   font-size: .87em;
 }
+.photo-lightbox-action-icon,
+.photo-lightbox-file-size {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .photo-lightbox footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+  }
+  .photo-lightbox-file-info {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    text-align: start;
+  }
+  .photo-lightbox-file-size:not([hidden]) {
+    display: inline-block;
+    color: #ddd;
+    font-size: .87em;
+    white-space: nowrap;
+  }
+  .photo-lightbox-actions {
+    display: flex;
+    flex: none;
+    gap: 8px;
+    margin-inline-start: auto;
+  }
+  .photo-lightbox-actions a {
+    position: relative;
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    border: 1px solid #fff8;
+    border-radius: 4px;
+  }
+  .photo-lightbox-actions a:active {
+    background: #fff3;
+  }
+  .photo-lightbox-action-icon {
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .photo-lightbox-action-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .photo-lightbox-download-size {
+    display: none;
+  }
+  .photo-lightbox-notice {
+    order: 1;
+    flex-basis: 100%;
+  }
+  .photo-lightbox button[data-action="retry"] {
+    order: 2;
+    margin-inline: auto;
+  }
+}
 
 #modal {
   position: fixed;
